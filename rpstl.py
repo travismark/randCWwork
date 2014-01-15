@@ -1,6 +1,6 @@
 import csv
 
-inf = open('TxtSlimFromTxtExportThroughFig79.txt', 'rb') # open input file for reading
+inf = open('TxtSlimFromTxtExportThroughFig7.txt', 'rb') # open input file for reading
 #outI = open('rpstlInt.csv', 'wb') # open output file for writing
 outf = open('rpstlOut.csv', 'wb') # open output file for writing
 outw = csv.writer(outf) # open csv output writer
@@ -10,51 +10,32 @@ outw.writerow( outl ) # write header row
 
 # inf is of type "file"
 # l is of type "str"
+subgroup = ""
+subgroupName = ""
+uoc = ""
 
-'''
-# eliminate initial whitespace and empty 
-for l in inf:
-    #l = l.replace( '\r', '' ) # strip carriage returns from input line
-    #l = l.replace( '\n', '' ) # strip newline characters from input line
-    #words = l.split( ' ' ) # split line into space-separated words (empty lines will have len(words) = 1)
-    l = l.lstrip()
-    outI.write(l)
-	
-
-    if len(words)>1:
-        ii = 0
-        for linewords in words:
-            if linewords[ii]==" ":
-                print "space"
-                ii = ii + 1
-            else:
-                print linewords[ii]
-                print ii
-                ii = ii + 1
-    else: # empty row
-        pass # do nothing
-		#if len(words)>10:   # words are actual words
-    #    print words[10]
-    outw.writerow(l)
-	
-'''
-
-
+# initialize these outside the loop
+y = 0 # switch to know if the loop will find something useful in the row; all useful types begin with a group and end with an "end of figure"
+g = 0 # previous row is a group (to find rows that spill onto the next line)
+sg = 0 # previous row is a subgroup
+f = 0 # previous row is a figure
+p = 0 # previous row is a part row
+z = 0 # test
 
 for l in inf:
+# loop through lines in input file
+	#print g
     l = l.lstrip() # eliminate initial whitespace
     l = l.replace( '\r', '' ) # strip carriage returns from input line
     l = l.replace( '\n', '' ) # strip newline characters from input line
-
     words = l.split( ' ' ) # split line into space-separated words
 	
-# loop through lines in input file
-    y = 0 # switch to know if the loop will find something useful in the row
-    g = 0 # switch to know if the loop just came from a group (to find rows that spill onto the next line)
-    sg = 0 # previous row is a subgroup
-    p = 0 # switch to know if the loop just came from a part row
+    print l
+    #print len(words)
+
     star = 0 # no star unless it finds one
-    if l.startswith( 'Group' ):
+    if l.startswith( 'GROUP' ):
+        print "found group"
         y = 1
         g = 1
         # found line for a new group
@@ -67,14 +48,19 @@ for l in inf:
     elif l.startswith( 'END OF FIGURE'):
         # found the end of a table
         y = 0
+        outl = [group, groupName, subgroup, subgroupName, star, fignum, smrc, nsn, cage, pn, txt, qty, uoc, figure, figureName]
+        outw.writerow( outl ) # write output line
     elif l.startswith( 'UOC'):
         # used-on code
         uoc = l.split(":")[1] # UOC is one long line of text; splitting on the colon and taking 2nd argument gives everything after the UOC
-        outl = [group, groupName, subgroup, subgroupName, star, num, smrc, nsn, cage, pn, txt, qty, uoc, figure, figureName]
+        outl = [group, groupName, subgroup, subgroupName, star, fignum, smrc, nsn, cage, pn, txt, qty, uoc, figure, figureName]
         outw.writerow( outl ) # write output line
         p = 0 # UOC is just one line; no more part
-    elif l.startswith('Fig'):
+    elif l.startswith( 'FIG' ):
         if y == 1: # if it's after a group
+            print "found figure"
+            f = 1
+            g = 0 # no longer after a group
             figure = words[1]
             figure = figure.strip('.')
             figureName = ''
@@ -89,6 +75,7 @@ for l in inf:
         if y==1:
 		    # if first word is numeric, found a part line or a subgroup
             if g==1: # if the previous row is a group, this one is a subgroup
+                print "found subgroup"
                 subgroup = words[0]
                 subgroupName = ''
                 rng = range(2, len(words))
@@ -99,27 +86,20 @@ for l in inf:
                 sg = 1			
             elif p==1: # if the previous row is a part and this one is a part, output a row before reading this one
                 # make list of values for output line
-                outl = [group, groupName, subgroup, subgroupName, star, num, smrc, nsn, cage, pn, txt, qty, uoc, figure, figureName]
+                print "partPRINT"
+                outl = [group, groupName, subgroup, subgroupName, star, fignum, smrc, nsn, cage, pn, txt, qty, uoc, figure, figureName]
+                txt = ""
+                nsn = ""
+                cage = ""
+                pn = ""
+                qty = ""
                 outw.writerow( outl ) # write output line
             else:	#it's a part
+                star = 0
                 p = 1
                 s1 = 0 # need to add 1 to all counters in case the first "word" is a star
-'''
-                if words[0] == "*": # a star		
-                    star = 1
-                    s1 = 1
-                '''
-                num = words[0+s1] # number is 1st or second word
-                smrc = words[1+s1] # SMRC is second or third word (second SMRC code in line)
-	'''
-                if not smrc.isalpha():
-                # some lines only have SMRC as second word (missing second SMRC)
-                    smrc = words[1]
-                    nxtWord = 2
-                else:
-                    # got 2 SMRC's; NSN is word at index 3
-                    nxtWord = 3
-'''			
+                fignum = words[0+s1] # number is 1st or second word
+                smrc = words[1+s1] # SMRC is second or third word 
                 nxtWord = 2+s1 # NSN is either third or fourth word
                 nsn = words[nxtWord] # NSN is next
                 # not every part has an NSN listed.  Test if value isn't an NSN.
@@ -127,9 +107,7 @@ for l in inf:
                     nsn = '' # Not an NSN; set NSN to blank.
                 else:
                     nxtWord += 1 # got NSN; index for next word (CAGE code)
-
                 cage = words[nxtWord] # then CAGE code
-
                 if cage.startswith('.'):
                     # missing cage code and pn
                     cage = ''
@@ -151,12 +129,11 @@ for l in inf:
                     if len(words[nxtWord]) == 0:
                         # skip empty strings
                         nxtWord += 1
-						
-                    while words[nxtWord][0].isdigit():
-                        # if next word starts with a digit, assume it's more PN
-                        pn += ' ' + words[nxtWord] # add back space to PN
-                        nxtWord += 1 # TEXT then starts with next word
-				
+					
+  #                  while words[nxtWord][0].isdigit():
+  #                      # if next word starts with a digit, assume it's more PN
+  #                      pn += ' ' + words[nxtWord] # add back space to PN
+  #                      nxtWord += 1 # TEXT then starts with next word
                 # TEXT is next word to second-to-last word
                 # rng is range of ints from nxtWord to (# of words - 1)
                 rng = range( nxtWord, len(words) - 1 ) 
@@ -165,7 +142,8 @@ for l in inf:
                     txt += words[x] + ' ' # add each word in range, and a space
                 txt = txt[ : len(txt) - 1] # shave off trailing space
                 # quantity is last word in line (second-to-last word index)
-                qty = words[ len(words) - 1]
+                qty = words[ len(words) - 2]
+                print qty
                 if not qty.isdigit():
                     txt += ' ' + qty  # if last word isn't numeric, is part of TEXT
                     qty = ''
@@ -208,8 +186,8 @@ for l in inf:
                 txt = txt.upper() # uppercase
                 txt = txt.strip() # strip leading/trailing whitespace
                 txt = txt.strip('.')
-		    g = 0
-		else:
+            g = 0
+        else:
             pass # its a row to ignore
     elif l.startswith('*'):
         # it's a part row
@@ -227,27 +205,15 @@ for l in inf:
                 sg = 1			
             elif p==1: # if the previous row is a part and this one is a part, output a row before reading this one
                 # make list of values for output line
-                outl = [group, groupName, subgroup, subgroupName, star, num, smrc, nsn, cage, pn, txt, qty, uoc, figure, figureName]
+                outl = [group, groupName, subgroup, subgroupName, star, fignum, smrc, nsn, cage, pn, txt, qty, uoc, figure, figureName]
                 outw.writerow( outl ) # write output line
             else:	#it's a part
+                print "FOUND A STARRRRRRRRRRR"
+                star = 1
                 p = 1
                 s1 = 1 # need to add 1 to all counters in case the first "word" is a star
-'''
-                if words[0] == "*": # a star		
-                    star = 1
-                    s1 = 1
-                '''
-                num = words[0+s1] # number is 1st or second word
+                fignum = words[0+s1] # number is 1st or second word
                 smrc = words[1+s1] # SMRC is second or third word (second SMRC code in line)
-	'''
-                if not smrc.isalpha():
-                # some lines only have SMRC as second word (missing second SMRC)
-                    smrc = words[1]
-                    nxtWord = 2
-                else:
-                    # got 2 SMRC's; NSN is word at index 3
-                    nxtWord = 3
-'''			
                 nxtWord = 2+s1 # NSN is either third or fourth word
                 nsn = words[nxtWord] # NSN is next
                 # not every part has an NSN listed.  Test if value isn't an NSN.
@@ -280,10 +246,10 @@ for l in inf:
                         # skip empty strings
                         nxtWord += 1
 						
-                    while words[nxtWord][0].isdigit():
-                        # if next word starts with a digit, assume it's more PN
-                        pn += ' ' + words[nxtWord] # add back space to PN
-                        nxtWord += 1 # TEXT then starts with next word
+            #        while words[nxtWord][0].isdigit():
+            #            # if next word starts with a digit, assume it's more PN
+            #            pn += ' ' + words[nxtWord] # add back space to PN
+            #            nxtWord += 1 # TEXT then starts with next word
 				
                 # TEXT is next word to second-to-last word
                 # rng is range of ints from nxtWord to (# of words - 1)
@@ -336,12 +302,26 @@ for l in inf:
                 txt = txt.upper() # uppercase
                 txt = txt.strip() # strip leading/trailing whitespace
                 txt = txt.strip('.')
-		    g = 0
-		else:
+            g = 0
+        else:
             pass # its a row to ignore
-    else:
-        pass # (skip all other lines
+
+    elif len(words)==1: #check for empty row
+        #print "here"
+        pass
+    else: # a row that starts with text other than group, figure, UOC, or end of figure (could be extension of a name)
+        if y ==1:
+            if p ==1: # it's an extension of a part row
+                txt += " " + l # add the text to the end of the part text
+                txt = txt.strip('.') # strip trailing dots
+            elif g ==1: # it's an extension of  a group row
+                groupName += " " + l
+                g=0
+            elif f ==1: # it's an extension of  a figure row
+                figureName += " " + l
+                f=0
+        else: 
+            pass # (skip all other lines
     
 inf.close()
 outf.close()
-'''
