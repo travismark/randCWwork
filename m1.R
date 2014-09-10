@@ -29,13 +29,14 @@
 ### flaws in my method
 # if SL qty > 1 I don't know which one is removed, so I cannot get a good estimate of shape parametet
 # I don't know when new parts (like new electronics) are installed, for two reasons 1) to add a new part or 2) to replace old part
-  # I assume all parts are on the vehicle at all times - SOE does as well (total time on test is  1,726,593 days)
+# I assume all parts are on the vehicle at all times - SOE does as well (total time on test is  1,726,593 days)
 
 require(plyr)
 require(dplyr)
 require(hexbin)
 require(MASS)
 require(fitdistrplus)
+require(RODBC)
 
 ##### load the datas - adjust formats and add other data
 setwd("C:/Users/tbaer/Desktop/m1a1")
@@ -105,35 +106,9 @@ rawEros<-merge(rawEros,prodYear[,c("SerialNumber","IN.SERVICE")],by="SerialNumbe
 nrow(rawEros) # 194568
 
 ########################################### data verification and deletion
-# ordered v received, data verification
-#plot(rawEros$Ordered,rawEros$Received)
-#abline(0,1,col="red")
-#plot(rawEros$Sheet,rawEros$Ordered) # some weird points
-#abline(0,1,col="red")
-# start vs end
-#plot(rawEros$End-rawEros$Start)
-# data looks okay - they added some old data in 1998 and 2000 - except for sheet 2000 with data in 2009; remove that 
-#nrow(rawEros[rawEros$Sheet==2000,]) # 9812
-#plot(rawEros[rawEros$Sheet==2000,"Ordered"])
-#nrow(rawEros[rawEros$Sheet==2000 & rawEros$Ordered>as.Date("2005-01-01"),]) # 1004
-#with(rawEros[rawEros$Sheet==2000 & rawEros$Ordered>as.Date("2005-01-01"),],plot(Ordered))
+
 rawEros<-rawEros[-which(rawEros$Sheet==2000 & rawEros$Ordered>as.Date("2005-01-01")),] # take out 54 points ################################
 nrow(rawEros[rawEros$Sheet==2000,]) # 9758
-#plot(rawEros[rawEros$Sheet==2000,"Ordered"])
-
-# start v end, data verification
-#plot(rawEros$Start,rawEros$End)
-#abline(0,1,col="red")
-# there are maybe 3 weird points here, but not going to mess with yet
-
-# start v ordered, data verification
-#plot(rawEros$Start,rawEros$Ordered)
-#abline(0,1,col="red")
-#plot(rawEros$Ordered-rawEros$Start)
-#abline(0,0,col="red");abline(-1500,0,col="orange");abline(-2300,0,col="blue")  
-#length(which((rawEros$Ordered-rawEros$Start)<(0)))/nrow(rawEros) # 10% of data is has ordered dates before the start of the ERO
-#a<-which((rawEros$Ordered-rawEros$Start)<(-1500)) # 1712 parts that are ordered more than 1712 days before the start of the ERO
-#plot(hexbin(rawEros$Ordered-rawEros$Start))
 
 ## start vs. platform birth
 # how many records are removed b/c Ordered < Platform Birth
@@ -141,121 +116,20 @@ sum(rawEros$IN.SERVICE>rawEros$Ordered,na.rm=TRUE)/nrow(rawEros) # only 1%
 rawEros<-rawEros[which(rawEros$Ordered>=rawEros$IN.SERVICE),] # take out 1% of data ######################################################
 nrow(rawEros) # 173341
 
-
-# how many different Start dates does one ERO have? (duplicate EROs is a problem)
-getUniqueStarts<-function(df){
-  data.frame(UniqDts=length(unique(df$Start)))
-}
-#ab<-ddply(.data=rawEros,.variables="ERO",.fun=getUniqueStarts)
-#length(ab[ab$UniqDts>1,"ERO"])/nrow(ab) # proportion of EROs with more than one start date - 28%
-# or try (second way to get to the same number)
-#ac<-aggregate(rawEros$Date,list(rawEros$ERO,rawEros$Start),FUN=length)
-#table(ac$Group.1)
-#sum(table(ac$Group.1)>1)/length(table(ac$Group.1)>1) # - 28%
+## max ordered date
+system.time(SNmaxStart<-summarise(group_by(rawEros,"SerialNumber"),"LstSttDt"=max(Start,na.rm=TRUE)))
 
 ############################################ analysises
-# Get first Ordered date PER M1A1 SN
-# try ddply with altered function min - first min of all recieved, then break out by NSN
-# define this function for ddply
-minOrdered<-function(dataframe,min=TRUE){
-  dataframe<-dataframe[dataframe$Ordered>=dataframe$IN.SERVICE,] # ignore dates before the SN's Birthday
-  if(min){
-    data.frame(FstOrdDt=min(dataframe$Ordered,na.rm=TRUE))
-  }
-  else{
-    data.frame(LstOrdDt=max(dataframe$Ordered,na.rm=TRUE))
-  }
-}
-# replacing with dplyr
-#SNminOrdered<-ddply(rawEros,"SerialNumber",minOrdered)
-SNminOrdered<-summarise(group_by(rawEros, SerialNumber),"minOrdreed"=min(Ordered,na.rm=TRUE))
-colnames(SNminOrdered)<-c("SerialNumber","SN.FstOrdDt")
-#system.time(SNfscminOrdered<-ddply(rawEros,c("SerialNumber","FSC"),minOrdered))
-#colnames(SNfscminOrdered)<-c("SerialNumber","FSC","FSC.FstOrdDt")
-#system.time(SNnsnminOrdered1<-ddply(rawEros,c("SerialNumber","NSN"),minOrdered)) # slow,  468.37 seconds
-system.time(SNnsnminOrdered<-summarise(group_by(rawEros,"SerialNumber","NSN"),"minOrdered"=min(Ordered,na.rm=TRUE)))
-
-colnames(SNnsnminOrdered)<-c("SerialNumber","NSN","NSN.FstOrdDt")
-
-# platform max ordered
-#system.time(SNmaxOrdered<-ddply(rawEros,"SerialNumber",minOrdered,FALSE))
-system.time(SNmaxOrdered<-summarise(group_by(rawEros,"SerialNumber"),"LstOrdDt"=max(Ordered,na.rm=TRUE)))
-
-
-### merge back with full dataset
-# SN data (first any order)
-prodYear<-merge(prodYear,SNminOrdered,by="SerialNumber")
-prodYear<-merge(prodYear,SNmaxOrdered,by="SerialNumber")
-nrow(prodYear) # 448 - looks like rawEros didn't have matches for one of these SN
-
-# FSC data (first order per fsc/sn)
-# bring over 1st date from prodYear, then calculate difference
-#SNfscminOrdered<-merge(prodYear[,c("SerialNumber","IN.SERVICE")],SNfscminOrdered,by="SerialNumber")
-#SNfscminOrdered$diff<-as.numeric(SNfscminOrdered$FSC.FstOrdDt-SNfscminOrdered$IN.SERVICE)
-#nrow(SNfscminOrdered) # 30481 
-
-# NSN data (probably better to use this then group by fsc)
-SNnsnminOrdered<-merge(prodYear[,c("SerialNumber","IN.SERVICE")],SNnsnminOrdered,by="SerialNumber")
-SNnsnminOrdered$diff<-as.numeric(SNnsnminOrdered$NSN.FstOrdDt-SNnsnminOrdered$IN.SERVICE)
-SNnsnminOrdered$NSN<-as.numeric(SNnsnminOrdered$NSN)
-SNnsnminOrdered$FSC<-round(SNnsnminOrdered$NSN,-9)/1000000000
-nrow(SNnsnminOrdered) # 117185
-SNnsnminOrdered$Grp<-round(SNnsnminOrdered$NSN,-11)/100000000000 # add group
-SNnsnminOrdered$NSN<-as.character(SNnsnminOrdered$NSN)
-
-# save/load that data
-#write.csv(SNnsnminOrdered,"SNnsnminOrdered.csv")
-#write.csv(SNfscminOrdered,"SNfscminOrdered.csv")
-SNfscminOrdered<-read.csv("SNfscminOrdered.csv")
-SNnsnminOrdered<-read.csv("SNnsnminOrdered.csv")
-
-
-##### scratch work that isn't valid anymore b/c I "fixed" the data
-    # Does the data make sense? Are parts ordered after the birthdate?
-  #   plot(prodYear$FstOrdDt-prodYear$IN.SERVICE,ylab="Days after Birth of First Ordered")
-  #   sum(prodYear$FstOrdDt-prodYear$IN.SERVICE>=0)/nrow(prodYear) # proportion of okay data
-  #   sabline(0,0,col="red")
-  #   prodYear[(which((prodYear$FstOrdDt-prodYear$IN.SERVICE<0))),"SerialNumber"][15] # pick some random SN to verify
-  #   SN579699<-rawEros[rawEros$SerialNumber==579699,]
-  #   write.csv(SN579699,"SN579699.csv",row.names=FALSE)
-  #   # only two records are incorrect here - it may just be a few records for each of the 73 tanks, so I can likely remove these
-  #   plot(rawEros[rawEros$SerialNumber==579700,]$Ordered)
-  #   SN579700<-rawEros[rawEros$SerialNumber==579700,]
-  #   write.csv(SN579700,"SN579700.csv",row.names=FALSE)
-#####
-
-# fit a first weibull? optim fails
-a<-fitdistr(x=as.numeric(prodYear$FstOrdDt-prodYear$IN.SERVICE)[which(as.numeric(prodYear$FstOrdDt-prodYear$IN.SERVICE)>0)],densfun='weibull',
-            start=list(shape=1,scale=median(as.numeric(prodYear$FstOrdDt-prodYear$IN.SERVICE)[which(as.numeric(prodYear$FstOrdDt-prodYear$IN.SERVICE)>0)])))
-
-
-# a few hists
-a<-head(unique(SNfscminOrdered$FSC))
-a<-SNfscminOrdered[SNfscminOrdered$FSC %in% a,]
-
-el<-ggplot(a,aes(diff)) + geom_histogram() + facet_grid(. ~ FSC ) + 
-  labs(x="Days Since First Removal") + theme(axis.text.x=element_text(angle=45)) +
-  ggtitle("Time to first any removal within the FSC")
-print(el)
-
-b<-head(unique(SNnsnminOrdered$FSC))
-b<-SNnsnminOrdered[SNnsnminOrdered$FSC %in% b,]
-
-el2<-ggplot(b,aes(diff)) + geom_histogram() + facet_grid(. ~ FSC ) + 
-  labs(x="Days Since First Removal") + theme(axis.text.x=element_text(angle=45)) +
-  ggtitle("Time to first removals for each NSN within the FSC")
-print(el2)
-
 ######################### two three four and five next removals
- # rawEros[rawEros$ERO=="P9085"&rawEros$SerialNumber==572348,] an example of a SN/ERO combo with THREE eros
- #  #  need to also account for different start dates
- # take the next date after the previous removal (or birth) that's in a new ERO
- # calculate days different in here, as well as suspension times
+# rawEros[rawEros$ERO=="P9085"&rawEros$SerialNumber==572348,] an example of a SN/ERO combo with THREE eros
+#  #  need to also account for different start dates
+# take the next date after the previous removal (or birth) that's in a new ERO
+# calculate days different in here, as well as suspension times
 first5Ordered<-function(dataframe,unbug=FALSE){
   # args
-    # dataframe - subest of rawEros with one platform SN and one NSN
+  # dataframe - subest of rawEros with one platform SN and one NSN
   # returns
-    # dataframe with 5 failure dates (ero starts) and 5 differences
+  # dataframe with 5 failure dates (ero starts) and 5 differences
   # save the SN birthday before further subsetting 
   Birthday<-dataframe[1,"IN.SERVICE"]
   if(unbug){print(dataframe$SerialNumber[1]);print(dataframe$FSC[1]);print(dataframe$NSN[1])}
@@ -275,7 +149,7 @@ first5Ordered<-function(dataframe,unbug=FALSE){
   ScdEndDt<-dataframe[dataframe$Start==ScdSttDt,"End"][1]
   if(unbug){print(2);print(length(thisEro));print(thisEro)}
   if(length(thisEro)>1){stop("multiple eros with the same date and part Start")}
- # end date of the ERO
+  # end date of the ERO
   if(unbug){print(c(ScdSttDt,ScdEndDt))}
   
   dataframe<-dataframe[dataframe$Start>ScdSttDt,] # ignore dates before 2nd removal
@@ -312,8 +186,8 @@ first5Ordered<-function(dataframe,unbug=FALSE){
   FvhSttDt<-as.Date(FvhSttDt, origin = '1899-12-30')
   FstEndDt<-as.Date(FstEndDt, origin = '1899-12-30')
   ScdEndDt<-as.Date(ScdEndDt, origin = '1899-12-30')
-  ThdEndDt<-as.Date(ThdEndDt, origin = '1899-12-30') # doesn't handle overlapping eros if this is possible
-  FurEndDt<-as.Date(FurEndDt, origin = '1899-12-30')
+  ThdEndDt<-as.Date(ThdEndDt, origin = '1899-12-30') # doesn't handle overlapping eros - gives negative time, which I zero out
+  FurEndDt<-as.Date(FurEndDt, origin = '1899-12-30') # its' 2.5 years between the first birthday and the first part removal - what gives?
   FvhEndDt<-as.Date(FvhEndDt, origin = '1899-12-30')
   
   # now calculated the date differences, using suspension times where applicable for first removal that doesnt happen 
@@ -323,22 +197,30 @@ first5Ordered<-function(dataframe,unbug=FALSE){
   diff4<-as.numeric(FurSttDt-ThdEndDt) # some Infs b/c some dates are min(dates,na.rm=T) when data frame is empty
   diff5<-as.numeric(FvhSttDt-FurEndDt)
   
-  data.frame(FstSttDt,ScdSttDt,ThdSttDt,FurSttDt,FvhSttDt,diff1,diff2,diff3,diff4,diff5)
+  # also return the last End Date for this NSN/SN combination BUT THIS ISN'T WORKING SO I'M RETURN NA AND HATING IT
+  #LstEroEnd<-as.Date(ifelse(is.na(as.character(ScdEndDt)),FstEndDt,ifelse(is.na(as.character(ThdEndDt)),ScdEndDt,
+  #             ifelse(is.na(as.character(FurEndDt)),ThdEndDt,ifelse(is.na(as.character(FvhEndDt)),FurEndDt,NA)))),origin='1899-12-30')
+  LstEroEnd<-NA
+  
+  data.frame(FstSttDt,ScdSttDt,ThdSttDt,FurSttDt,FvhSttDt,diff1,diff2,diff3,diff4,diff5,LstEroEnd)
 }
 
 # test dataset
 a<-rawEros[1:2000,]
 a<-rawEros[1:50,]
 #system.time(b<-ddply(a,c("SerialNumber","FSC"),first5Ordered))
-system.time(c<-ddply(a,c("SerialNumber","NSN"),first5Ordered,FALSE))
+system.time(c<-ddply(a,c("SerialNumber","NSN"),first5Ordered,TRUE))
 rawEros[rawEros$NSN==1015011799369 & rawEros$SerialNumber==572348,]# an example
 rawEros[rawEros$NSN==6240000446914 & rawEros$SerialNumber==649032,]# another
 rawEros[rawEros$NSN==1015012093482 & rawEros$SerialNumber==572348,]# another
+rawEros[rawEros$NSN==4210011791059 & rawEros$SerialNumber==572352,]# with negative time
+rawEros[rawEros$NSN==4330011182868 & rawEros$SerialNumber==572352,]# another with negative time
+rawEros[rawEros$NSN==5120002237397 & rawEros$SerialNumber==572348,]# another with negative time
+rawEros[rawEros$NSN==2530013458887 & rawEros$SerialNumber==572348,]# another with negative time
 
 system.time(SNfscminOrdered5<-ddply(subsetofthedata,c("SerialNumber","FSC"),first5Ordered,unbug=FALSE))
 
-system.time(SNfscminOrdered5<-ddply(rawEros,c("SerialNumber","FSC"),first5Ordered,unbug=FALSE))
-#colnames(SNfscminOrdered)<-c("SerialNumber","FSC","FSC.FstOrdDt")
+#system.time(SNfscminOrdered5<-ddply(rawEros,c("SerialNumber","FSC"),first5Ordered,unbug=FALSE))
 system.time(SNnsnminOrdered5<-ddply(rawEros,c("SerialNumber","NSN"),first5Ordered)) # 900 seconds
 #colnames(SNnsnminOrdered)<-c("SerialNumber","NSN","NSN.FstOrdDt")
 
@@ -348,49 +230,33 @@ system.time(SNnsnminOrdered5<-ddply(rawEros,c("SerialNumber","NSN"),first5Ordere
 #SNfscminOrdered5<-read.csv("SNfscminOrdered5.csv")
 ##   SNnsnminOrdered5<-read.csv("SNnsnminOrdered5.csv") ##
 
-### merge in Birthday and calculate differences
-# FSC data (first order per fsc/sn) - not useful
-# NSN data - should be used to calculate everything
+# FSC NSN and group
 SNnsnminOrdered5$NSN<-as.numeric(SNnsnminOrdered5$NSN)
 SNnsnminOrdered5$FSC<-round(SNnsnminOrdered5$NSN,-9)/1000000000 # add fsc
 SNnsnminOrdered5$Grp<-round(SNnsnminOrdered5$NSN,-11)/100000000000 # add group
 SNnsnminOrdered5$NSN<-as.character(SNnsnminOrdered5$NSN)
-# bring over 1st date from prodYear, then calculate difference
-#SNfscminOrdered5<-merge(prodYear[,c("SerialNumber","IN.SERVICE")],SNfscminOrdered5,by="SerialNumber")
-#SNfscminOrdered5$diff1<-as.numeric(SNfscminOrdered5$FstOrdDt-SNfscminOrdered5$IN.SERVICE)
-#SNfscminOrdered5$diff1<-as.numeric(SNfscminOrdered5$FSC.FstOrdDt-SNfscminOrdered5$IN.SERVICE)
 
-#nrow(SNfscminOrdered5) # 30481 
-# NSN data (probably better to use this then group by fsc)
-#SNnsnminOrdered5<-merge(prodYear[,c("SerialNumber","IN.SERVICE")],SNnsnminOrdered5,by="SerialNumber")
-#SNnsnminOrdered5$diff1<-as.numeric(SNnsnminOrdered5$FstOrdDt-SNnsnminOrdered5$IN.SERVICE)
-#SNnsnminOrdered5$diff2<-as.numeric(SNnsnminOrdered5$ScdOrdDt-SNnsnminOrdered5$FstOrdDt)
-#SNnsnminOrdered5$diff3<-as.numeric(SNnsnminOrdered5$ThdOrdDt-SNnsnminOrdered5$ScdOrdDt)
-#SNnsnminOrdered5$diff4<-as.numeric(SNnsnminOrdered5$FurOrdDt-SNnsnminOrdered5$ThdOrdDt)
-#SNnsnminOrdered5$diff5<-as.numeric(SNnsnminOrdered5$FvhOrdDt-SNnsnminOrdered5$FurOrdDt)
 # makes ugly INF and NANs - make the Infs NA, NaN are treated as NA (not vice versa)
 SNnsnminOrdered5$diff2[which(SNnsnminOrdered5$diff2==Inf)]<-NA
 SNnsnminOrdered5$diff3[which(SNnsnminOrdered5$diff3==Inf)]<-NA
 SNnsnminOrdered5$diff4[which(SNnsnminOrdered5$diff4==Inf)]<-NA
 SNnsnminOrdered5$diff5[which(SNnsnminOrdered5$diff5==Inf)]<-NA
 nrow(SNnsnminOrdered5) # 117185
-# only 20% of 2nd removals are non-zero
+# only 20% of 2nd removals are non-zero at this point
+sum(!is.na(SNnsnminOrdered5$diff2))/length(is.na(SNnsnminOrdered5$diff2))
+# zero out the negative or zero removal times
+SNnsnminOrdered5$diff2[which(SNnsnminOrdered5$diff2<=0)]<-NA
+SNnsnminOrdered5$diff3[which(SNnsnminOrdered5$diff3<=0)]<-NA
+SNnsnminOrdered5$diff4[which(SNnsnminOrdered5$diff4<=0)]<-NA
+SNnsnminOrdered5$diff5[which(SNnsnminOrdered5$diff5<=0)]<-NA
+# now only 18% of 2nd removals are non-zero 
 sum(!is.na(SNnsnminOrdered5$diff2))/length(is.na(SNnsnminOrdered5$diff2))
 
 write.csv(SNnsnminOrdered5,"moddSNnsnminOrdered5.csv")
-SNnsnminOrdered5<-read.csv("moddSNnsnminOrdered5.csv")
+
 
 ################## try to fit some data
 # remove the 0's b/c won't work with weibull
-sum(SNfscminOrdered$diff==0) # only one of these
-SNfscminOrdered<-SNfscminOrdered[-which(SNfscminOrdered$diff==0),]
-sum(SNfscminOrdered$diff==0) # now zero
-# remove the NAs in FSC - 30480 before
-SNfscminOrdered<-SNfscminOrdered[-which(is.na(SNfscminOrdered$FSC)),]
-nrow(SNfscminOrdered) # 30458, the 446 NA FSC rows have been removed
-# remove infinites in diff - there are none
-#SNfscminOrdered<-SNfscminOrdered[-which(SNfscminOrdered$diff==Inf),]
-nrow(SNfscminOrdered) # 30458 - 82 rows removed
 
 # do the same data cleaning for nsn data
 SNnsnminOrdered<-SNnsnminOrdered[-which(SNnsnminOrdered$diff==0),];nrow(SNnsnminOrdered) # remove 1, now 117184 rows
@@ -399,11 +265,14 @@ SNnsnminOrdered<-SNnsnminOrdered[-which(is.na(SNnsnminOrdered$FSC)),];nrow(SNnsn
 nrow(SNnsnminOrdered5) # 117185
 SNnsnminOrdered5<-SNnsnminOrdered5[-which(is.na(SNnsnminOrdered5$FSC)),];nrow(SNnsnminOrdered5) # remove 22, now 117163
 
+SNnsnminOrdered5<-read.csv("moddSNnsnminOrdered5.csv",stringsAsFactors=FALSE) ################################### read HERE 
+# fix the dates
+SNnsnminOrdered5$FstSttDt<-as.Date(SNnsnminOrdered5$FstSttDt, origin = '1899-12-30') 
+SNnsnminOrdered5$ScdSttDt<-as.Date(SNnsnminOrdered5$ScdSttDt, origin = '1899-12-30') 
+SNnsnminOrdered5$ThdSttDt<-as.Date(SNnsnminOrdered5$ThdSttDt, origin = '1899-12-30') 
+SNnsnminOrdered5$FurSttDt<-as.Date(SNnsnminOrdered5$FurSttDt, origin = '1899-12-30') 
+SNnsnminOrdered5$FvhSttDt<-as.Date(SNnsnminOrdered5$FvhSttDt, origin = '1899-12-30') 
 
-firstFSC<-unique(SNfscminOrdered$FSC)[1]
-fit1<-fitdistr(x=SNfscminOrdered[SNfscminOrdered$FSC==firstFSC,"diff"],densfun='weibull',start=list(shape=1,scale=mean(SNfscminOrdered[SNfscminOrdered$FSC==firstFSC,"diff"])))
-fit2<-fitdistr(x=SNfscminOrdered[SNfscminOrdered$FSC==firstFSC,"diff"],densfun='exponential')
-fit3<-fitdistr(x=SNfscminOrdered[SNfscminOrdered$FSC==firstFSC,"diff"],densfun='weibull',start=list(shape=1,scale=1597))
 
 ### weibulls with the first removal from each NSN grouped into FSC
 
@@ -411,28 +280,28 @@ fit3<-fitdistr(x=SNfscminOrdered[SNfscminOrdered$FSC==firstFSC,"diff"],densfun='
 trytofit<-function(df,categ,thisCateg,startingscale,onetwo=1){
   # fits a weilbull, or returns error that is handled outside
   # args: df: dataframe: a subset of the data frame
-    #  categ: string: a category to match on: fsc, group, or nsn
-    #  thisCateg: one individual value of the category
-    # startingscale: numeric: a starting scale to try, vary so that it has better chance to
-    # onetwo: numeric: fit one weibull (the first removal) or two (this plus all the others as a second)
+  #  categ: string: a category to match on: fsc, group, or nsn
+  #  thisCateg: one individual value of the category
+  # startingscale: numeric: a starting scale to try, vary so that it has better chance to
+  # onetwo: numeric: fit one weibull (the first removal) or two (this plus all the others as a second)
   # returns - fitdistr class, with parameters and standard errors
   onetwo<-paste0("diff",onetwo)
   df<-df[which(df[,categ]==thisCateg),]
   suppressWarnings(fitdistr(x=df[,onetwo],densfun='weibull',
-      start=list(shape=1,scale=startingscale),lower=0.1,upper=10000))
+                            start=list(shape=1,scale=startingscale),lower=0.1,upper=10000))
 }
 # define this function - don't fit anything with fewer than n=10
 fitOneCategWeibulls<-function(categ,diffDF,justFirst=TRUE){
   # fits one category of weibulls
   # args: categ: string: fit group nsns to fit by Group, FSC, or just NSN
-      #   diffdf: dataframe: has rows per nsn with difference between birth and 1st removal, 1st and 2nd, etc.
-      #   justFirst: boolean: true if fit only the first removal
+  #   diffdf: dataframe: has rows per nsn with difference between birth and 1st removal, 1st and 2nd, etc.
+  #   justFirst: boolean: true if fit only the first removal
   # returns: weibs2store df that has zero or more weibulls per classification (nsn, fsc, or group)
   # create the initial weibull storage database to return
   tl<-length(unique(diffDF[,categ]))
   if(justFirst){
-  weibs2store<-data.frame("categ"=1:tl,"n"=1:tl,"shape"=1:tl,
-                             "scale"=1:tl,"shapese"=1:tl,"scalese"=1:tl)
+    weibs2store<-data.frame("categ"=1:tl,"n"=1:tl,"shape"=1:tl,
+                            "scale"=1:tl,"shapese"=1:tl,"scalese"=1:tl)
   }
   else{ # find two weibulls per categ
     weibs2store<-data.frame("categ"=1:tl,"n"=1:tl,"shape"=1:tl,
@@ -449,10 +318,10 @@ fitOneCategWeibulls<-function(categ,diffDF,justFirst=TRUE){
     weibs2store[ii,2]<-n
     # then store the fit (skip errors)
     if (n>9) {suppressWarnings(b<-tryCatch(expr=fitdistr(x=diffDF[diffDF[,categ]==thisCateg,"diff1"],densfun="weibull"),
-                                 error=function(cond){return(tryCatch(expr=trytofit(diffDF,categ,thisCateg,mean(diffDF[diffDF[,categ]==thisCateg,"diff1"])),
-                                      error=function(cond){return(tryCatch(expr=trytofit(diffDF,categ,thisCateg,median(diffDF[diffDF[,categ]==thisCateg,"diff1"])),
-                                          error=function(cond){return(tryCatch(expr=trytofit(diffDF,categ,thisCateg,100),
-                                                                               error=function(cond){return(NA)}))}))}))}))
+                                           error=function(cond){return(tryCatch(expr=trytofit(diffDF,categ,thisCateg,mean(diffDF[diffDF[,categ]==thisCateg,"diff1"])),
+                                                                                error=function(cond){return(tryCatch(expr=trytofit(diffDF,categ,thisCateg,median(diffDF[diffDF[,categ]==thisCateg,"diff1"])),
+                                                                                                                     error=function(cond){return(tryCatch(expr=trytofit(diffDF,categ,thisCateg,100),
+                                                                                                                                                          error=function(cond){return(NA)}))}))}))}))
               weibs2store[ii,3]<-b[[1]][1] # shape coef
               weibs2store[ii,4]<-b[[1]][2] # scale coef
               weibs2store[ii,5]<-tryCatch(expr=b[[2]][1],error=function(cond){return(NA)})
@@ -461,30 +330,30 @@ fitOneCategWeibulls<-function(categ,diffDF,justFirst=TRUE){
     else {
       weibs2store[ii,3]<-NA;weibs2store[ii,4]<-NA;weibs2store[ii,5]<-NA;weibs2store[ii,6]<-NA
     }
-  # if fitting more that just the first removal, do so here within the loop
-  if(!justFirst){
-    otherDiffDF<-diffDF[diffDF[,categ]==unique(diffDF[,categ])[ii],]
-    # first gather all the other data to fit one weibull
-    otherDiffs<-c(otherDiffDF$diff2,otherDiffDF$diff3,otherDiffDF$diff4,otherDiffDF$diff5)
-    otherDiffs<-otherDiffs[!is.na(otherDiffs)]
-    # store number of rows
-    n<-length(otherDiffs)
-    weibs2store[ii,]$n2<-n
-    # then store the fit (skip errors)
-    if (n>9) {suppressWarnings(b<-tryCatch(expr=fitdistr(x=otherDiffs,densfun="weibull"),
-                                           error=function(cond){return(tryCatch(expr=fitdistr(x=otherDiffs,densfun="weibull",mean(otherDiffs)),
-                                                                                error=function(cond){return(tryCatch(expr=fitdistr(x=otherDiffs,densfun="weibull",median(otherDiffs)),
-                                                                                                                     error=function(cond){return(tryCatch(expr=fitdistr(x=otherDiffs,densfun="weibull",100),
-                                                                                                                                                          error=function(cond){return(NA)}))}))}))}))
-              weibs2store[ii,]$shape2<-b[[1]][1] # shape coef
-              weibs2store[ii,]$scale2<-b[[1]][2] # scale coef
-              weibs2store[ii,]$shapese2<-tryCatch(expr=b[[2]][1],error=function(cond){return(NA)})
-              weibs2store[ii,]$scalese2<-tryCatch(expr=b[[2]][2],error=function(cond){return(NA)})
+    # if fitting more that just the first removal, do so here within the loop
+    if(!justFirst){
+      otherDiffDF<-diffDF[diffDF[,categ]==unique(diffDF[,categ])[ii],]
+      # first gather all the other data to fit one weibull
+      otherDiffs<-c(otherDiffDF$diff2,otherDiffDF$diff3,otherDiffDF$diff4,otherDiffDF$diff5)
+      otherDiffs<-otherDiffs[!is.na(otherDiffs)]
+      # store number of rows
+      n<-length(otherDiffs)
+      weibs2store[ii,]$n2<-n
+      # then store the fit (skip errors)
+      if (n>9) {suppressWarnings(b<-tryCatch(expr=fitdistr(x=otherDiffs,densfun="weibull"),
+                                             error=function(cond){return(tryCatch(expr=fitdistr(x=otherDiffs,densfun="weibull",mean(otherDiffs)),
+                                                                                  error=function(cond){return(tryCatch(expr=fitdistr(x=otherDiffs,densfun="weibull",median(otherDiffs)),
+                                                                                                                       error=function(cond){return(tryCatch(expr=fitdistr(x=otherDiffs,densfun="weibull",100),
+                                                                                                                                                            error=function(cond){return(NA)}))}))}))}))
+                weibs2store[ii,]$shape2<-b[[1]][1] # shape coef
+                weibs2store[ii,]$scale2<-b[[1]][2] # scale coef
+                weibs2store[ii,]$shapese2<-tryCatch(expr=b[[2]][1],error=function(cond){return(NA)})
+                weibs2store[ii,]$scalese2<-tryCatch(expr=b[[2]][2],error=function(cond){return(NA)})
+      }
+      else {
+        weibs2store[ii,8]<-NA;weibs2store[ii,9]<-NA;weibs2store[ii,10]<-NA;weibs2store[ii,11]<-NA
+      }
     }
-    else {
-      weibs2store[ii,8]<-NA;weibs2store[ii,9]<-NA;weibs2store[ii,10]<-NA;weibs2store[ii,11]<-NA
-    }
-  }
   }
   return(weibs2store)
 }
@@ -519,7 +388,7 @@ plot(p2,col=rgb(1,0,0,1/4), xlim=c(0,max(p2$breaks,p1$breaks)),ylim=c(0,max(p1$c
 ### fit NSNs
 tl<-length(unique(SNnsnminOrdered5$NSN))
 weibs2storeNSN<-data.frame("NSN"=1:tl,"n"=1:tl,"shape"=1:tl,
-                         "scale"=1:tl,"shapese"=1:tl,"scalese"=1:tl)
+                           "scale"=1:tl,"shapese"=1:tl,"scalese"=1:tl)
 # optimisation frequently fails.  try a few different methods
 trytofitNSN<-function(df,thisNSN,startingscale){
   suppressWarnings(fitdistr(x=df[df$NSN==thisNSN,"diff1"],
@@ -629,10 +498,10 @@ a<-head(unique(rawEros$NSN)) # initial toy dataset
 
 
 wasLongestLeadTimeInERO<-function(subsetRE,fullRawEros,unbug=FALSE){
-# A function for use with ddply on each NSN
-# Args: subsetRE - subset of raw EROs that only includes rows with this one NSN
-#       fullRawEROS - the entire EROs df
-# Returns: ppnLLT - proportion of times this NSN is the longest lead time in the ERO (or tied with)
+  # A function for use with ddply on each NSN
+  # Args: subsetRE - subset of raw EROs that only includes rows with this one NSN
+  #       fullRawEROS - the entire EROs df
+  # Returns: ppnLLT - proportion of times this NSN is the longest lead time in the ERO (or tied with)
   eros4NSN<-unique(subsetRE$ERO) # all eros that that NSN is in
   eros4NSN<-eros4NSN[which(!is.na(eros4NSN))]
   NSN4eros<-unique(subsetRE$NSN) # just the one NSN
@@ -644,7 +513,7 @@ wasLongestLeadTimeInERO<-function(subsetRE,fullRawEros,unbug=FALSE){
     # if this NSN has the longest lead time of the ERO, increment a
     if(NSN4eros %in% justRelEro[which(justRelEro$LeadTime==max(as.numeric(justRelEro[justRelEro$ERO==eros4NSN[ii],"LeadTime"]),na.rm=TRUE)),"NSN"]) {
       a<-a+1 # sometimes no orders are received in an ERO, giving a false to above check
-      }
+    }
   }
   data.frame("ppnLLT"=a/length(eros4NSN))
   if(unbug){print(c(round(ii,0),NSN4eros))}
@@ -665,25 +534,54 @@ partnumbers<-data.frame("NSN"=unique(rawEros$NSN))
 serialnumbers<-data.frame("SerialNumber"=unique(rawEros$SerialNumber))
 system.time(totals<-merge(x=partnumbers,y=serialnumbers,by=NULL))
 system.time(totals<-join(x=totals,y=SNnsnminOrdered5,by=c("SerialNumber","NSN"),type="full"))
-# fix in.service
-totals$IN.SERVICE<-NULL
 # bring over in service date
 totals<-join(x=totals,y=prodYear[,c("SerialNumber","IN.SERVICE")],by="SerialNumber",type="full") # may have to trim down if SNminOrdered has the difference column
 # bring over max date this serial number ordered a part
-totals<-join(x=totals,y=SNmaxOrdered,by="SerialNumber",type="full")
+totals<-join(x=totals,y=SNmaxStart,by="SerialNumber",type="full")
+## suspension data
+totals[which(is.na(totals$diff1)),"diff1"]<-as.numeric(totals[which(is.na(totals$diff1)),"LstSttDt"]-totals[which(is.na(totals$diff1)),"IN.SERVICE"])
+# need the other differences - only have one suspension per row
+system.time(totals[which(is.na(as.character(totals$ScdSttDt)) & !is.na(as.character(totals$FstSttDt))),"diff2"]<-
+              as.numeric(totals[which(is.na(as.character(totals$ScdSttDt)) & !is.na(as.character(totals$FstSttDt))),"LstSttDt"]-
+                           totals[which(is.na(as.character(totals$ScdSttDt)) & !is.na(as.character(totals$FstSttDt))),"FstSttDt"]))
+# I really need to subtract the previous END date instead of the previous START date, but I can't get that working right now!
+system.time(totals[which(is.na(as.character(totals$ThdSttDt)) & !is.na(as.character(totals$ScdSttDt))),"diff3"]<-
+              as.numeric(totals[which(is.na(as.character(totals$ThdSttDt)) & !is.na(as.character(totals$ScdSttDt))),"LstSttDt"]-
+                           totals[which(is.na(as.character(totals$ThdSttDt)) & !is.na(as.character(totals$ScdSttDt))),"ScdSttDt"]))
+system.time(totals[which(is.na(as.character(totals$FurSttDt)) & !is.na(as.character(totals$ThdSttDt))),"diff4"]<-
+              as.numeric(totals[which(is.na(as.character(totals$FurSttDt)) & !is.na(as.character(totals$ThdSttDt))),"LstSttDt"]-
+                           totals[which(is.na(as.character(totals$FurSttDt)) & !is.na(as.character(totals$ThdSttDt))),"ThdSttDt"]))
+system.time(totals[which(is.na(as.character(totals$FvhSttDt)) & !is.na(as.character(totals$FurSttDt))),"diff5"]<-
+              as.numeric(totals[which(is.na(as.character(totals$FvhSttDt)) & !is.na(as.character(totals$FurSttDt))),"LstSttDt"]-
+                           totals[which(is.na(as.character(totals$FvhSttDt)) & !is.na(as.character(totals$FurSttDt))),"FurSttDt"]))
+## need to remove a few zeros (again) b/c of suspension times
+length(which(totals$diff1<=0));totals$diff1[which(totals$diff1<=0)]<-NA
+length(which(totals$diff2<=0));totals$diff2[which(totals$diff2<=0)]<-NA
+length(which(totals$diff3<=0));totals$diff3[which(totals$diff3<=0)]<-NA
+length(which(totals$diff4<=0));totals$diff4[which(totals$diff4<=0)]<-NA
+length(which(totals$diff5<=0));totals$diff5[which(totals$diff5<=0)]<-NA
+# this SN has an ERO before its supposed birthday rawEros[rawEros$NSN %in% 4330011182868 & rawEros$SerialNumber == 585978,] 
+#   it gets an error diff1 value; same with the same NSN and SN 585976;  there are 46 cases, so remove them
+dim(totals);dim(totals[which(totals$diff1==Inf),])
+totals<-totals[-which(totals$diff1==Inf),]
+dim(totals)
+
+# dim should be 3630994, not one more. if theres a bad row at the end try totals<-totals[-nrow(totals),]
+# write to a database (before it's too late)
+myconn<-odbcConnectAccess("C:/Users/tbaer/Desktop/m1a1/totalsDB")
+system.time(sqlSave(myconn,totals,rownames=FALSE,varTypes=c(NSN="Number",SerialNumber="Text",FstSttDt="Date",ScdSttDt="Date",
+             ThdSttDt="Date",FurSttDt="Date",FvhSttDt="Date",IN.SERVICE="Date",LstSttDt="Date")))
+remove(myconn)
 # for fitdistcens: 1 is a success (fail), 0 is a defer (suspension)
 #### too big to store in csv format
-# 1st,2nd,3rd ordered date will be NA if it's a suspension.  I'll add suspension times to diff1,diff2,etc. - I added suspensions already
-#totals[which(is.na(totals$diff1)),"diff1"]<-as.numeric(totals[which(is.na(totals$diff1)),"LstOrdDt"]-totals[which(is.na(totals$diff1)),"IN.SERVICE"])
-####
 ###### need other suspension times later
 ####
 print(object.size(totals),units="MB")
 dim(totals) # 3,631,040
 # take out a weird SN  -   totals<-totals[totals$SerialNumber!=642701,] # no longer there
-source("C:/Users/tbaer/Desktop/m1a1/m1functions.R")
+source("C:/Users/tbaer/Desktop/m1a1/randCWwork/m1functions.R")
 # subsetting by NSN - it doesn't like the character - have to use %in%
-system.time(a<-CensUncens(totals[totals$NSN %in% 5310009388387,]))
+system.time(a<-CensUncensm1(totals[totals$NSN %in% 5310009388387,]))
 system.time(zweib<-fitdistcens(a,distr="weibull")) # sometimes singular - not enough failures
 #zweib<-fitdistcens(data.frame("left"=a[,1],"right"=a[,1]),dist="weibull") # works (groups of m1's suspended at same time)
 plot(zweib);zweib$estimate
@@ -698,7 +596,7 @@ totalCost<-totalCost2;remove(totalCost1);remove(totalCost2)
 head(arrange(totalCost,-totalCost))#head(totalCost[order(-totalCost$totalCost),])
 # print out some summary stats by NSN to compare to EROS
 system.time(nsnSummary<-summarise(group_by(rawEros, NSN),"totalCost"=sum(Cost,na.rm=TRUE),"n"=n(),
-                      "firstOrd"=min(Ordered),"lastOrd"=max(Ordered)))
+                                  "firstOrd"=min(Ordered),"lastOrd"=max(Ordered)))
 write.csv(nsnSummary,"eroNSNsummary.csv")
 
 # total days on test for oldest part (hard to say when a new/upgraded part is installed)
@@ -710,7 +608,13 @@ sum(totals$LstOrdDt-totals$IN.SERVICE) # not sure how to do this
 hist(table(SNnsnminOrdered5$NSN)) # how many true failures each NSN has
 sum(table(SNnsnminOrdered5$NSN)>30,na.rm=TRUE)/length(table(SNnsnminOrdered5$NSN)) # 12% of data
 sum(table(SNnsnminOrdered5$NSN)>150,na.rm=TRUE) # 121 NSNs
+sum(table(SNnsnminOrdered5$NSN)>200,na.rm=TRUE) # 44 NSNs
 # start with using 150 as as a cutoff of failures to improve chances of fitting and test speed
+a<-rownames(table(SNnsnminOrdered5$NSN))[which(table(SNnsnminOrdered5$NSN)>200)]
+datasubset<-totals[totals$NSN %in% a,]
+
+source("C:/Users/tbaer/Desktop/m1a1/randCWwork/m1functions.R")
+weibs<-gatherallweibullsm1(datasubset,unbug=FALSE,modkm=FALSE)
 
 ### wtf confint
 # 50/50 mixture
@@ -736,7 +640,7 @@ dist4<-rnorm(n,3.8,2.9)
 (totVar<-sum((c(dist1,dist2,dist3,dist4)-totMu)^2)/(4*n)) # 7.21
 #variance estimate
 (var(dist1)/4+var(dist2)/4+var(dist3)/4+var(dist4)/4 + 
-  (mean(dist1)-totMu)^2/4 + (mean(dist2)-totMu)^2/4 + (mean(dist3)-totMu)^2/4 + (mean(dist4)-totMu)^2/4)  # 7.21
+   (mean(dist1)-totMu)^2/4 + (mean(dist2)-totMu)^2/4 + (mean(dist3)-totMu)^2/4 + (mean(dist4)-totMu)^2/4)  # 7.21
 #linear comb var
 (var(dist1)/4+var(dist2)/4+var(dist3)/4+var(dist4)/4)
 
@@ -752,11 +656,11 @@ totalD<-n1+n2+n3+n4
 (totMu<-mean(dist1)*n1/totalD+mean(dist2)*n2/totalD+mean(dist3)*n3/totalD+mean(dist4)*n4/totalD) # 0.79
 (totVar<-sum((c(dist1,dist2,dist3,dist4)-totMu)^2)/(totalD*n)) # 0.0144, empirical variance
 # variance estimate:  
-  # assuming mixture of normal theory : #Sum([mixprob]*[var]+[mixprob]*([availability]-[expavail])^2) AS rowvarmix # then maybe average this (/4)
+# assuming mixture of normal theory : #Sum([mixprob]*[var]+[mixprob]*([availability]-[expavail])^2) AS rowvarmix # then maybe average this (/4)
 sum(n1/totalD*var(dist1)+n1/totalD*(mean(dist1)-totMu)^2+n2/totalD*var(dist2)+n2/totalD*(mean(dist2)-totMu)^2+
       n3/totalD*var(dist3)+n3/totalD*(mean(dist3)-totMu)^2+n4/totalD*var(dist4)+n4/totalD*(mean(dist4)-totMu)^2) # 0.0144, 0.12 % avail
 
-  # assuming simple weighted average
+# assuming simple weighted average
 (totalVarWt<-var(dist1)*n1/totalD+var(dist2)*n2/totalD+var(dist3)*n3/totalD+var(dist4)*n4/totalD) # 0.135 or
 (totalVarWt<-var(dist1)*(n1/totalD)^2+var(dist2)*(n2/totalD)^2+var(dist3)*(n3/totalD)^2+var(dist4)*(n4/totalD)^2) # .0455
 
@@ -782,7 +686,7 @@ dist6<-rnorm(n*n6,0.9136784,0.036519193649292)
 dist7<-rnorm(n*n7,0.8910694,7.13001203536987E-02)
 (totalD<-n1+n2+n3+n4+n5+n6+n7)
 (totMu<-mean(dist1)*n1/totalD+mean(dist2)*n2/totalD+mean(dist3)*n3/totalD+mean(dist4)*n4/totalD+
-  mean(dist5)*n5/totalD+mean(dist6)*n6/totalD+mean(dist7)*n7/totalD) # 0.913
+   mean(dist5)*n5/totalD+mean(dist6)*n6/totalD+mean(dist7)*n7/totalD) # 0.913
 (totVar<-sum((c(dist1,dist2,dist3,dist4,dist5,dist6,dist7)-totMu)^2)/(totalD*n)) # 0.00112, empirical variance
 # variance estimate:  
 # assuming mixture of normal theory : #Sum([mixprob]*[var]+[mixprob]*([availability]-[expavail])^2) AS rowvarmix # then maybe average this (/4)
@@ -818,7 +722,7 @@ timetime[7,2]<-system.time(for (ii in seq(1:n)){
   dist7<-rnorm(n*n7,0.8910694,7.13001203536987E-02)
   allhist[ii,2]<-mean(c(dist1,dist2,dist3,dist4,dist5,dist6,dist7)) # stores average availability of 1 history
   allhist[ii,3]<-var(c(dist1,dist2,dist3,dist4,dist5,dist6,dist7))
-  })[1]
+})[1]
 tenkhist<-a # tenk took 768 seconds, 13 minutes
 fiftykhist<-allhist # took 3781 seconds, 63 minutes 
 hist(fiftykhist[,2],col=rgb(0,1,1,1/3));hist(tenkhist[,2],add=T,col=rgb(1,0,0,1/3))
