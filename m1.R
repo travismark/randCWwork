@@ -272,7 +272,7 @@ SNnsnminOrdered5$ScdSttDt<-as.Date(SNnsnminOrdered5$ScdSttDt, origin = '1899-12-
 SNnsnminOrdered5$ThdSttDt<-as.Date(SNnsnminOrdered5$ThdSttDt, origin = '1899-12-30') 
 SNnsnminOrdered5$FurSttDt<-as.Date(SNnsnminOrdered5$FurSttDt, origin = '1899-12-30') 
 SNnsnminOrdered5$FvhSttDt<-as.Date(SNnsnminOrdered5$FvhSttDt, origin = '1899-12-30') 
-
+# IT'S STILL MISSING SERIAL NUMBER START AND END DATES, but these are unnnecessary when using the "totals" db b/c its merged after this df
 
 ### weibulls with the first removal from each NSN grouped into FSC
 
@@ -560,6 +560,11 @@ length(which(totals$diff2<=0));totals$diff2[which(totals$diff2<=0)]<-NA
 length(which(totals$diff3<=0));totals$diff3[which(totals$diff3<=0)]<-NA
 length(which(totals$diff4<=0));totals$diff4[which(totals$diff4<=0)]<-NA
 length(which(totals$diff5<=0));totals$diff5[which(totals$diff5<=0)]<-NA
+# FSC NSN and group
+totals$NSN<-as.numeric(totals$NSN)
+totals$FSC<-round(totals$NSN,-9)/1000000000 # add fsc
+totals$Grp<-round(totals$NSN,-11)/100000000000 # add group
+totals$NSN<-as.character(totals$NSN)
 # this SN has an ERO before its supposed birthday rawEros[rawEros$NSN %in% 4330011182868 & rawEros$SerialNumber == 585978,] 
 #   it gets an error diff1 value; same with the same NSN and SN 585976;  there are 46 cases, so remove them
 dim(totals);dim(totals[which(totals$diff1==Inf),])
@@ -569,19 +574,24 @@ dim(totals)
 # dim should be 3630994, not one more. if theres a bad row at the end try totals<-totals[-nrow(totals),]
 # write to a database (before it's too late)
 myconn<-odbcConnectAccess("C:/Users/tbaer/Desktop/m1a1/totalsDB")
-system.time(sqlSave(myconn,totals,rownames=FALSE,varTypes=c(NSN="Number",SerialNumber="Text",FstSttDt="Date",ScdSttDt="Date",
-             ThdSttDt="Date",FurSttDt="Date",FvhSttDt="Date",IN.SERVICE="Date",LstSttDt="Date")))
+#system.time(sqlSave(myconn,totals,rownames=FALSE,varTypes=c(NSN="Number",SerialNumber="Text",FstSttDt="Date",ScdSttDt="Date",
+#             ThdSttDt="Date",FurSttDt="Date",FvhSttDt="Date",IN.SERVICE="Date",LstSttDt="Date"))) # about 13 minutes
+system.time(totals<-sqlQuery(myconn,"SELECT * FROM totals")) # about six minutes
 remove(myconn)
+# if reading db, may need to convert dates back to R's date format with as.Date()
+# missed the FSC and Grp
+
+
 # for fitdistcens: 1 is a success (fail), 0 is a defer (suspension)
 #### too big to store in csv format
 ###### need other suspension times later
 ####
 print(object.size(totals),units="MB")
-dim(totals) # 3,631,040
+dim(totals) # 3,630,994
 # take out a weird SN  -   totals<-totals[totals$SerialNumber!=642701,] # no longer there
 source("C:/Users/tbaer/Desktop/m1a1/randCWwork/m1functions.R")
 # subsetting by NSN - it doesn't like the character - have to use %in%
-system.time(a<-CensUncensm1(totals[totals$NSN %in% 5310009388387,]))
+system.time(a<-CensUncensm1(totals[totals$NSN %in% 1005000565572,])) # 5310009388387
 system.time(zweib<-fitdistcens(a,distr="weibull")) # sometimes singular - not enough failures
 #zweib<-fitdistcens(data.frame("left"=a[,1],"right"=a[,1]),dist="weibull") # works (groups of m1's suspended at same time)
 plot(zweib);zweib$estimate
@@ -610,11 +620,16 @@ sum(table(SNnsnminOrdered5$NSN)>30,na.rm=TRUE)/length(table(SNnsnminOrdered5$NSN
 sum(table(SNnsnminOrdered5$NSN)>150,na.rm=TRUE) # 121 NSNs
 sum(table(SNnsnminOrdered5$NSN)>200,na.rm=TRUE) # 44 NSNs
 # start with using 150 as as a cutoff of failures to improve chances of fitting and test speed
-a<-rownames(table(SNnsnminOrdered5$NSN))[which(table(SNnsnminOrdered5$NSN)>200)]
+a<-rownames(table(SNnsnminOrdered5$NSN))[which(table(SNnsnminOrdered5$NSN)>200)] # 200 works with no NAs, so does 50 (has a NaN error?). 20 does not
 datasubset<-totals[totals$NSN %in% a,]
 
 source("C:/Users/tbaer/Desktop/m1a1/randCWwork/m1functions.R")
-weibs<-gatherallweibullsm1(datasubset,unbug=FALSE,modkm=FALSE)
+system.time(weibs<-gatherWeibullsm1(datasubset,"NSN",unbug=FALSE,modkm=FALSE,ontwth=1))
+system.time(weibs<-gatherWeibullsm1(totals,"NSN",unbug=TRUE,modkm=FALSE,ontwth=1))
+weibs[,"shape"]<-as.numeric(as.character(weibs[,"shape"]))
+head(weibs[order(weibs$Events),])
+hist(totals[totals$NSN %in% 2540012553347 & !is.na(totals$FstSttDt),"diff1"])
+head(weibs[order(runif(nrow(weibs))),],10) # ten random ones
 
 ### wtf confint
 # 50/50 mixture
