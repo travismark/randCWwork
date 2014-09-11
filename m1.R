@@ -37,6 +37,7 @@ require(hexbin)
 require(MASS)
 require(fitdistrplus)
 require(RODBC)
+`%notin%` <- function(x,y) !(x %in% y) 
 
 ##### load the datas - adjust formats and add other data
 setwd("C:/Users/tbaer/Desktop/m1a1")
@@ -275,7 +276,7 @@ SNnsnminOrdered5$FvhSttDt<-as.Date(SNnsnminOrdered5$FvhSttDt, origin = '1899-12-
 # IT'S STILL MISSING SERIAL NUMBER START AND END DATES, but these are unnnecessary when using the "totals" db b/c its merged after this df
 
 ### weibulls with the first removal from each NSN grouped into FSC
-
+#################################################################### SKIP TO TOTALS
 # optimisation frequently fails.  try a few different methods
 trytofit<-function(df,categ,thisCateg,startingscale,onetwo=1){
   # fits a weilbull, or returns error that is handled outside
@@ -530,7 +531,7 @@ system.time(LLT<-ddply(.data=subsetofthedata,.variables="NSN",.fun=wasLongestLea
 
 ############## some efforts to find the suspensions
 # there are so many parts that are never removed from a tank (almost 97% of the parts, 8000+ NSNs per 448 Serial Numbers)
-partnumbers<-data.frame("NSN"=unique(rawEros$NSN))
+partnumbers<-data.frame("NSN"=(unique(rawEros$NSN)),stringsAsFactors = FALSE)
 serialnumbers<-data.frame("SerialNumber"=unique(rawEros$SerialNumber))
 system.time(totals<-merge(x=partnumbers,y=serialnumbers,by=NULL))
 system.time(totals<-join(x=totals,y=SNnsnminOrdered5,by=c("SerialNumber","NSN"),type="full"))
@@ -620,16 +621,222 @@ sum(table(SNnsnminOrdered5$NSN)>30,na.rm=TRUE)/length(table(SNnsnminOrdered5$NSN
 sum(table(SNnsnminOrdered5$NSN)>150,na.rm=TRUE) # 121 NSNs
 sum(table(SNnsnminOrdered5$NSN)>200,na.rm=TRUE) # 44 NSNs
 # start with using 150 as as a cutoff of failures to improve chances of fitting and test speed
-a<-rownames(table(SNnsnminOrdered5$NSN))[which(table(SNnsnminOrdered5$NSN)>200)] # 200 works with no NAs, so does 50 (has a NaN error?). 20 does not
+a<-rownames(table(SNnsnminOrdered5$NSN))[which(table(SNnsnminOrdered5$NSN)>150)] # 200 works with no NAs, so does 50 (has a NaN error?). 20 does not
 datasubset<-totals[totals$NSN %in% a,]
 
 source("C:/Users/tbaer/Desktop/m1a1/randCWwork/m1functions.R")
-system.time(weibs<-gatherWeibullsm1(datasubset,"NSN",unbug=FALSE,modkm=FALSE,ontwth=1))
-system.time(weibs<-gatherWeibullsm1(totals,"NSN",unbug=TRUE,modkm=FALSE,ontwth=1))
+system.time(weibs<-gatherWeibullsm1(datasubset,"NSN",unbug=FALSE,modkm=FALSE,ontwth=2))
+system.time(weibs<-gatherWeibullsm1(totals,"NSN",unbug=FALSE,modkm=FALSE,ontwth=1))
 weibs[,"shape"]<-as.numeric(as.character(weibs[,"shape"]))
 head(weibs[order(weibs$Events),])
 hist(totals[totals$NSN %in% 2540012553347 & !is.na(totals$FstSttDt),"diff1"])
 head(weibs[order(runif(nrow(weibs))),],10) # ten random ones
+hist(weibs$shape)
+
+
+# collect them
+system.time(weibsAN<-gatherWeibullsm1(totals,"NSN",unbug=FALSE,modkm=FALSE,ontwth=1)) # 377 seconds
+system.time(weibsAF<-gatherWeibullsm1(totals,"FSC",unbug=FALSE,modkm=FALSE,ontwth=1)) # 80 seconds
+system.time(weibsAG<-gatherWeibullsm1(totals,"Grp",unbug=FALSE,modkm=FALSE,ontwth=1)) # 76 seconds
+system.time(weibsBN<-gatherWeibullsm1(totals,"NSN",unbug=FALSE,modkm=FALSE,ontwth=2)) # 51 seconds - many few data points b/c so few 2nd removals
+system.time(weibsBF<-gatherWeibullsm1(totals,"FSC",unbug=FALSE,modkm=FALSE,ontwth=2)) # 8  seconds
+system.time(weibsBG<-gatherWeibullsm1(totals,"Grp",unbug=FALSE,modkm=FALSE,ontwth=2)) # 5  seconds
+system.time(weibsCN<-gatherWeibullsm1(totals,"NSN",unbug=FALSE,modkm=FALSE,ontwth=3)) # 263 seconds
+system.time(weibsCF<-gatherWeibullsm1(totals,"FSC",unbug=FALSE,modkm=FALSE,ontwth=3)) # 14 seconds
+system.time(weibsCG<-gatherWeibullsm1(totals,"Grp",unbug=FALSE,modkm=FALSE,ontwth=3)) # 7 seconds
+
+# get three weibulls all together
+newdf<-CensUncensm1(totals,specCode=1)
+hist(newdf[,1]) # all events
+hist(newdf[!is.na(newdf[,2]),][,1]) # just failures
+hist(newdf[is.na(newdf[,2]),][,1]) # just suspensions
+weib<-tryCatch(fitdistcens(newdf,"weibull"),error=function(cond){return(NA)})
+oneTotalWeibA<-data.frame("shape"=weib[[1]][1],"scale"=weib[[1]][2],
+                          "MeanTime"=weib[[1]][2]*gamma(1+1/weib[[1]][1]),
+                          "Events"= sum(!is.na(newdf[,2])), "Censored"=sum(is.na(newdf[,2])))
+newdf<-CensUncensm1(totals,specCode=2)
+hist(newdf[,1]) # all events
+hist(newdf[!is.na(newdf[,2]),][,1]) # just failures
+hist(newdf[is.na(newdf[,2]),][,1]) # just suspensions
+weib<-tryCatch(fitdistcens(newdf,"weibull"),error=function(cond){return(NA)})
+oneTotalWeibB<-data.frame("shape"=weib[[1]][1],"scale"=weib[[1]][2],
+                          "MeanTime"=weib[[1]][2]*gamma(1+1/weib[[1]][1]),
+                          "Events"= sum(!is.na(newdf[,2])), "Censored"=sum(is.na(newdf[,2])))
+newdf<-CensUncensm1(totals,specCode=3)
+hist(newdf[,1]) # all events
+hist(newdf[!is.na(newdf[,2]),][,1]) # just failures
+hist(newdf[is.na(newdf[,2]),][,1]) # just suspensions
+weib<-tryCatch(fitdistcens(newdf,"weibull"),error=function(cond){return(NA)})
+oneTotalWeibC<-data.frame("shape"=weib[[1]][1],"scale"=weib[[1]][2],
+                          "MeanTime"=weib[[1]][2]*gamma(1+1/weib[[1]][1]),
+                          "Events"= sum(!is.na(newdf[,2])), "Censored"=sum(is.na(newdf[,2])))
+
+
+
+#write.csv(oftenweibsAN,"weibsAN",row.names=F);write.csv(oftenweibsAF,"weibsAF",row.names=F);write.csv(oftenweibsAG,"weibsAG",row.names=F)
+#write.csv(oftenweibsBN,"weibsBN",row.names=F);write.csv(oftenweibsBF,"weibsBF",row.names=F);write.csv(oftenweibsBG,"weibsBG",row.names=F)
+write.csv(weibsCN,"weibsCN",row.names=F);write.csv(weibsCF,"weibsCF",row.names=F);write.csv(weibsCG,"weibsCG",row.names=F)
+
+weibsAN<-read.csv("weibsAN.csv",stringsAsFactors=FALSE);weibsAF<-read.csv("weibsAF.csv",stringsAsFactors=FALSE);weibsAG<-read.csv("weibsAG.csv",stringsAsFactors=FALSE) # first failure
+weibsBN<-read.csv("weibsBN.csv",stringsAsFactors=FALSE);weibsBF<-read.csv("weibsBF.csv",stringsAsFactors=FALSE);weibsBG<-read.csv("weibsBG.csv",stringsAsFactors=FALSE) # second failure
+weibsCN<-read.csv("weibsCN.csv",stringsAsFactors=FALSE);weibsCF<-read.csv("weibsCF.csv",stringsAsFactors=FALSE);weibsCG<-read.csv("weibsCG.csv",stringsAsFactors=FALSE) # second-fifth failures
+weibsCN<-read.csv("weibsCN.csv",colClasses=c(NSN="character"))
+weibsBN<-read.csv("weibsBN.csv",colClasses=c(NSN="character"))
+weibsAN<-read.csv("weibsAN.csv",colClasses=c(NSN="character"))
+
+
+# verificication
+head(weibsAN[order(-weibsAN$Events/weibsAN$Censored),])
+head(weibsBN[order(-weibsBN$Events/weibsBN$Censored),])
+thisNSN2ndfail<-totals[totals$NSN %in% 1015011660265 & !is.na(totals$diff2),"diff2"]
+hist(thisNSN2ndfail)
+a<-fitdistcens(CensUncensm1(totals[totals$NSN==1015011660265 & !is.na(totals$diff2),],specCode=2),distr="weibull")
+plot(a)
+hist(weibsAN[weibsAN$shape<=5,]$shape)
+hist(weibsBN[weibsBN$shape<=5,]$shape)
+hist(weibsCN[weibsCN$shape<=5,]$shape)
+
+hist(weibsAF[weibsAF$shape<=5,]$shape)
+hist(weibsBF[weibsBF$shape<=5,]$shape)
+hist(weibsCF[weibsCF$shape<=5,]$shape)
+
+hist(weibsAG[weibsAG$shape<=5,]$shape)
+hist(weibsBG[weibsBG$shape<=5,]$shape)
+hist(weibsCG[weibsCG$shape<=5,]$shape)
+
+# not enough data
+totals[totals$NSN %in% 9905013175486 & !is.na(totals$diff2),]
+fitdist(totals[totals$NSN %in% 9905013175486 & !is.na(totals$diff2),"diff2"],distr="weibull")
+fitdistr(totals[totals$NSN %in% 9905013175486 & !is.na(totals$diff2),"diff2"],densfun="weibull")
+fitdistcens(CensUncensm1(totals[totals$NSN %in% 9905013175486 & !is.na(totals$diff2),],2),distr="weibull")
+
+
+########### whittle the weibulls down to >30 failures (10?)
+# define cutoff # of events
+ctf<-30
+ANgC<-weibsAN[weibsAN$Events>ctf,"NSN"]; length(ANgC)/nrow(weibsAN)
+AFgC<-weibsAF[weibsAF$Events>ctf,"FSC"]; length(AFgC)/nrow(weibsAF)
+AGgC<-weibsAG[weibsAG$Events>ctf,"Grp"]; length(AGgC)/nrow(weibsAG)
+# start with all NSNs, then left join onto it - doesn't work, have to stich together pieces
+weibs2use<-data.frame("NSN"=unique(weibsAN$NSN),"FSC"=0,"Grp"=0,
+                      "wfm"=factor("Grp",levels=c("NSN","FSC","Grp","All")),stringsAsFactors=FALSE)
+weibs2use$FSC<-round(as.numeric(weibs2use$NSN),-9)/1000000000
+weibs2use$Grp<-round(as.numeric(weibs2use$NSN),-11)/100000000000
+# NSNs that exceed cutoff
+NSNs2use<-weibs2use[weibs2use$NSN %in% ANgC,"NSN"] # NSNs I want to use
+weibs2useNSN<-inner_join(weibs2use,select(weibsAN[weibsAN$NSN %in% NSNs2use,],NSN,shape,scale,MeanTime,Events,Censored),by="NSN")
+weibs2useNSN$wfm<-"NSN"
+FSCs2use<-AFgC#unique(weibs2use[weibs2use$FSC %in% AFgC,"FSC"]) # FSCs I may want to use
+#weibs2useFSC<-inner_join(weibs2use[weibs2use$NSN %notin% weibs2useNSN$NSN,],select(weibsAF[weibsAF$FSC %in% FSCs2use,],FSC,shape,scale,MeanTime,Events,Censored),by="FSC") # this isn't working
+weibs2useFSC<-merge(weibs2use[weibs2use$NSN %notin% weibs2useNSN$NSN,],select(weibsAF[weibsAF$FSC %in% FSCs2use,],FSC,shape,scale,MeanTime,Events,Censored),by="FSC")
+weibs2useFSC$wfm<-"FSC"
+Grps2use<-AGgC
+weibs2useGrp<-merge(weibs2use[weibs2use$NSN %notin% weibs2useNSN$NSN & weibs2use$NSN %notin% weibs2useFSC$NSN,]
+                    ,select(weibsAG[weibsAG$Grp %in% Grps2use,],Grp,shape,scale,MeanTime,Events,Censored),by="Grp")
+weibs2useGrp$wfm<-"Grp"
+weibs2useAll<-merge(weibs2use[weibs2use$NSN %notin% weibs2useNSN$NSN & weibs2use$NSN %notin% weibs2useFSC$NSN & 
+                                weibs2use$NSN %notin% weibs2useGrp$NSN,],oneTotalWeibA)
+weibs2useAll$wfm<-"All"
+# bring together
+weibs2useT<-rbind(weibs2useNSN,weibs2useFSC,weibs2useGrp,weibs2useAll)
+dim(weibs2use);dim(weibs2useT)
+weibs2useTA<-weibs2useT # totals for 1st removal - for saving
+write.csv(weibs2useTA,"ABCweibuls30failscutoffFirstRem.csv",row.names=FALSE)
+# then need to do same for C
+CNgC<-weibsCN[weibsCN$Events>ctf,"NSN"]; length(ANgC)/nrow(weibsAN)
+CFgC<-weibsCF[weibsCF$Events>ctf,"FSC"]; length(AFgC)/nrow(weibsAF)
+CGgC<-weibsCG[weibsCG$Events>ctf,"Grp"]; length(AGgC)/nrow(weibsAG)
+# start with all NSNs, then left join onto it - doesn't work, have to stich together pieces
+weibs2use<-data.frame("NSN"=unique(weibsCN$NSN),"FSC"=0,"Grp"=0,
+                      "wfm"=factor("Grp",levels=c("NSN","FSC","Grp","All")),stringsAsFactors=FALSE)
+weibs2use$FSC<-round(as.numeric(weibs2use$NSN),-9)/1000000000
+weibs2use$Grp<-round(as.numeric(weibs2use$NSN),-11)/100000000000
+# NSNs that exceed cutoff
+NSNs2use<-weibs2use[weibs2use$NSN %in% ANgC,"NSN"] # NSNs I want to use
+weibs2useNSN<-inner_join(weibs2use,select(weibsCN[weibsCN$NSN %in% NSNs2use,],NSN,shape,scale,MeanTime,Events,Censored),by="NSN")
+weibs2useNSN$wfm<-"NSN"
+FSCs2use<-CFgC#unique(weibs2use[weibs2use$FSC %in% AFgC,"FSC"]) # FSCs I may want to use
+#weibs2useFSC<-inner_join(weibs2use[weibs2use$NSN %notin% weibs2useNSN$NSN,],select(weibsAF[weibsAF$FSC %in% FSCs2use,],FSC,shape,scale,MeanTime,Events,Censored),by="FSC") # this isn't working
+weibs2useFSC<-merge(weibs2use[weibs2use$NSN %notin% weibs2useNSN$NSN,],select(weibsCF[weibsCF$FSC %in% FSCs2use,],FSC,shape,scale,MeanTime,Events,Censored),by="FSC")
+weibs2useFSC$wfm<-"FSC"
+Grps2use<-CGgC
+weibs2useGrp<-merge(weibs2use[weibs2use$NSN %notin% weibs2useNSN$NSN & weibs2use$NSN %notin% weibs2useFSC$NSN,]
+                    ,select(weibsCG[weibsAG$Grp %in% Grps2use,],Grp,shape,scale,MeanTime,Events,Censored),by="Grp")
+weibs2useGrp$wfm<-"Grp"
+weibs2useAll<-merge(weibs2use[weibs2use$NSN %notin% weibs2useNSN$NSN & weibs2use$NSN %notin% weibs2useFSC$NSN & 
+                                weibs2use$NSN %notin% weibs2useGrp$NSN,],oneTotalWeibC)
+weibs2useAll$wfm<-"All"
+# bring together
+weibs2useT<-rbind(weibs2useNSN,weibs2useFSC,weibs2useGrp,weibs2useAll)
+dim(weibs2use);dim(weibs2useT)
+weibs2useTC<-weibs2useT # totals for 3rd removal
+write.csv(weibs2useTC,"ABCweibuls30failscutoffTwoToFive.csv",row.names=FALSE)
+#########
+# now the m1a1 models in model
+nsnstofind<-read.csv("m1a1nsnsinmodel0908.csv",col.names="NSN")
+nsnstofind$FSC<-round(nsnstofind$NSN,-9)/1000000000
+nsnstofind$Grp<-round(nsnstofind$NSN,-11)/100000000000
+nsnstofind$InSOE<-"Yes"
+nsnstofind$NSN<-as.character(nsnstofind$NSN) # make sure join column is the same structure
+weibs2use<-nsnstofind
+# bring over everything that matches - A
+## A
+nsnstofindAmatch<-inner_join(weibs2use,select(weibs2useTA,NSN,shape,scale,MeanTime,Events,Censored,wfm),by="NSN")
+weibs2useNSN<-select(nsnstofindAmatch,NSN)
+# with no match, try to match FSC
+FSCs2use<-weibsAF[weibsAF$Events>ctf,"FSC"]
+weibs2useFSC<-merge(weibs2use[weibs2use$NSN %notin% weibs2useNSN$NSN,],select(weibsAF[weibsAF$FSC %in% FSCs2use,],FSC,shape,scale,MeanTime,Events,Censored),by="FSC")
+weibs2useFSC$wfm<-"FSC"
+weibs2useFSC$InSOE<-"No"
+Grps2use<-weibsAG[weibsAG$Events>ctf,"Grp"]
+weibs2useGrp<-merge(weibs2use[weibs2use$NSN %notin% weibs2useNSN$NSN & weibs2use$NSN %notin% weibs2useFSC$NSN,]
+                    ,select(weibsAG[weibsAG$Grp %in% Grps2use,],Grp,shape,scale,MeanTime,Events,Censored),by="Grp")
+weibs2useGrp$wfm<-"Grp"
+weibs2useGrp$InSOE<-"No"
+weibs2useAll<-merge(weibs2use[weibs2use$NSN %notin% weibs2useNSN$NSN & weibs2use$NSN %notin% weibs2useFSC$NSN & 
+                                weibs2use$NSN %notin% weibs2useGrp$NSN,],oneTotalWeibA)
+weibs2useAll$wfm<-"All"
+weibs2useAll$InSOE<-"No"
+# bring together
+weibs2useT<-rbind(nsnstofindAmatch,weibs2useFSC,weibs2useGrp,weibs2useAll)
+dim(nsnstofind);dim(weibs2useT)
+weibs2useTAmodelNSN<-weibs2useT # totals for 1st removal - for saving
+write.csv(weibs2useTAmodelNSN,"modelNSNweibuls30failscutoffFirstRem.csv",row.names=FALSE)
+## C
+nsnstofind$NSN<-as.numeric(nsnstofind$NSN)
+weibs2use<-nsnstofind
+nsnstofindCmatch<-inner_join(weibs2use,select(weibs2useTC,NSN,shape,scale,MeanTime,Events,Censored,wfm),by="NSN")
+FSCs2use<-weibsCF[weibsCF$Events>ctf,"FSC"]
+weibs2useFSC<-merge(weibs2use[weibs2use$NSN %notin% weibs2useNSN$NSN,],select(weibsCF[weibsCF$FSC %in% FSCs2use,],FSC,shape,scale,MeanTime,Events,Censored),by="FSC")
+weibs2useFSC$wfm<-"FSC"
+weibs2useFSC$InSOE<-"No"
+Grps2use<-weibsCG[weibsCG$Events>ctf,"Grp"]
+weibs2useGrp<-merge(weibs2use[weibs2use$NSN %notin% weibs2useNSN$NSN & weibs2use$NSN %notin% weibs2useFSC$NSN,]
+                    ,select(weibsAG[weibsAG$Grp %in% Grps2use,],Grp,shape,scale,MeanTime,Events,Censored),by="Grp")
+weibs2useGrp$wfm<-"Grp"
+weibs2useGrp$InSOE<-"No"
+weibs2useAll<-merge(weibs2use[weibs2use$NSN %notin% weibs2useNSN$NSN & weibs2use$NSN %notin% weibs2useFSC$NSN & 
+                                weibs2use$NSN %notin% weibs2useGrp$NSN,],oneTotalWeibA)
+weibs2useAll$wfm<-"All"
+weibs2useAll$InSOE<-"No"
+# bring together
+weibs2useT<-rbind(nsnstofindAmatch,weibs2useFSC,weibs2useGrp,weibs2useAll)
+dim(nsnstofind);dim(weibs2useT)
+weibs2useTCmodelNSN<-weibs2useT # totals for 1st removal - for saving
+write.csv(weibs2useTCmodelNSN,"modelNSNweibuls30failscutoffTwoToFive.csv",row.names=FALSE)
+#####################################
+
+
+########## compare drop in scale
+weibsN<-join(select(weibsAN,NSN,scale,Events,Censored),select(weibsBN,NSN,scale,Events,Censored),by="NSN")
+weibsN<-join(weibsN,select(weibsCN,NSN,scale,Events,Censored),by="NSN")
+colnames(weibsN)<-c("NSN","scale1","Events1","Censored1","scale2","Events2","Censored2","scale3","Events3","Censored3")
+weibsNpos<-weibsN[which(!is.na(weibsN$scale1) & !is.na(weibsN$scale2) & !is.na(weibsN$scale3)),]
+weibsNg10<-weibsNpos[which(weibsNpos$Events1>=10 & weibsNpos$Events2>10 & weibsNpos$Events3>10),]
+mean(weibsNg10$scale1/weibsNg10$scale2);mean(weibsNg10$scale1/weibsNg10$scale3)
+weibsNg30<-weibsNpos[which(weibsNpos$Events1>=30 & weibsNpos$Events2>30 & weibsNpos$Events3>30),]
+mean(weibsNg30$scale1/weibsNg30$scale2);mean(weibsNg30$scale1/weibsNg30$scale3)
+hist(weibsNg30$scale1/weibsNg30$scale3)
 
 ### wtf confint
 # 50/50 mixture

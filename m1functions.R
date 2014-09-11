@@ -18,19 +18,53 @@ CensUncensm1 <- function(df,specCode=1) {
     (newdf)
   }
   else if(specCode==2){
-    if(sum(is.na(df$FstSttDt))==0) {censdf<-NULL # set to null b/c empty
+    # take out cases that never fail the first time b/c they've already been censored in diff1 (they were never on test)
+    #df<-df[-which(is.na(df$FstSttDt) & is.na(df$ScdSttDt)),]   
+    # 2nd removal and on  sometimes has missing diffs where Start date isn't null b/c the diffs were zero or negative - remove these rows
+    #df<-df[-which(is.na(df$diff2) & !is.na(df$ScdSttDt)),]
+    # take out cases where 1st failures are the very last thing to happen to a part - therefore suspension time for 2nd removal is zero, and converted to NA
+    #df<-df[-which(df$LstSttDt==df$FstSttDt),]
+    df<-df[!is.na(df$diff2),]
+    if(sum(is.na(df$ScdSttDt))==0) {censdf<-NULL # set to null b/c empty
     } else { censdf<-data.frame(df[is.na(df$ScdSttDt),"diff2"],NA) # paste0("diff",1) to use other diffs
              colnames(censdf)<-c("left","right")}
-    if(sum(!is.na(df$FstSttDt))==0) {uncensdf<-NULL # set to null b/c empty
+    if(sum(!is.na(df$ScdSttDt))==0) {uncensdf<-NULL # set to null b/c empty
     } else {uncensdf<-data.frame(df[!is.na(df$ScdSttDt),"diff2"],df[!is.na(df$ScdSttDt),"diff2"])
             colnames(uncensdf)<-c("left","right")}
     newdf<-rbind(censdf,uncensdf)
     (newdf)
   }
-#  else if (specCode==3){ # TODO
-
-    #      otherDiffs<-c(df[!is.na(df$ScdSttDt),"diff2"],df[!is.na(df$ThdSttDt),"diff3"],df[!is.na(df$FurSttDt),"diff4"],df[!is.na(df$FvhSttDt),"diff5"])
- # }
+  else if (specCode==3){ # 2nd, 3rd, 4th, 5th removals
+    df2<-df[!is.na(df$diff2),] # take out rows with diff2==NA b/c they aren't under test or valid (0 or negative fail time)
+    if(sum(is.na(df2$ScdSttDt))==0) {censdf2<-NULL # set to null b/c empty
+    } else { censdf2<-data.frame(df2[is.na(df2$ScdSttDt),"diff2"],NA) # paste0("diff",1) to use other diffs
+             colnames(censdf2)<-c("left","right")}
+    if(sum(!is.na(df2$ScdSttDt))==0) {uncensdf2<-NULL # set to null b/c empty
+    } else {uncensdf2<-data.frame(df2[!is.na(df2$ScdSttDt),"diff2"],df2[!is.na(df2$ScdSttDt),"diff2"])
+            colnames(uncensdf2)<-c("left","right")}
+    df3<-df[!is.na(df$diff3),]
+    if(sum(is.na(df3$ThdSttDt))==0) {censdf3<-NULL # set to null b/c empty
+    } else { censdf3<-data.frame(df3[is.na(df3$ThdSttDt),"diff3"],NA) # paste0("diff",1) to use other diffs
+             colnames(censdf3)<-c("left","right")}
+    if(sum(!is.na(df3$ScdSttDt))==0) {uncensdf3<-NULL # set to null b/c empty
+    } else {uncensdf3<-data.frame(df3[!is.na(df3$ThdSttDt),"diff3"],df3[!is.na(df3$ThdSttDt),"diff3"])
+            colnames(uncensdf3)<-c("left","right")}
+    df4<-df[!is.na(df$diff4),]
+    if(sum(is.na(df4$FurSttDt))==0) {censdf4<-NULL # set to null b/c empty
+    } else { censdf4<-data.frame(df4[is.na(df4$FurSttDt),"diff4"],NA) # paste0("diff",1) to use other diffs
+             colnames(censdf4)<-c("left","right")}
+    if(sum(!is.na(df$FurSttDt))==0) {uncensdf4<-NULL # set to null b/c empty
+    } else {uncensdf4<-data.frame(df4[!is.na(df4$FurSttDt),"diff4"],df4[!is.na(df4$FurSttDt),"diff4"])
+            colnames(uncensdf4)<-c("left","right")}
+    df5<-df[!is.na(df$diff5),]
+    if(sum(is.na(df5$FvhSttDt))==0) {censdf5<-NULL # set to null b/c empty
+    } else { censdf5<-data.frame(df5[is.na(df5$FvhSttDt),"diff5"],NA) # paste0("diff",1) to use other diffs
+             colnames(censdf5)<-c("left","right")}
+    if(sum(!is.na(df5$FvhSttDt))==0) {uncensdf5<-NULL # set to null b/c empty
+    } else {uncensdf5<-data.frame(df5[!is.na(df5$FvhSttDt),"diff5"],df5[!is.na(df5$FvhSttDt),"diff5"])
+            colnames(uncensdf5)<-c("left","right")}
+    newdf<-rbind(censdf2,uncensdf2,censdf3,uncensdf3,censdf4,uncensdf4,censdf5,uncensdf5)
+  }
 } # end CensUncens
 
 
@@ -50,11 +84,9 @@ getWeibullsFromSubsetm1 <- function(df, plot, catgs,modkm, plotdir,unbug,ontwth)
   #   calls getPlotFromDF to make a plot, if option is on
 
   #shape the totals table into a two-column dataframe with time on wing and censored information for fitdistcens()
-  newdf<-CensUncensm1(df,1)
+  newdf<-CensUncensm1(df,specCode=ontwth) # if I want to to 1 and 2, or 1 and 3, I need to make ontwth different than the code I pass here
   #calculate a weibull from that new 2-column dataframe
-  if(unbug){print(df[1,])}
-  if(unbug){print(dim(newdf))}
-  if(unbug){print(newdf[1,])}   
+  if(unbug){c(print(df[1,],dim(newdf),newdf[1,]),sum(!is.na(newdf[,2])))}
   options(warn=-1)
   # weibull fails with too few points and other reasons - can adjust starting conditions and retry (or return all NAs)
   # sometimes I get a singlur within the fit
@@ -91,17 +123,32 @@ getWeibullsFromSubsetm1 <- function(df, plot, catgs,modkm, plotdir,unbug,ontwth)
     } # end if weibull fit
   else {
     out<-data.frame(NA,NA,NA,NA,NA,0,0,NA,NA)
-    out[1,6]<-sum(!is.na(df$FstSttDt))
-    out[1,7]<-sum(is.na(df$FstSttDt))
+    if(ontwth==1){
+      out[1,6]<-sum(!is.na(df$FstSttDt))
+      out[1,7]<-sum(is.na(df$FstSttDt))
+    }
+    if(ontwth==2){
+      df<-df[!is.na(df$diff2),] # take out rows with diff2==NA b/c they aren't under test or valid (0 or negative fail time)
+      out[1,6]<-sum(!is.na(df$ScdSttDt))
+      out[1,7]<-sum(is.na(df$ScdSttDt))
+    }
+    if(ontwth==3){
+      df2<-df[!is.na(df$diff2),] # take out rows with diff2==NA b/c they aren't under test or valid (0 or negative fail time)
+      df3<-df[!is.na(df$diff3),];df4<-df[!is.na(df$diff4),];df5<-df[!is.na(df$diff5),]
+      out[1,6]<-sum(!is.na(df[!is.na(df$diff2),]$ScdSttDt))+sum(!is.na(df[!is.na(df$diff3),]$ThdSttDt))+
+        sum(!is.na(df[!is.na(df$diff4),]$FurSttDt))+sum(!is.na(df[!is.na(df$diff5),]$FvhSttDt))
+      out[1,7]<-sum(is.na(df[!is.na(df$diff2),]$ScdSttDt))+sum(is.na(df[!is.na(df$diff3),]$ThdSttDt))+
+        sum(is.na(df[!is.na(df$diff4),]$FurSttDt))+sum(is.na(df[!is.na(df$diff5),]$FvhSttDt))
+    }
     # no plot generated 
-    } # end else oh the weibull didn't fit
+  } # end else oh the weibull didn't fit
   colnames(out)<-c("shape","scale","shapeSE","scaleSE","MeanTime","Events","Censored","BetaTestPval","ExpoScale") 
   (out)
 } # end getWeibullFromDF function
 
 # this will only break out by specified classifiers
 # uses GetWeibullsFromDF and CensUncens functions
-gatherWeibullsm1<-function(weibulls_table,classTypes="NSN",ontwth=1,verbose=FALSE,unbug=FALSE,plot=FALSE,modkm=FALSE,plotdir=getwd(),){
+gatherWeibullsm1<-function(weibulls_table,classTypes="NSN",ontwth=1,verbose=FALSE,unbug=FALSE,plot=FALSE,modkm=FALSE,plotdir=getwd()){
   # Args
     # ontwth:  code for which weibulls to fit
         # 1: just 1st failure; 2: just 1st and 2nd failure; 3: 1st and group all other failures into a second failure; 4: both 2 and 3
@@ -121,7 +168,7 @@ gatherWeibullsm1<-function(weibulls_table,classTypes="NSN",ontwth=1,verbose=FALS
     mat<-combn(cls:2,ii) # gives all the ways to choose 'ii' digits out of quantity of classifier columns less one [b/c wuc is always in]
     for(jj in seq_len(dim(mat)[2])) {
       # call calloneddply() once per column of the combn output
-      weibs1<-calloneDDPLYm1(weibulls_table,include=sort(c(1,mat[,jj])),plots=plot,classcolnames,modkm,plotdir,verbose,unbug,ontwth)
+      weibs1<-calloneDDPLYm1(weibulls_table,include=sort(c(1,mat[,jj])),plots=plot,classcolnames,modkm,plotdir,verbose,unbug,ontwth,classTypes)
       if(first==1) {
         weibs<-weibs1 # create
         first<-0
@@ -138,7 +185,7 @@ gatherWeibullsm1<-function(weibulls_table,classTypes="NSN",ontwth=1,verbose=FALS
 } # end gatherallweibulls
 
 
-calloneDDPLYm1<-function(weibulls_table,include,plots,classifiernames,modkm,plotdir,verbose,unbug,ontwth) {
+calloneDDPLYm1<-function(weibulls_table,include,plots,classifiernames,modkm,plotdir,verbose,unbug,ontwth,classTypes) {
   includenames<-classifiernames[include]
   excludenames<-classifiernames[-include]
   if(verbose){print(includenames)}
@@ -154,7 +201,7 @@ calloneDDPLYm1<-function(weibulls_table,include,plots,classifiernames,modkm,plot
     weibs[,length(weibs)+1]<-"ALL"
     names(weibs)[length(weibs)]<-excludenames[ii]
   }
-  numericalnames<-colnames(weibs)
+  numericalnames<-colnames(weibs)[-seq(length(classTypes))]
   # Move description columns to the correct order
   weibs<-weibs[,c(classifiernames,numericalnames)]
   (weibs)
