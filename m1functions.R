@@ -68,10 +68,12 @@ CensUncensm1 <- function(df,specCode=1) {
 } # end CensUncens
 
 
-getWeibullsFromSubsetm1 <- function(df, plot, catgs,modkm, plotdir,unbug,ontwth)  {
+getDistribsFromSubsetm1 <- function(df, distrib, plot, catgs,modkm, plotdir,unbug,ontwth)  {
   # Outputs a row with fitted weibulls and can generate a weibull plot in the specified directory
   # Args:
   #   df: a subset of the removals/repair days-to-removal data as broken down by a previous call to ddply()
+  #   distrib: for now either weibull (failure rates) or lognormal (shipping times) - both use fitdistrplus's equations
+  #       weibull takes a totals db and uses suspensions, lognormal takes a rawEros db and will not use suspensions
   #   plot: boolean if the function should call getPlotFromDF to save a plot
   #   catgs: text string of all the specific classifiers used in the previous steps to pass df to this function
   #   modkm: boolean if the function should calculate the modified kaplan meier plot points; required for plotting
@@ -83,72 +85,97 @@ getWeibullsFromSubsetm1 <- function(df, plot, catgs,modkm, plotdir,unbug,ontwth)
   #        ddply will append this to the classifiers columns to make a row of the final output
   #   calls getPlotFromDF to make a plot, if option is on
 
-  #shape the totals table into a two-column dataframe with time on wing and censored information for fitdistcens()
-  newdf<-CensUncensm1(df,specCode=ontwth) # if I want to to 1 and 2, or 1 and 3, I need to make ontwth different than the code I pass here
-  #calculate a weibull from that new 2-column dataframe
-  if(unbug){c(print(df[1,],dim(newdf),newdf[1,]),sum(!is.na(newdf[,2])))}
-  options(warn=-1)
-  # weibull fails with too few points and other reasons - can adjust starting conditions and retry (or return all NAs)
-  # sometimes I get a singlur within the fit
-  weib<-tryCatch(fitdistcens(newdf,"weibull"),error=function(cond){return(NA)})
-  if(unbug){print("done fitting the weibull")}
-  # if fit was successful, perform a few more steps
-  if(class(weib)=="fitdistcens"){
-      options(warn=0)
-      #find the modified Kaplan Meier rank and the fitted values 
-      if (modkm) {
-        rankedpoints<-getModKM(newdf,weib[[1]]) # takes cens/uncens TOW and weibull parameters
+  if(distrib=="weibull"){
+    #shape the totals table into a two-column dataframe with time on wing and censored information for fitdistcens()
+    newdf<-CensUncensm1(df,specCode=ontwth) # if I want to to 1 and 2, or 1 and 3, I need to make ontwth different than the code I pass here
+    #calculate a weibull from that new 2-column dataframe
+    if(unbug){c(print(df[1,],dim(newdf),newdf[1,]),sum(!is.na(newdf[,2])))}
+    options(warn=-1)
+    # weibull fails with too few points and other reasons - can adjust starting conditions and retry (or return all NAs)
+    # sometimes I get a singlur within the fit
+    weib<-tryCatch(fitdistcens(newdf,"weibull"),error=function(cond){return(NA)})
+    if(unbug){print("done fitting the weibull")}
+    # if fit was successful, perform a few more steps
+    if(class(weib)=="fitdistcens"){
+        options(warn=0)
+        #find the modified Kaplan Meier rank and the fitted values 
+        if (modkm) {
+          rankedpoints<-getModKM(newdf,weib[[1]]) # takes cens/uncens TOW and weibull parameters
+        }
+        #find the exponential parameters and the beta = 1 p value
+        betaout<-tryCatch(BetaTest(newdf,weib$loglik),error=function(cond){return(NA)})
+        #calculate the Anderson Darling Adjusted statistics for weibull,exponential,lognormal and normal distributions
+        if (modkm) {
+          ADstats<-calcADAvals(rankedpoints,newdf,betaout[[2]])
+        } else {ADstats<-data.frame(NA,NA,NA,NA)} # finding modkm is slow so option out
+        #save a plot of the weibull. this requires modkm
+        if (plot) {
+          getPlotFromDF(rankedpoints, head(df), weib[[1]], catgs, plotdir, unbug) #ranked points, sample of input data, break-out categories
+        }
+        
+        # save the scale and shape parameters & their standard errors
+        #   & # of events and beta-test-p-value in a dataframe
+        out<-cbind(t(data.frame(weib[1])),t(data.frame(weib[2])))
+        out<-as.data.frame(out)
+        out[1,5]<-weib[[1]][2]*gamma(1+1/weib[[1]][1]) # mean time b/w events (scale*gamma(1+1/shape))
+        out[1,6]<-length(is.na(newdf$right)[is.na(newdf$right)==FALSE]) # uncensored events
+        out[1,7]<-length(is.na(newdf$right)[is.na(newdf$right)==TRUE]) # censored
+        #out[1,8]<-weib$loglik # negative log likelihood of the weibull fit (will be used to compare fits)
+        out[1,8]<-betaout[[1]] # get the Log-Likelihood Ratio Test p-value for Beta=1 test (approximation of Minitab Wald Test p-value)
+        out[1,9]<-tryCatch(betaout[[2]],error=function(cond){return(NA)}) # exponential scale (1/rate) parameter
+      } # end if weibull fit
+    else {
+      out<-data.frame(NA,NA,NA,NA,NA,0,0,NA,NA)
+      if(ontwth==1){
+        out[1,6]<-sum(!is.na(df$FstSttDt))
+        out[1,7]<-sum(is.na(df$FstSttDt))
       }
-      #find the exponential parameters and the beta = 1 p value
-      betaout<-tryCatch(BetaTest(newdf,weib$loglik),error=function(cond){return(NA)})
-      #calculate the Anderson Darling Adjusted statistics for weibull,exponential,lognormal and normal distributions
-      if (modkm) {
-        ADstats<-calcADAvals(rankedpoints,newdf,betaout[[2]])
-      } else {ADstats<-data.frame(NA,NA,NA,NA)} # finding modkm is slow so option out
-      #save a plot of the weibull. this requires modkm
-      if (plot) {
-        getPlotFromDF(rankedpoints, head(df), weib[[1]], catgs, plotdir, unbug) #ranked points, sample of input data, break-out categories
+      if(ontwth==2){
+        df<-df[!is.na(df$diff2),] # take out rows with diff2==NA b/c they aren't under test or valid (0 or negative fail time)
+        out[1,6]<-sum(!is.na(df$ScdSttDt))
+        out[1,7]<-sum(is.na(df$ScdSttDt))
       }
-      
-      # save the scale and shape parameters & their standard errors
-      #   & # of events and beta-test-p-value in a dataframe
-      out<-cbind(t(data.frame(weib[1])),t(data.frame(weib[2])))
+      if(ontwth==3){
+        df2<-df[!is.na(df$diff2),] # take out rows with diff2==NA b/c they aren't under test or valid (0 or negative fail time)
+        df3<-df[!is.na(df$diff3),];df4<-df[!is.na(df$diff4),];df5<-df[!is.na(df$diff5),]
+        out[1,6]<-sum(!is.na(df[!is.na(df$diff2),]$ScdSttDt))+sum(!is.na(df[!is.na(df$diff3),]$ThdSttDt))+
+          sum(!is.na(df[!is.na(df$diff4),]$FurSttDt))+sum(!is.na(df[!is.na(df$diff5),]$FvhSttDt))
+        out[1,7]<-sum(is.na(df[!is.na(df$diff2),]$ScdSttDt))+sum(is.na(df[!is.na(df$diff3),]$ThdSttDt))+
+          sum(is.na(df[!is.na(df$diff4),]$FurSttDt))+sum(is.na(df[!is.na(df$diff5),]$FvhSttDt))
+      }
+      # no plot generated 
+    } # end else oh the weibull didn't fit
+    colnames(out)<-c("shape","scale","shapeSE","scaleSE","MeanTime","Events","Censored","BetaTestPval","ExpoScale") 
+    (out)
+  }
+  else if(distrib=="lognormal"){
+    leadtimes<-df[!is.na(df$LeadTime),"LeadTime"]
+    oneleadtime<-tryCatch(fitdist(leadtimes,densfun="lognormal"),error=function(cond){return(NA)})
+    if(unbug){print(length(leadtimes))}
+    # if fit was successful, perform a few more steps
+    if(class(oneleadtime)=="fitdistr"){
+      if(unbug){print("successful fit")}
+      out<-cbind(t(data.frame(oneleadtime[1])),t(data.frame(oneleadtime[2])))
       out<-as.data.frame(out)
-      out[1,5]<-weib[[1]][2]*gamma(1+1/weib[[1]][1]) # mean time b/w events (scale*gamma(1+1/shape))
-      out[1,6]<-length(is.na(newdf$right)[is.na(newdf$right)==FALSE]) # uncensored events
-      out[1,7]<-length(is.na(newdf$right)[is.na(newdf$right)==TRUE]) # censored
-      #out[1,8]<-weib$loglik # negative log likelihood of the weibull fit (will be used to compare fits)
-      out[1,8]<-betaout[[1]] # get the Log-Likelihood Ratio Test p-value for Beta=1 test (approximation of Minitab Wald Test p-value)
-      out[1,9]<-tryCatch(betaout[[2]],error=function(cond){return(NA)}) # exponential scale (1/rate) parameter
-    } # end if weibull fit
-  else {
-    out<-data.frame(NA,NA,NA,NA,NA,0,0,NA,NA)
-    if(ontwth==1){
-      out[1,6]<-sum(!is.na(df$FstSttDt))
-      out[1,7]<-sum(is.na(df$FstSttDt))
+      out[1,5]<-exp(oneleadtime[[1]][1]) # median time b/w order and receive
+      out[1,6]<-exp(oneleadtime[[1]][1]+(oneleadtime[[1]][2])^2/2) # mean
+      out[1,7]<-oneleadtime$n # events
     }
-    if(ontwth==2){
-      df<-df[!is.na(df$diff2),] # take out rows with diff2==NA b/c they aren't under test or valid (0 or negative fail time)
-      out[1,6]<-sum(!is.na(df$ScdSttDt))
-      out[1,7]<-sum(is.na(df$ScdSttDt))
-    }
-    if(ontwth==3){
-      df2<-df[!is.na(df$diff2),] # take out rows with diff2==NA b/c they aren't under test or valid (0 or negative fail time)
-      df3<-df[!is.na(df$diff3),];df4<-df[!is.na(df$diff4),];df5<-df[!is.na(df$diff5),]
-      out[1,6]<-sum(!is.na(df[!is.na(df$diff2),]$ScdSttDt))+sum(!is.na(df[!is.na(df$diff3),]$ThdSttDt))+
-        sum(!is.na(df[!is.na(df$diff4),]$FurSttDt))+sum(!is.na(df[!is.na(df$diff5),]$FvhSttDt))
-      out[1,7]<-sum(is.na(df[!is.na(df$diff2),]$ScdSttDt))+sum(is.na(df[!is.na(df$diff3),]$ThdSttDt))+
-        sum(is.na(df[!is.na(df$diff4),]$FurSttDt))+sum(is.na(df[!is.na(df$diff5),]$FvhSttDt))
-    }
-    # no plot generated 
-  } # end else oh the weibull didn't fit
-  colnames(out)<-c("shape","scale","shapeSE","scaleSE","MeanTime","Events","Censored","BetaTestPval","ExpoScale") 
+    else { # did not fit successfully
+      out<-data.frame(NA,NA,NA,NA,0,0,0)
+      out[1,5]<-mean(df$LeadTimes,na.rm=TRUE)
+      out[1,5]<-mean(df$LeadTimes,na.rm=TRUE)
+      out[1,5]<-sum(!is.na(df$LeadTimes))
+  }
+  colnames(out)<-c("meanlog","sdlog","meanlogSE","sdlogSE","MedianTime","MeanTime","Events") 
   (out)
+  }
+  else stop("that distribution does not qualify")
 } # end getWeibullFromDF function
 
 # this will only break out by specified classifiers
 # uses GetWeibullsFromDF and CensUncens functions
-gatherWeibullsm1<-function(weibulls_table,classTypes="NSN",ontwth=1,verbose=FALSE,unbug=FALSE,plot=FALSE,modkm=FALSE,plotdir=getwd()){
+gatherDistFitsm1<-function(weibulls_table,distrib="weibull",classTypes="NSN",ontwth=1,verbose=FALSE,unbug=FALSE,plot=FALSE,modkm=FALSE,plotdir=getwd()){
   # Args
     # ontwth:  code for which weibulls to fit
         # 1: just 1st failure; 2: just 1st and 2nd failure; 3: 1st and group all other failures into a second failure; 4: both 2 and 3
@@ -168,7 +195,7 @@ gatherWeibullsm1<-function(weibulls_table,classTypes="NSN",ontwth=1,verbose=FALS
     mat<-combn(cls:2,ii) # gives all the ways to choose 'ii' digits out of quantity of classifier columns less one [b/c wuc is always in]
     for(jj in seq_len(dim(mat)[2])) {
       # call calloneddply() once per column of the combn output
-      weibs1<-calloneDDPLYm1(weibulls_table,include=sort(c(1,mat[,jj])),plots=plot,classcolnames,modkm,plotdir,verbose,unbug,ontwth,classTypes)
+      weibs1<-calloneDDPLYm1(weibulls_table,distrib,include=sort(c(1,mat[,jj])),plots=plot,classcolnames,modkm,plotdir,verbose,unbug,ontwth,classTypes)
       if(first==1) {
         weibs<-weibs1 # create
         first<-0
@@ -185,7 +212,7 @@ gatherWeibullsm1<-function(weibulls_table,classTypes="NSN",ontwth=1,verbose=FALS
 } # end gatherallweibulls
 
 
-calloneDDPLYm1<-function(weibulls_table,include,plots,classifiernames,modkm,plotdir,verbose,unbug,ontwth,classTypes) {
+calloneDDPLYm1<-function(weibulls_table,distrib,include,plots,classifiernames,modkm,plotdir,verbose,unbug,ontwth,classTypes) {
   includenames<-classifiernames[include]
   excludenames<-classifiernames[-include]
   if(verbose){print(includenames)}
@@ -195,7 +222,7 @@ calloneDDPLYm1<-function(weibulls_table,include,plots,classifiernames,modkm,plot
     classifiers<-paste(classifiers,includenames[ii],sep="")
   }
   # Call the ddply
-  weibs<-ddply(weibulls_table,includenames,getWeibullsFromSubsetm1,plot=plots,catgs=classifiers,modkm,plotdir,unbug,ontwth)
+  weibs<-ddply(weibulls_table,includenames,getDistribsFromSubsetm1,distrib,plot=plots,catgs=classifiers,modkm,plotdir,unbug,ontwth)
   # Add the "ALL" description columns to the end of the data frame
   for (ii in seq(excludenames)) {
     weibs[,length(weibs)+1]<-"ALL"
@@ -215,3 +242,4 @@ BetaTest<-function(input,weibnll) {
   pvalue<-1-pchisq(teststat,1)
   (list(pval=pvalue,param=expofit[[1]]))
 }
+

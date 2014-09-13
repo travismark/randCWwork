@@ -625,8 +625,8 @@ a<-rownames(table(SNnsnminOrdered5$NSN))[which(table(SNnsnminOrdered5$NSN)>150)]
 datasubset<-totals[totals$NSN %in% a,]
 
 source("C:/Users/tbaer/Desktop/m1a1/randCWwork/m1functions.R")
-system.time(weibs<-gatherWeibullsm1(datasubset,"NSN",unbug=FALSE,modkm=FALSE,ontwth=2))
-system.time(weibs<-gatherWeibullsm1(totals,"NSN",unbug=FALSE,modkm=FALSE,ontwth=1))
+system.time(weibs<-gatherDistFitsm1(datasubset,"NSN",unbug=FALSE,modkm=FALSE,ontwth=2))
+system.time(weibs<-gatherDistFitsm1(totals,"NSN",unbug=FALSE,modkm=FALSE,ontwth=1))
 weibs[,"shape"]<-as.numeric(as.character(weibs[,"shape"]))
 head(weibs[order(weibs$Events),])
 hist(totals[totals$NSN %in% 2540012553347 & !is.na(totals$FstSttDt),"diff1"])
@@ -635,15 +635,15 @@ hist(weibs$shape)
 
 
 # collect them
-system.time(weibsAN<-gatherWeibullsm1(totals,"NSN",unbug=FALSE,modkm=FALSE,ontwth=1)) # 377 seconds
-system.time(weibsAF<-gatherWeibullsm1(totals,"FSC",unbug=FALSE,modkm=FALSE,ontwth=1)) # 80 seconds
-system.time(weibsAG<-gatherWeibullsm1(totals,"Grp",unbug=FALSE,modkm=FALSE,ontwth=1)) # 76 seconds
-system.time(weibsBN<-gatherWeibullsm1(totals,"NSN",unbug=FALSE,modkm=FALSE,ontwth=2)) # 51 seconds - many few data points b/c so few 2nd removals
-system.time(weibsBF<-gatherWeibullsm1(totals,"FSC",unbug=FALSE,modkm=FALSE,ontwth=2)) # 8  seconds
-system.time(weibsBG<-gatherWeibullsm1(totals,"Grp",unbug=FALSE,modkm=FALSE,ontwth=2)) # 5  seconds
-system.time(weibsCN<-gatherWeibullsm1(totals,"NSN",unbug=FALSE,modkm=FALSE,ontwth=3)) # 263 seconds
-system.time(weibsCF<-gatherWeibullsm1(totals,"FSC",unbug=FALSE,modkm=FALSE,ontwth=3)) # 14 seconds
-system.time(weibsCG<-gatherWeibullsm1(totals,"Grp",unbug=FALSE,modkm=FALSE,ontwth=3)) # 7 seconds
+system.time(weibsAN<-gatherDistFitsm1(totals,"NSN",unbug=FALSE,modkm=FALSE,ontwth=1)) # 377 seconds
+system.time(weibsAF<-gatherDistFitsm1(totals,"FSC",unbug=FALSE,modkm=FALSE,ontwth=1)) # 80 seconds
+system.time(weibsAG<-gatherDistFitsm1(totals,"Grp",unbug=FALSE,modkm=FALSE,ontwth=1)) # 76 seconds
+system.time(weibsBN<-gatherDistFitsm1(totals,"NSN",unbug=FALSE,modkm=FALSE,ontwth=2)) # 51 seconds - many few data points b/c so few 2nd removals
+system.time(weibsBF<-gatherDistFitsm1(totals,"FSC",unbug=FALSE,modkm=FALSE,ontwth=2)) # 8  seconds
+system.time(weibsBG<-gatherDistFitsm1(totals,"Grp",unbug=FALSE,modkm=FALSE,ontwth=2)) # 5  seconds
+system.time(weibsCN<-gatherDistFitsm1(totals,"NSN",unbug=FALSE,modkm=FALSE,ontwth=3)) # 263 seconds
+system.time(weibsCF<-gatherDistFitsm1(totals,"FSC",unbug=FALSE,modkm=FALSE,ontwth=3)) # 14 seconds
+system.time(weibsCG<-gatherDistFitsm1(totals,"Grp",unbug=FALSE,modkm=FALSE,ontwth=3)) # 7 seconds
 
 # get three weibulls all together
 newdf<-CensUncensm1(totals,specCode=1)
@@ -1000,3 +1000,52 @@ sum(n1/totalD*sqrt(2.18359422683716E-02)+n1/totalD*(0.9358265-totMu)^2+n2/totalD
       n7/totalD*sqrt(7.13001203536987E-02)+n7/totalD*(0.8910694-totMu)^2)/(50000)^2 # not relevant b/c I'm still working on predint
 
 ## weighted average of confidence & prediction bounds; work backwards to get variance
+
+# could try treating each individual HMMWV as a part of the mixture
+
+
+
+#######
+# lead times
+rawEros$LeadTime<-as.numeric(rawEros$Received-rawEros$Ordered)
+df<-rawEros[rawEros$NSN %in% 5120011151142,]
+fitdistr(rawEros[rawEros$NSN %in% 5120011151142,"LeadTime"],densfun="lognormal")
+# take out Cancelled ones? no, they're already NA received
+# switch 0 days to 0.1
+erosForLT<-rawEros
+erosForLT<-erosForLT[!is.na(erosForLT$LeadTime),] # take out NAs
+erosForLT[erosForLT$LeadTime<0,"LeadTime"]<-NA
+erosForLT<-erosForLT[!is.na(erosForLT$LeadTime),] # take out NAs
+erosForLT[erosForLT$LeadTime==0,"LeadTime"]<-as.numeric(0.1)
+# exclude negatives
+
+
+source("C:/Users/tbaer/Desktop/m1a1/randCWwork/m1functions.R")
+system.time(theM1ShipTimes<-gatherDistFitsm1(rawEros,distrib="lognormal",classTypes=c("NSN","Apps")))
+
+# getting error, try w/o apps?
+subsetoferos<-erosForLT[1:20000,]
+system.time(theM1ShipTimes<-gatherDistFitsm1(subsetoferos,distrib="lognormal",unbug=FALSE))#classTypes=c("NSN","Apps")))
+
+
+fitanlt<-function(df){
+  leadtimes<-df[!is.na(df$LeadTime),"LeadTime"]
+  oneleadtime<-fitdistr(leadtimes,densfun="lognormal")
+  out<-cbind(t(data.frame(oneleadtime[1])),t(data.frame(oneleadtime[2])))
+  out<-as.data.frame(out)
+  out[1,5]<-exp(oneleadtime[[1]][1]) # median time b/w order and receive
+  out[1,6]<-exp(oneleadtime[[1]][1]+(oneleadtime[[1]][2])^2/2) # mean
+  out[1,7]<-oneleadtime$n # events
+  colnames(out)<-c("meanlog","sdlog","meanlogSE","sdlogSE","MedianTime","MeanTime","Events") 
+  (out)
+}
+
+system.time(theM1ShipTimesSplitByApps<-ddply(erosForLT,c("NSN","Apps"),fitanlt))
+system.time(theM1ShipTimes<-ddply(erosForLT,c("NSN"),fitanlt))
+
+write.csv(theM1ShipTimesSplitByApps,"theM1ShipTimesSplitByApps.csv",row.names=FALSE)
+write.csv(theM1ShipTimes,"theM1ShipTimes.csv",row.names=FALSE)
+
+abc<-arrange(summarise(group_by(rawEros,NSN,Apps),n()),NSN)
+def<-arrange(summarise(group_by(abc,NSN,n())),NSN)
+sum(def[,2]>1);def[which(def[,2]>1),]
