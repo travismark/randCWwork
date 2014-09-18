@@ -66,9 +66,9 @@ rawEros$End<-sapply(X=rawEros$Date,FUN=getElementOfString,2)
 
 length(unique(rawEros$SerialNumber)) # 2883
 SNs<-unique(rawEros$SerialNumber) # store these
-plot(sort(table(rawEros$SerialNumber),decreasing=TRUE))
+plot(sort(table(rawEros$SerialNumber),decreasing=TRUE));head(sort(-table(rawEros$SerialNumber)),10)
 head(sort(table(rawEros$SerialNumber),decreasing=TRUE),1)/nrow(rawEros) # proportion of data with serial number = 0
-plot(sort(table(rawEros$Unit),decreasing=TRUE))
+plot(sort(table(rawEros$Unit),decreasing=TRUE));head(sort(-table(rawEros$Unit)),10)
 head(sort(table(rawEros$Unit),decreasing=TRUE),1)/nrow(rawEros) # proportion of data with unit = 21410
 # as.Date(32768, origin = "1899-12-30") 
 
@@ -684,6 +684,16 @@ weibsCN<-read.csv("weibsCN.csv",colClasses=c(NSN="character"))
 weibsBN<-read.csv("weibsBN.csv",colClasses=c(NSN="character"))
 weibsAN<-read.csv("weibsAN.csv",colClasses=c(NSN="character"))
 
+#### for doe
+# shape
+hist(weibsAN$shape[weibsAN$shape<8]) # NSN 1st removal
+anecdf<-ecdf(weibsAN$shape[weibsAN$shape<8])
+quantile(anecdf,0.025);quantile(anecdf,0.975)
+plot(hist(weibsAN$shape[weibsAN$shape<8]));abline(col="salmon",v=c(quantile(anecdf,0.025),quantile(anecdf,0.975)))
+hist(weibsCN$shape[weibsCN$shape<8]) # NSN else-1st removal
+anecdf<-ecdf(weibsCN$shape[weibsCN$shape<8])
+quantile(anecdf,0.025);quantile(anecdf,0.975)
+plot(hist(weibsCN$shape[weibsCN$shape<8]));abline(col="salmon",v=c(quantile(anecdf,0.025),quantile(anecdf,0.975)))
 
 # verificication
 head(weibsAN[order(-weibsAN$Events/weibsAN$Censored),])
@@ -773,7 +783,7 @@ weibs2useTC<-weibs2useT # totals for 3rd removal
 write.csv(weibs2useTC,"ABCweibuls30failscutoffTwoToFive.csv",row.names=FALSE)
 #########
 # now the m1a1 models in model
-nsnstofind<-read.csv("m1a1nsnsinmodel0908.csv",col.names="NSN")
+nsnstofind<-read.csv("m1a1nsnsinmodel0908.csv",col.names="NSN",header=FALSE)
 nsnstofind$FSC<-round(nsnstofind$NSN,-9)/1000000000
 nsnstofind$Grp<-round(nsnstofind$NSN,-11)/100000000000
 nsnstofind$InSOE<-"Yes"
@@ -899,7 +909,7 @@ abline(v=totMu,col="purple",lwd=3)
 set.seed(101)
 n<-50 # number of histories - wk 519
 n1<-142;n2<-98;n3<-328;n4<-65;n5<-111;n6<-59;n7<-18
-dist1<-rnorm(n*n1,0.9358265,2.18359422683716E-02) # where 10 is number of platforms deployed
+dist1<-rnorm(n*n1,0.9358265,2.18359422683716E-02) # where n1 is number of platforms deployed
 dist2<-rnorm(n*n2,0.9001246,2.82451796531677E-02)
 dist3<-rnorm(n*n3,0.9030827,1.50580132007599E-02)
 dist4<-rnorm(n*n4,0.9725072,2.09958839416504E-02)
@@ -909,13 +919,14 @@ dist7<-rnorm(n*n7,0.8910694,7.13001203536987E-02)
 (totalD<-n1+n2+n3+n4+n5+n6+n7)
 (totMu<-mean(dist1)*n1/totalD+mean(dist2)*n2/totalD+mean(dist3)*n3/totalD+mean(dist4)*n4/totalD+
    mean(dist5)*n5/totalD+mean(dist6)*n6/totalD+mean(dist7)*n7/totalD) # 0.913
-(totVar<-sum((c(dist1,dist2,dist3,dist4,dist5,dist6,dist7)-totMu)^2)/(totalD*n)) # 0.00112, empirical variance
+(totVar<-sum((c(dist1,dist2,dist3,dist4,dist5,dist6,dist7)-totMu)^2)/(totalD*n)) # 0.001112, empirical variance
 # variance estimate:  
 # assuming mixture of normal theory : #Sum([mixprob]*[var]+[mixprob]*([availability]-[expavail])^2) AS rowvarmix # then maybe average this (/4)
 sum(n1/totalD*var(dist1)+n1/totalD*(mean(dist1)-totMu)^2+n2/totalD*var(dist2)+n2/totalD*(mean(dist2)-totMu)^2+
       n3/totalD*var(dist3)+n3/totalD*(mean(dist3)-totMu)^2+n4/totalD*var(dist4)+n4/totalD*(mean(dist4)-totMu)^2+
       n5/totalD*var(dist5)+n5/totalD*(mean(dist5)-totMu)^2+n6/totalD*var(dist6)+n6/totalD*(mean(dist6)-totMu)^2+
-      n7/totalD*var(dist7)+n7/totalD*(mean(dist7)-totMu)^2) # 0.00112 0.1% avail
+      n7/totalD*var(dist7)+n7/totalD*(mean(dist7)-totMu)^2) # 0.001112 var 0.1% avail
+# but this isn't the variance I'm after
 # cool hist
 hist(c(dist1,dist2,dist3,dist4,dist5,dist6,dist7),col="grey")
 empd<-ecdf(c(dist1,dist2,dist3,dist4,dist5,dist6,dist7))
@@ -929,31 +940,39 @@ hist(dist6,add=T,col="green")
 hist(dist7,add=T,col="salmon")
 abline(v=totMu,col="purple",lwd=3)
 
-timetime<-data.frame("n"=c(10,100,500,1000,5000,10000,50000),"time"=0)
+#timetime<-data.frame("n"=c(10,100,500,1000,5000,10000,50000),"time"=0)
 set.seed(102)
-n=50000;
+n=10000;
 allhist<-data.frame("hist"=seq(1:n),"avail"=0,"var"=0)
-timetime[7,2]<-system.time(for (ii in seq(1:n)){
+#timetime[7,2]<-
+mu1<-0.9358265;sd1<-2.18359422683716E-02;mu2<-0.9001246;sd2<-2.82451796531677E-02
+mu3<-0.9030827;sd3<-1.50580132007599E-02;mu4<-0.9725072;sd4<-2.09958839416504E-02
+mu5<-0.8932196;sd5<-2.93550491333008E-02;mu6<-0.9136784;sd6<-0.036519193649292
+mu7<-0.8910694;sd7<-7.13001203536987E-02
+system.time(for (ii in seq(1:n)){
   n<-1
-  dist1<-rnorm(n*n1,0.9358265,2.18359422683716E-02) # where 10 is number of platforms deployed
-  dist2<-rnorm(n*n2,0.9001246,2.82451796531677E-02)
-  dist3<-rnorm(n*n3,0.9030827,1.50580132007599E-02)
-  dist4<-rnorm(n*n4,0.9725072,2.09958839416504E-02)
-  dist5<-rnorm(n*n5,0.8932196,2.93550491333008E-02)
-  dist6<-rnorm(n*n6,0.9136784,0.036519193649292)
-  dist7<-rnorm(n*n7,0.8910694,7.13001203536987E-02)
+  dist1<-rnorm(n*n1,mu1,sd1) # where n1 is number of platforms deployed
+  dist2<-rnorm(n*n2,mu2,sd2)
+  dist3<-rnorm(n*n3,mu3,sd3)
+  dist4<-rnorm(n*n4,mu4,sd4)
+  dist5<-rnorm(n*n5,mu5,sd5)
+  dist6<-rnorm(n*n6,mu6,sd6)
+  dist7<-rnorm(n*n7,mu7,sd7)
   allhist[ii,2]<-mean(c(dist1,dist2,dist3,dist4,dist5,dist6,dist7)) # stores average availability of 1 history
   allhist[ii,3]<-var(c(dist1,dist2,dist3,dist4,dist5,dist6,dist7))
-})[1]
-tenkhist<-a # tenk took 768 seconds, 13 minutes
-fiftykhist<-allhist # took 3781 seconds, 63 minutes 
+})
+#[1]
+tenkhist<-allhist # tenk took 768 seconds, 13 minutes
+#fiftykhist<-allhist # took 3781 seconds, 63 minutes 
 hist(fiftykhist[,2],col=rgb(0,1,1,1/3));hist(tenkhist[,2],add=T,col=rgb(1,0,0,1/3))
 abline(v=mean(fiftykhist[,2]),col=rgb(0,1,1));mean(fiftykhist[,2])
 abline(v=mean(tenkhist[,2]),col=rgb(1,0,0));mean(tenkhist[,2])
-var(fiftykhist[,2]);var(tenkhist[,2]) # used for prediction interval
+var(fiftykhist[,2]);var(tenkhist[,2]) # var of mean of histories is used for prediction interval
+sqrt(var(fiftykhist[,2]));sqrt(var(tenkhist[,2])) # used for prediction interval
+
 sd(fiftykhist[,2])*qt(0.975,49999)*sqrt(1+1/50000);sd(tenkhist[,2])*qt(0.975,9999)*sqrt(1+1/10000) # for predints widths
 sd(fiftykhist[,2])*qt(0.975,49999)/sqrt(50000);sd(tenkhist[,2])*qt(0.975,9999)/sqrt(10000) # for confint widths
-var(fiftykhist[,2])/50000^2;var(tenkhist[,2])/10000^2 # seems unlikely for confints
+var(fiftykhist[,2])/50000^2;var(tenkhist[,2])/10000^2 # small, but probably correct
 
 #
 mean(allhist[,2]) # history average
@@ -962,20 +981,32 @@ mean(allhist[,3]) # history average variance (average of within histories)
 
 # calculate variance empirically
 # first try using equal mixing probabilities
-totalD<-7 # number of distributions put together
+totalDist<-7 # number of distributions put together
+totalDepl<-n1+n2+n3+n4+n5+n6+n7
 (totMu<-mean(allhist[,2]))
-sum(1/totalD*sqrt(2.18359422683716E-02)+1/totalD*(0.9358265-totMu)^2+1/totalD*sqrt(2.82451796531677E-02)+1/totalD*(0.9001246-totMu)^2+
-      1/totalD*sqrt(1.50580132007599E-02)+1/totalD*(0.9030827-totMu)^2+1/totalD*sqrt(2.09958839416504E-02)+1/totalD*(0.9725072-totMu)^2+
-      1/totalD*sqrt(2.93550491333008E-02)+1/totalD*(0.8932196-totMu)^2+1/totalD*sqrt(0.036519193649292)+1/totalD*(0.9136784-totMu)^2+
-      1/totalD*sqrt(7.13001203536987E-02)+1/totalD*(0.8910694-totMu)^2) # ?
-sum(1/totalD*sqrt(2.18359422683716E-02)+1/totalD*(0.9358265-totMu)^2+1/totalD*sqrt(2.82451796531677E-02)+1/totalD*(0.9001246-totMu)^2+
-      1/totalD*sqrt(1.50580132007599E-02)+1/totalD*(0.9030827-totMu)^2+1/totalD*sqrt(2.09958839416504E-02)+1/totalD*(0.9725072-totMu)^2+
-      1/totalD*sqrt(2.93550491333008E-02)+1/totalD*(0.8932196-totMu)^2+1/totalD*sqrt(0.036519193649292)+1/totalD*(0.9136784-totMu)^2+
-      1/totalD*sqrt(7.13001203536987E-02)+1/totalD*(0.8910694-totMu)^2)/7^2 # ?
-sum(1/totalD*sqrt(2.18359422683716E-02)+1/totalD*(0.9358265-totMu)^2+1/totalD*sqrt(2.82451796531677E-02)+1/totalD*(0.9001246-totMu)^2+
-      1/totalD*sqrt(1.50580132007599E-02)+1/totalD*(0.9030827-totMu)^2+1/totalD*sqrt(2.09958839416504E-02)+1/totalD*(0.9725072-totMu)^2+
-      1/totalD*sqrt(2.93550491333008E-02)+1/totalD*(0.8932196-totMu)^2+1/totalD*sqrt(0.036519193649292)+1/totalD*(0.9136784-totMu)^2+
-      1/totalD*sqrt(7.13001203536987E-02)+1/totalD*(0.8910694-totMu)^2)/50000^2 # ?
+# treat each x equally
+sum(1/totalDist*(sd1)^2+1/totalDist*(mu1-totMu)^2+1/totalDist*(sd2)^2+1/totalDist*(mu2-totMu)^2+
+      1/totalDist*(sd3)^2+1/totalDist*(mu3-totMu)^2+1/totalDist*(sd4)^2+1/totalDist*(mu4-totMu)^2+
+      1/totalDist*(sd5)^2+1/totalDist*(mu5-totMu)^2+1/totalDist*(sd6)^2+1/totalDist*(mu6-totMu)^2+
+      1/totalDist*(sd7)^2+1/totalDist*(mu7-totMu)^2) # ?
+sum(1/totalD*(sd1)^2+1/totalDist*(mu1-totMu)^2+1/totalDist*(sd2)^2+1/totalDist*(mu2-totMu)^2+
+      1/totalD*(sd3)^2+1/totalDist*(mu3-totMu)^2+1/totalDist*(sd4)^2+1/totalDist*(mu4-totMu)^2+
+      1/totalD*(sd5)^2+1/totalDist*(mu5-totMu)^2+1/totalDist*(sd6)^2+1/totalDist*(mu6-totMu)^2+
+      1/totalD*(sd7)^2+1/totalDist*(mu7-totMu)^2)/totalDist^2 # ?
+# use deployed to weight bases/OT x's
+sum(n1/totalDepl*(sd1)^2+n1/totalDepl*(mu1-totMu)^2+n2/totalDepl*(sd2)^2+n2/totalDepl*(mu2-totMu)^2+
+      n3/totalDepl*(sd3)^2+n3/totalDepl*(mu3-totMu)^2+n4/totalDepl*(sd4)^2+n4/totalDepl*(mu4-totMu)^2+
+      n5/totalDepl*(sd5)^2+n5/totalDepl*(mu5-totMu)^2+n6/totalDepl*(sd6)^2+n6/totalDepl*(mu6-totMu)^2+
+      n7/totalDepl*(sd7)^2+n7/totalDepl*(mu7-totMu)^2) # ?
+sum(n1/totalDepl*(sd1)^2+n1/totalDepl*(mu1-totMu)^2+n2/totalDepl*(sd2)^2+n2/totalDepl*(mu2-totMu)^2+
+      n3/totalDepl*(sd3)^2+n3/totalDepl*(mu3-totMu)^2+n4/totalDepl*(sd4)^2+n4/totalDepl*(mu4-totMu)^2+
+      n5/totalDepl*(sd5)^2+n5/totalDepl*(mu5-totMu)^2+n6/totalDepl*(sd6)^2+n6/totalDepl*(mu6-totMu)^2+
+      n7/totalDepl*(sd7)^2+n7/totalDepl*(mu7-totMu)^2)/totalDepl^2 # ?
+sum(n1/totalDepl*(sd1)^2+n1/totalDepl*(mu1-totMu)^2+n2/totalDepl*(sd2)^2+n2/totalDepl*(mu2-totMu)^2+
+      n3/totalDepl*(sd3)^2+n3/totalDepl*(mu3-totMu)^2+n4/totalDepl*(sd4)^2+n4/totalDepl*(mu4-totMu)^2+
+      n5/totalDepl*(sd5)^2+n5/totalDepl*(mu5-totMu)^2+n6/totalDepl*(sd6)^2+n6/totalDepl*(mu6-totMu)^2+
+      n7/totalDepl*(sd7)^2+n7/totalDepl*(mu7-totMu)^2)/totalDist^2 # ?
+
 
 # below using original mixing probabilities
 totalD<-n1+n2+n3+n4+n5+n6+n7
@@ -1040,12 +1071,55 @@ fitanlt<-function(df){
   (out)
 }
 
-system.time(theM1ShipTimesSplitByApps<-ddply(erosForLT,c("NSN","Apps"),fitanlt))
-system.time(theM1ShipTimes<-ddply(erosForLT,c("NSN"),fitanlt))
+system.time(theM1ShipTimesSplitByAppsAllYears<-ddply(erosForLT,c("NSN","Apps"),fitanlt))
+system.time(theM1ShipTimesAllYears<-ddply(erosForLT,c("NSN"),fitanlt))
 
-write.csv(theM1ShipTimesSplitByApps,"theM1ShipTimesSplitByApps.csv",row.names=FALSE)
-write.csv(theM1ShipTimes,"theM1ShipTimes.csv",row.names=FALSE)
+write.csv(theM1ShipTimesSplitByAppsAllYears,"theM1ShipTimesSplitByAppsAllYears.csv",row.names=FALSE)
+write.csv(theM1ShipTimesAllYears,"theM1ShipTimesAllYears.csv",row.names=FALSE)
 
 abc<-arrange(summarise(group_by(rawEros,NSN,Apps),n()),NSN)
 def<-arrange(summarise(group_by(abc,NSN,n())),NSN)
 sum(def[,2]>1);def[which(def[,2]>1),]
+
+# data just in FY12 and beyond
+erosForLTFY1214<-erosForLT[erosForLT$End>'2011-10-01',];dim(erosForLTFY1214)
+system.time(theM1ShipTimesSplitByAppsFY1214<-ddply(erosForLTFY1214,c("NSN","Apps"),fitanlt))
+system.time(theM1ShipTimesFY1214<-ddply(erosForLTFY1214,c("NSN"),fitanlt))
+write.csv(theM1ShipTimesSplitByAppsFY1214,"theM1ShipTimesSplitByAppsFY1214.csv",row.names=FALSE)
+write.csv(theM1ShipTimesFY1214,"theM1ShipTimesFY1214.csv",row.names=FALSE)
+median(erosForLTFY1214$LeadTime,na.rm=TRUE);mean(erosForLTFY1214$LeadTime,na.rm=TRUE)
+allLT<-fitdist(erosForLTFY1214$LeadTime,distr="lnorm")
+exp(allLT[[1]][1]);exp(allLT[[1]][1]+allLT[[1]][1]^2/2) # median/mean
+exp(allLT[[1]][1]+0.009745865);exp(allLT[[1]][1]-0.009745865) # +/1 1 SE
+exp(allLT[[1]][1]+allLT[[1]][1]/4);exp(allLT[[1]][1]-allLT[[1]][1]/4)
+exp(allLT[[1]][1]+allLT[[1]][1]/4+allLT[[1]][1]^2/2);exp(allLT[[1]][1]-allLT[[1]][1]/4+allLT[[1]][1]^2/2)
+
+
+## DOE etc.
+meanlog<-2.302585
+sdlog<-.7
+(mdn<-exp(meanlog))
+(mn<-exp(meanlog+sdlog^2/2))
+(mdn<-exp(meanlog-meanlog/4));(mdn<-exp(meanlog+meanlog/4))
+a<-0.5; meanlog/(log(mn*a)-sdlog^2/2)
+a<-2; meanlog/(log(mn*a)-sdlog^2/2)
+a<-seq(from=0.5,to=1.5,by=0.1)
+b<-meanlog/(log(mn/a)-sdlog^2/2)
+plot(a,b)
+c<-meanlog/(log(mn/a))
+(exp(max(c)*meanlog+sdlog^2/2));(exp(meanlog+sdlog^2/2));(exp(min(c)*meanlog+sdlog^2/2))
+(exp(meanlog/max(c)+sdlog^2/2));(exp(meanlog+sdlog^2/2));(meanlog/exp(min(c)+sdlog^2/2))
+
+
+meanlog<-2.6
+sdlog<-.9
+(mdn<-exp(meanlog))
+(mn<-exp(meanlog+sdlog^2/2))
+b<-meanlog/(log(mn/a)-sdlog^2/2)
+c<-meanlog/(log(mn/a))
+a<-c(0.5,1.5)
+y<-meanlog/log(1/a)
+exp(meanlog*y)
+
+abc<-seq(from=log(1/2),to=log(2),length.out=17)
+plot(abc,exp(abc))
