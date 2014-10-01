@@ -175,7 +175,7 @@ getDistribsFromSubsetm1 <- function(df, distrib, plot, catgs,modkm, plotdir,unbu
 
 # this will only break out by specified classifiers
 # uses GetWeibullsFromDF and CensUncens functions
-gatherDistFitsm1<-function(weibulls_table,distrib="weibull",classTypes="NSN",ontwth=1,verbose=FALSE,unbug=FALSE,plot=FALSE,modkm=FALSE,plotdir=getwd()){
+gatherDistFitsm1<-function(inputdata,distrib="weibull",classTypes="NSN",ontwth=1,verbose=FALSE,unbug=FALSE,plot=FALSE,modkm=FALSE,plotdir=getwd()){
   # Args
     # ontwth:  code for which weibulls to fit
         # 1: just 1st failure; 2: just 1st and 2nd failure; 3: 1st and group all other failures into a second failure; 4: both 2 and 3
@@ -195,7 +195,7 @@ gatherDistFitsm1<-function(weibulls_table,distrib="weibull",classTypes="NSN",ont
     mat<-combn(cls:2,ii) # gives all the ways to choose 'ii' digits out of quantity of classifier columns less one [b/c wuc is always in]
     for(jj in seq_len(dim(mat)[2])) {
       # call calloneddply() once per column of the combn output
-      weibs1<-calloneDDPLYm1(weibulls_table,distrib,include=sort(c(1,mat[,jj])),plots=plot,classcolnames,modkm,plotdir,verbose,unbug,ontwth,classTypes)
+      weibs1<-calloneDDPLYm1(inputdata,distrib,include=sort(c(1,mat[,jj])),plots=plot,classcolnames,modkm,plotdir,verbose,unbug,ontwth,classTypes)
       if(first==1) {
         weibs<-weibs1 # create
         first<-0

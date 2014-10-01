@@ -31,13 +31,14 @@
 # I don't know when new parts (like new electronics) are installed, for two reasons 1) to add a new part or 2) to replace old part
 # I assume all parts are on the vehicle at all times - SOE does as well (total time on test is  1,726,593 days)
 
+require(MASS)
 require(plyr)
 require(dplyr)
 require(hexbin)
-require(MASS)
 require(fitdistrplus)
 require(RODBC)
 `%notin%` <- function(x,y) !(x %in% y) 
+origPar<-par()
 
 ##### load the datas - adjust formats and add other data
 setwd("C:/Users/tbaer/Desktop/m1a1")
@@ -99,8 +100,8 @@ rawEros$Start<-as.Date(rawEros$Start, format = '%m/%d/%Y')
 rawEros$End<-as.Date(rawEros$End, format = '%m/%d/%Y')
 # add FSC and Group
 rawEros$NSN<-as.numeric(rawEros$NSN)
-rawEros$FSC<-round(rawEros$NSN,-9)/1000000000
-rawEros$Group<-round(rawEros$NSN,-11)/100000000000
+rawEros$FSC<-floor(rawEros$NSN,-9)/1000000000
+rawEros$Group<-floor(rawEros$NSN,-11)/100000000000
 rawEros$NSN<-as.character(rawEros$NSN)
 # add the platform SN birthday to the rawEros data frame
 rawEros<-merge(rawEros,prodYear[,c("SerialNumber","IN.SERVICE")],by="SerialNumber")
@@ -233,8 +234,8 @@ system.time(SNnsnminOrdered5<-ddply(rawEros,c("SerialNumber","NSN"),first5Ordere
 
 # FSC NSN and group
 SNnsnminOrdered5$NSN<-as.numeric(SNnsnminOrdered5$NSN)
-SNnsnminOrdered5$FSC<-round(SNnsnminOrdered5$NSN,-9)/1000000000 # add fsc
-SNnsnminOrdered5$Grp<-round(SNnsnminOrdered5$NSN,-11)/100000000000 # add group
+SNnsnminOrdered5$FSC<-floor(SNnsnminOrdered5$NSN,-9)/1000000000 # add fsc
+SNnsnminOrdered5$Grp<-floor(SNnsnminOrdered5$NSN,-11)/100000000000 # add group
 SNnsnminOrdered5$NSN<-as.character(SNnsnminOrdered5$NSN)
 
 # makes ugly INF and NANs - make the Infs NA, NaN are treated as NA (not vice versa)
@@ -488,11 +489,12 @@ for (ii in 2:length(fails)){
 # proportion of orders of an NSN where it was the longest wait time - 
 #     only apply wait time this proportion of times
 rawEros$LeadTime<-rawEros$Received-rawEros$Ordered
-sum(is.na(rawEros$LeadTime))
+sum(is.na(rawEros$LeadTime)) # 21745
 # take out the negative ones lead times
 sum(rawEros$LeadTime<0,na.rm=TRUE)/nrow(rawEros) # only 277 of these, 0.16%
 rawEros[which(rawEros$LeadTime<0),"LeadTime"]<-NA
-hist(as.numeric(rawEros[rawEros$FSC==5120,"LeadTime"]))
+hist(as.numeric(rawEros[rawEros$FSC==1095,"LeadTime"])) # fairly normal fsc, weapons
+hist(as.numeric(rawEros[rawEros$FSC==5925,"LeadTime"])) # long outliers, circuit breakers
 
 a<-head(unique(rawEros$NSN)) # initial toy dataset
 
@@ -563,8 +565,8 @@ length(which(totals$diff4<=0));totals$diff4[which(totals$diff4<=0)]<-NA
 length(which(totals$diff5<=0));totals$diff5[which(totals$diff5<=0)]<-NA
 # FSC NSN and group
 totals$NSN<-as.numeric(totals$NSN)
-totals$FSC<-round(totals$NSN,-9)/1000000000 # add fsc
-totals$Grp<-round(totals$NSN,-11)/100000000000 # add group
+totals$FSC<-floor(totals$NSN,-9)/1000000000 # add fsc
+totals$Grp<-floor(totals$NSN,-11)/100000000000 # add group
 totals$NSN<-as.character(totals$NSN)
 # this SN has an ERO before its supposed birthday rawEros[rawEros$NSN %in% 4330011182868 & rawEros$SerialNumber == 585978,] 
 #   it gets an error diff1 value; same with the same NSN and SN 585976;  there are 46 cases, so remove them
@@ -592,8 +594,8 @@ dim(totals) # 3,630,994
 # take out a weird SN  -   totals<-totals[totals$SerialNumber!=642701,] # no longer there
 source("C:/Users/tbaer/Desktop/m1a1/randCWwork/m1functions.R")
 # subsetting by NSN - it doesn't like the character - have to use %in%
-system.time(a<-CensUncensm1(totals[totals$NSN %in% 1005000565572,])) # 5310009388387
-system.time(zweib<-fitdistcens(a,distr="weibull")) # sometimes singular - not enough failures
+system.time(leftandright<-CensUncensm1(totals[totals$NSN %in% 5963014746208,])) # 5310009388387
+system.time(zweib<-fitdistcens(leftandright,distr="weibull")) # sometimes singular - not enough failures
 #zweib<-fitdistcens(data.frame("left"=a[,1],"right"=a[,1]),dist="weibull") # works (groups of m1's suspended at same time)
 plot(zweib);zweib$estimate
 mean(rweibull(5000,shape=zweib$estimate[1],scale=zweib$estimate[2]))
@@ -621,11 +623,12 @@ sum(table(SNnsnminOrdered5$NSN)>30,na.rm=TRUE)/length(table(SNnsnminOrdered5$NSN
 sum(table(SNnsnminOrdered5$NSN)>150,na.rm=TRUE) # 121 NSNs
 sum(table(SNnsnminOrdered5$NSN)>200,na.rm=TRUE) # 44 NSNs
 # start with using 150 as as a cutoff of failures to improve chances of fitting and test speed
-a<-rownames(table(SNnsnminOrdered5$NSN))[which(table(SNnsnminOrdered5$NSN)>150)] # 200 works with no NAs, so does 50 (has a NaN error?). 20 does not
-datasubset<-totals[totals$NSN %in% a,]
+theseNSNs<-rownames(table(SNnsnminOrdered5$NSN))[which(table(SNnsnminOrdered5$NSN)>150)] # 200 works with no NAs, so does 50 (has a NaN error?). 20 does not
+theseNSNs<-2530015319542
+datasubset<-totals[totals$NSN %in% theseNSNs,]
 
 source("C:/Users/tbaer/Desktop/m1a1/randCWwork/m1functions.R")
-system.time(weibs<-gatherDistFitsm1(datasubset,"NSN",unbug=FALSE,modkm=FALSE,ontwth=2))
+system.time(weibs<-gatherDistFitsm1(datasubset,"weibull","NSN",unbug=FALSE,modkm=FALSE,ontwth=3))
 system.time(weibs<-gatherDistFitsm1(totals,"NSN",unbug=FALSE,modkm=FALSE,ontwth=1))
 weibs[,"shape"]<-as.numeric(as.character(weibs[,"shape"]))
 head(weibs[order(weibs$Events),])
@@ -635,15 +638,15 @@ hist(weibs$shape)
 
 
 # collect them
-system.time(weibsAN<-gatherDistFitsm1(totals,"NSN",unbug=FALSE,modkm=FALSE,ontwth=1)) # 377 seconds
-system.time(weibsAF<-gatherDistFitsm1(totals,"FSC",unbug=FALSE,modkm=FALSE,ontwth=1)) # 80 seconds
-system.time(weibsAG<-gatherDistFitsm1(totals,"Grp",unbug=FALSE,modkm=FALSE,ontwth=1)) # 76 seconds
-system.time(weibsBN<-gatherDistFitsm1(totals,"NSN",unbug=FALSE,modkm=FALSE,ontwth=2)) # 51 seconds - many few data points b/c so few 2nd removals
-system.time(weibsBF<-gatherDistFitsm1(totals,"FSC",unbug=FALSE,modkm=FALSE,ontwth=2)) # 8  seconds
-system.time(weibsBG<-gatherDistFitsm1(totals,"Grp",unbug=FALSE,modkm=FALSE,ontwth=2)) # 5  seconds
-system.time(weibsCN<-gatherDistFitsm1(totals,"NSN",unbug=FALSE,modkm=FALSE,ontwth=3)) # 263 seconds
-system.time(weibsCF<-gatherDistFitsm1(totals,"FSC",unbug=FALSE,modkm=FALSE,ontwth=3)) # 14 seconds
-system.time(weibsCG<-gatherDistFitsm1(totals,"Grp",unbug=FALSE,modkm=FALSE,ontwth=3)) # 7 seconds
+system.time(weibsAN<-gatherDistFitsm1(totals,"weibull","NSN",unbug=FALSE,modkm=FALSE,ontwth=1)) # 377 seconds; 435
+system.time(weibsAF<-gatherDistFitsm1(totals,"weibull","FSC",unbug=FALSE,modkm=FALSE,ontwth=1)) # 80 seconds
+system.time(weibsAG<-gatherDistFitsm1(totals,"weibull","Grp",unbug=FALSE,modkm=FALSE,ontwth=1)) # 76 seconds
+system.time(weibsBN<-gatherDistFitsm1(totals,"weibull","NSN",unbug=FALSE,modkm=FALSE,ontwth=2)) # 51 seconds - many few data points b/c so few 2nd removals
+system.time(weibsBF<-gatherDistFitsm1(totals,"weibull","FSC",unbug=FALSE,modkm=FALSE,ontwth=2)) # 8  seconds
+system.time(weibsBG<-gatherDistFitsm1(totals,"weibull","Grp",unbug=FALSE,modkm=FALSE,ontwth=2)) # 5  seconds
+system.time(weibsCN<-gatherDistFitsm1(totals,"weibull","NSN",unbug=FALSE,modkm=FALSE,ontwth=3)) # 263 seconds; 181
+system.time(weibsCF<-gatherDistFitsm1(totals,"weibull","FSC",unbug=FALSE,modkm=FALSE,ontwth=3)) # 14 seconds
+system.time(weibsCG<-gatherDistFitsm1(totals,"weibull","Grp",unbug=FALSE,modkm=FALSE,ontwth=3)) # 7 seconds
 
 # get three weibulls all together
 newdf<-CensUncensm1(totals,specCode=1)
@@ -680,9 +683,6 @@ write.csv(weibsCN,"weibsCN",row.names=F);write.csv(weibsCF,"weibsCF",row.names=F
 weibsAN<-read.csv("weibsAN.csv",stringsAsFactors=FALSE);weibsAF<-read.csv("weibsAF.csv",stringsAsFactors=FALSE);weibsAG<-read.csv("weibsAG.csv",stringsAsFactors=FALSE) # first failure
 weibsBN<-read.csv("weibsBN.csv",stringsAsFactors=FALSE);weibsBF<-read.csv("weibsBF.csv",stringsAsFactors=FALSE);weibsBG<-read.csv("weibsBG.csv",stringsAsFactors=FALSE) # second failure
 weibsCN<-read.csv("weibsCN.csv",stringsAsFactors=FALSE);weibsCF<-read.csv("weibsCF.csv",stringsAsFactors=FALSE);weibsCG<-read.csv("weibsCG.csv",stringsAsFactors=FALSE) # second-fifth failures
-weibsCN<-read.csv("weibsCN.csv",colClasses=c(NSN="character"))
-weibsBN<-read.csv("weibsBN.csv",colClasses=c(NSN="character"))
-weibsAN<-read.csv("weibsAN.csv",colClasses=c(NSN="character"))
 
 #### for doe
 # shape
@@ -730,8 +730,8 @@ AGgC<-weibsAG[weibsAG$Events>ctf,"Grp"]; length(AGgC)/nrow(weibsAG)
 # start with all NSNs, then left join onto it - doesn't work, have to stich together pieces
 weibs2use<-data.frame("NSN"=unique(weibsAN$NSN),"FSC"=0,"Grp"=0,
                       "wfm"=factor("Grp",levels=c("NSN","FSC","Grp","All")),stringsAsFactors=FALSE)
-weibs2use$FSC<-round(as.numeric(weibs2use$NSN),-9)/1000000000
-weibs2use$Grp<-round(as.numeric(weibs2use$NSN),-11)/100000000000
+weibs2use$FSC<-floor(as.numeric(weibs2use$NSN),-9)/1000000000
+weibs2use$Grp<-floor(as.numeric(weibs2use$NSN),-11)/100000000000
 # NSNs that exceed cutoff
 NSNs2use<-weibs2use[weibs2use$NSN %in% ANgC,"NSN"] # NSNs I want to use
 weibs2useNSN<-inner_join(weibs2use,select(weibsAN[weibsAN$NSN %in% NSNs2use,],NSN,shape,scale,MeanTime,Events,Censored),by="NSN")
@@ -753,16 +753,16 @@ dim(weibs2use);dim(weibs2useT)
 weibs2useTA<-weibs2useT # totals for 1st removal - for saving
 write.csv(weibs2useTA,"ABCweibuls30failscutoffFirstRem.csv",row.names=FALSE)
 # then need to do same for C
-CNgC<-weibsCN[weibsCN$Events>ctf,"NSN"]; length(ANgC)/nrow(weibsAN)
-CFgC<-weibsCF[weibsCF$Events>ctf,"FSC"]; length(AFgC)/nrow(weibsAF)
-CGgC<-weibsCG[weibsCG$Events>ctf,"Grp"]; length(AGgC)/nrow(weibsAG)
+CNgC<-weibsCN[weibsCN$Events>ctf,"NSN"]; length(CNgC)/nrow(weibsCN)
+CFgC<-weibsCF[weibsCF$Events>ctf,"FSC"]; length(CFgC)/nrow(weibsCF)
+CGgC<-weibsCG[weibsCG$Events>ctf,"Grp"]; length(CGgC)/nrow(weibsCG)
 # start with all NSNs, then left join onto it - doesn't work, have to stich together pieces
 weibs2use<-data.frame("NSN"=unique(weibsCN$NSN),"FSC"=0,"Grp"=0,
                       "wfm"=factor("Grp",levels=c("NSN","FSC","Grp","All")),stringsAsFactors=FALSE)
-weibs2use$FSC<-round(as.numeric(weibs2use$NSN),-9)/1000000000
-weibs2use$Grp<-round(as.numeric(weibs2use$NSN),-11)/100000000000
+weibs2use$FSC<-floor(as.numeric(weibs2use$NSN),-9)/1000000000
+weibs2use$Grp<-floor(as.numeric(weibs2use$NSN),-11)/100000000000
 # NSNs that exceed cutoff
-NSNs2use<-weibs2use[weibs2use$NSN %in% ANgC,"NSN"] # NSNs I want to use
+NSNs2use<-weibs2use[weibs2use$NSN %in% CNgC,"NSN"] # NSNs I want to use - there was an error here: NSNs2use<-weibs2use[weibs2use$NSN %in% ANgC,"NSN"] 
 weibs2useNSN<-inner_join(weibs2use,select(weibsCN[weibsCN$NSN %in% NSNs2use,],NSN,shape,scale,MeanTime,Events,Censored),by="NSN")
 weibs2useNSN$wfm<-"NSN"
 FSCs2use<-CFgC#unique(weibs2use[weibs2use$FSC %in% AFgC,"FSC"]) # FSCs I may want to use
@@ -771,7 +771,8 @@ weibs2useFSC<-merge(weibs2use[weibs2use$NSN %notin% weibs2useNSN$NSN,],select(we
 weibs2useFSC$wfm<-"FSC"
 Grps2use<-CGgC
 weibs2useGrp<-merge(weibs2use[weibs2use$NSN %notin% weibs2useNSN$NSN & weibs2use$NSN %notin% weibs2useFSC$NSN,]
-                    ,select(weibsCG[weibsAG$Grp %in% Grps2use,],Grp,shape,scale,MeanTime,Events,Censored),by="Grp")
+                    ,select(weibsCG[weibsCG$Grp %in% Grps2use,],Grp,shape,scale,MeanTime,Events,Censored),by="Grp")
+# there was an error here earlier, previous line: ,select(weibsCG[weibsAG$Grp %in% Grps2use,],Grp,shape,scale,MeanTime,Events,Censored),by="Grp")
 weibs2useGrp$wfm<-"Grp"
 weibs2useAll<-merge(weibs2use[weibs2use$NSN %notin% weibs2useNSN$NSN & weibs2use$NSN %notin% weibs2useFSC$NSN & 
                                 weibs2use$NSN %notin% weibs2useGrp$NSN,],oneTotalWeibC)
@@ -782,15 +783,16 @@ dim(weibs2use);dim(weibs2useT)
 weibs2useTC<-weibs2useT # totals for 3rd removal
 write.csv(weibs2useTC,"ABCweibuls30failscutoffTwoToFive.csv",row.names=FALSE)
 #########
-# now the m1a1 models in model
+# now the m1a1 parts in model
 nsnstofind<-read.csv("m1a1nsnsinmodel0908.csv",col.names="NSN",header=FALSE)
-nsnstofind$FSC<-round(nsnstofind$NSN,-9)/1000000000
-nsnstofind$Grp<-round(nsnstofind$NSN,-11)/100000000000
+nsnstofind$FSC<-floor(nsnstofind$NSN,-9)/1000000000
+nsnstofind$Grp<-floor(nsnstofind$NSN,-11)/100000000000
 nsnstofind$InSOE<-"Yes"
 nsnstofind$NSN<-as.character(nsnstofind$NSN) # make sure join column is the same structure
 weibs2use<-nsnstofind
 # bring over everything that matches - A
 ## A
+#weibs2useTA$NSN<-as.character(weibs2useTA$NSN)
 nsnstofindAmatch<-inner_join(weibs2use,select(weibs2useTA,NSN,shape,scale,MeanTime,Events,Censored,wfm),by="NSN")
 weibs2useNSN<-select(nsnstofindAmatch,NSN)
 # with no match, try to match FSC
@@ -813,7 +815,8 @@ dim(nsnstofind);dim(weibs2useT)
 weibs2useTAmodelNSN<-weibs2useT # totals for 1st removal - for saving
 write.csv(weibs2useTAmodelNSN,"modelNSNweibuls30failscutoffFirstRem.csv",row.names=FALSE)
 ## C
-nsnstofind$NSN<-as.numeric(nsnstofind$NSN)
+#nsnstofind$NSN<-as.numeric(nsnstofind$NSN)
+#weibs2useTC$NSN<-as.character(weibs2useTC$NSN)
 weibs2use<-nsnstofind
 nsnstofindCmatch<-inner_join(weibs2use,select(weibs2useTC,NSN,shape,scale,MeanTime,Events,Censored,wfm),by="NSN")
 FSCs2use<-weibsCF[weibsCF$Events>ctf,"FSC"]
@@ -822,31 +825,156 @@ weibs2useFSC$wfm<-"FSC"
 weibs2useFSC$InSOE<-"No"
 Grps2use<-weibsCG[weibsCG$Events>ctf,"Grp"]
 weibs2useGrp<-merge(weibs2use[weibs2use$NSN %notin% weibs2useNSN$NSN & weibs2use$NSN %notin% weibs2useFSC$NSN,]
-                    ,select(weibsAG[weibsAG$Grp %in% Grps2use,],Grp,shape,scale,MeanTime,Events,Censored),by="Grp")
+                    ,select(weibsCG[weibsCG$Grp %in% Grps2use,],Grp,shape,scale,MeanTime,Events,Censored),by="Grp")
+# previous line was an error 0925 - ,select(weibsAG[weibsAG$Grp %in% Grps2use,],Grp,shape,scale,MeanTime,Events,Censored),by="Grp")
 weibs2useGrp$wfm<-"Grp"
 weibs2useGrp$InSOE<-"No"
 weibs2useAll<-merge(weibs2use[weibs2use$NSN %notin% weibs2useNSN$NSN & weibs2use$NSN %notin% weibs2useFSC$NSN & 
-                                weibs2use$NSN %notin% weibs2useGrp$NSN,],oneTotalWeibA)
+                                weibs2use$NSN %notin% weibs2useGrp$NSN,],oneTotalWeibC)
+# previous line was an error 0925 - weibs2use$NSN %notin% weibs2useGrp$NSN,],oneTotalWeibA)
 weibs2useAll$wfm<-"All"
 weibs2useAll$InSOE<-"No"
 # bring together
-weibs2useT<-rbind(nsnstofindAmatch,weibs2useFSC,weibs2useGrp,weibs2useAll)
+weibs2useT<-rbind(nsnstofindCmatch,weibs2useFSC,weibs2useGrp,weibs2useAll)
 dim(nsnstofind);dim(weibs2useT)
 weibs2useTCmodelNSN<-weibs2useT # totals for 1st removal - for saving
 write.csv(weibs2useTCmodelNSN,"modelNSNweibuls30failscutoffTwoToFive.csv",row.names=FALSE)
 #####################################
 
+# fix the shapes in the model - 09/29
+setwd("C:/Users/tbaer/Desktop/m1a1/doe")
+myconn<-odbcConnectAccess("C:/Users/tbaer/Desktop/m1a1/doe/m1baselineCorrectShape")
+system.time(theurr<-sqlQuery(myconn,"SELECT DISTINCT DOC.NSN, [*Unscheduled Removal rates].* FROM DOC INNER JOIN [*Unscheduled Removal rates] 
+ON DOC.[Object Type] = [*Unscheduled Removal rates].[LRU  type]"))
+theurr$NSN<-as.character(theurr$NSN)
+newurr<-inner_join(theurr,weibs2useTCmodelNSN,"NSN")
+newurr[newurr$`Completed Repairs`==1,"Shape"]<-newurr[newurr$`Completed Repairs`==1,"shape"]
+repdegprop<-0.20
+newurr[newurr$`Completed Repairs`==1,"Rate"]<-(1/(newurr[newurr$`Completed Repairs`==1,"MTTF (thousands of miles)"]*(1-repdegprop)/gamma(1+1/newurr[newurr$`Completed Repairs`==1,"shape"])))
+newurr$shape<-NULL #drop shape
+system.time(sqlSave(myconn,newurr,rownames=FALSE,varTypes=c(NSN="Number",SerialNumber="Text",FstSttDt="Date",ScdSttDt="Date",
+             ThdSttDt="Date",FurSttDt="Date",FvhSttDt="Date",IN.SERVICE="Date",LstSttDt="Date"))) # about 13 minutes
+close(myconn)
 
-########## compare drop in scale
-weibsN<-join(select(weibsAN,NSN,scale,Events,Censored),select(weibsBN,NSN,scale,Events,Censored),by="NSN")
-weibsN<-join(weibsN,select(weibsCN,NSN,scale,Events,Censored),by="NSN")
-colnames(weibsN)<-c("NSN","scale1","Events1","Censored1","scale2","Events2","Censored2","scale3","Events3","Censored3")
+########## compare drop in MTTF
+# NSN
+weibsN<-join(select(weibsAN,NSN,scale,shape,MeanTime,Events,Censored),select(weibsBN,NSN,scale,shape,MeanTime,Events,Censored),by="NSN")
+weibsN<-join(weibsN,select(weibsCN,NSN,scale,shape,MeanTime,Events,Censored),by="NSN")
+colnames(weibsN)<-c("NSN","scale1","shape1","mean1","Events1","Censored1","scale2","shape2","mean2","Events2","Censored2","scale3","shape3","mean3","Events3","Censored3")
 weibsNpos<-weibsN[which(!is.na(weibsN$scale1) & !is.na(weibsN$scale2) & !is.na(weibsN$scale3)),]
 weibsNg10<-weibsNpos[which(weibsNpos$Events1>=10 & weibsNpos$Events2>10 & weibsNpos$Events3>10),]
-mean(weibsNg10$scale1/weibsNg10$scale2);mean(weibsNg10$scale1/weibsNg10$scale3)
+mean(weibsNg10$mean1/weibsNg10$mean2);mean(weibsNg10$mean1/weibsNg10$mean3)
+#mean(weibsNg10$scale1/weibsNg10$scale2);mean(weibsNg10$scale1/weibsNg10$scale3)
+#1-1/mean(weibsNg10$scale1/weibsNg10$scale2);1-1/mean(weibsNg10$scale1/weibsNg10$scale3) # proportion drop from full
 weibsNg30<-weibsNpos[which(weibsNpos$Events1>=30 & weibsNpos$Events2>30 & weibsNpos$Events3>30),]
-mean(weibsNg30$scale1/weibsNg30$scale2);mean(weibsNg30$scale1/weibsNg30$scale3)
-hist(weibsNg30$scale1/weibsNg30$scale3)
+mean(weibsNg30$mean1/weibsNg30$mean2);mean(weibsNg30$mean1/weibsNg30$mean3)
+#mean(weibsNg30$scale1/weibsNg30$scale2);mean(weibsNg30$scale1/weibsNg30$scale3)
+#1-1/mean(weibsNg30$scale1/weibsNg30$scale2);1-1/mean(weibsNg30$scale1/weibsNg30$scale3)
+hist(weibsNg30$scale3/weibsNg30$scale1)
+hist(1-(weibsNg30$scale3/weibsNg30$scale1))
+hist(weibsNg30$mean1)
+hist(weibsNg30$mean3)
+weibsNg30<-weibsNpos[which(weibsNpos$Events1>=5 & weibsNpos$Events2>5 & weibsNpos$Events3>5),]
+mean(weibsNg30$mean1/weibsNg30$mean2);mean(weibsNg30$mean1/weibsNg30$mean3)
+1-1/mean(weibsNg30$scale1/weibsNg30$scale2);1-1/mean(weibsNg30$scale1/weibsNg30$scale3)
+va<-2
+weibsNg30<-weibsNpos[which(weibsNpos$Events1>=va & weibsNpos$Events3>va),]
+mean(weibsNg30$mean1/weibsNg30$mean3)
+mean(weibsNg30$mean3/weibsNg30$mean1);median(weibsNg30$mean3/weibsNg30$mean1)
+sum(weibsNg30$mean1>weibsNg30$mean3)/length(weibsNg30$mean1)
+1-mean(weibsNg30$mean3/weibsNg30$mean1);1-median(weibsNg30$mean3/weibsNg30$mean1)
+# 2: 10% decrease, 20: 4% increase, 120: 16% decrease, 200: 24% decrease
+hist(weibsNg30$mean3/weibsNg30$mean1,breaks=40);abline(v=0)
+plot(weibsNg30$mean3,weibsNg30$mean1,ylab="New MTTF",xlab="Repaired MTTF",xlim=c(0,1e7));abline(0,1)
+# FSC
+weibsF<-join(select(weibsAF,FSC,scale,MeanTime,Events,Censored),select(weibsBF,FSC,scale,MeanTime,Events,Censored),by="FSC")
+weibsF<-join(weibsF,select(weibsCF,FSC,scale,MeanTime,Events,Censored),by="FSC")
+colnames(weibsF)<-c("FSC","scale1","mean1","Events1","Censored1","scale2","mean2","Events2","Censored2","scale3","mean3","Events3","Censored3")
+weibsFpos<-weibsF[which(!is.na(weibsF$scale1) & !is.na(weibsF$scale2) & !is.na(weibsF$scale3)),]
+va<-1
+weibsFgva<-weibsFpos[which(weibsFpos$Events1>=va & weibsFpos$Events3>=va),]
+1-1/mean(weibsFgva$scale1/weibsFgva$scale2);1-1/mean(weibsFgva$scale1/weibsFgva$scale3)
+mean(weibsFgva$mean3/weibsFgva$mean1);median(weibsFgva$mean3/weibsFgva$mean1)
+sum(weibsFgva$mean1>weibsFgva$mean3)/length(weibsFgva$mean1);length(weibsFgva$mean1)
+1-mean(weibsFgva$mean3/weibsFgva$mean1);1-median(weibsFgva$mean3/weibsFgva$mean1)
+par(mfrow=c(2,1))
+hist(weibsFgva$mean3/weibsFgva$mean1,breaks=20,xlab="Repaired MTTF Multiple of First",
+     main="FSC Codes Left of the Red Lines Have Decreasing MTTF After a Repair");abline(v=1,col="red")
+plot(weibsFgva$mean3,weibsFgva$mean1,ylab="New MTTF",xlab="Repaired MTTF");abline(0,1,col="red")
+par(mfrow=c(1,1))
+weibsFgva[which(weibsFgva$mean3==max(weibsFgva$mean3)),]
+
+# Group
+weibsG<-join(select(weibsAG,Grp,scale,Events,Censored),select(weibsBG,Grp,scale,Events,Censored),by="Grp")
+weibsG<-join(weibsG,select(weibsCG,Grp,scale,Events,Censored),by="Grp")
+colnames(weibsG)<-c("FSC","scale1","Events1","Censored1","scale2","Events2","Censored2","scale3","Events3","Censored3")
+weibsGpos<-weibsF[which(!is.na(weibsG$scale1) & !is.na(weibsG$scale2) & !is.na(weibsG$scale3)),]
+va<-30
+weibsGgva<-weibsGpos[which(weibsGpos$Events1>=va & weibsGpos$Events2>va & weibsGpos$Events3>va),]
+1-1/mean(weibsGgva$scale1/weibsGgva$scale2);1-1/mean(weibsGgva$scale1/weibsGgva$scale3)
+
+####
+# some more stats
+sum(weibsAN$Events)/(sum(weibsAN$Censored)+sum(weibsAN$Events)) # fraction of parts that fail
+# average age of platform
+mean(as.Date("2014-06-01")-prodYear$IN.SERVICE) /365
+####
+
+########## compare drop in shape
+weibsNposS<-weibsN[which(!is.na(weibsN$shape1) & !is.na(weibsN$shape2) & !is.na(weibsN$shape3)),]
+weibsNg10S<-weibsNposS[which(weibsNposS$Events1>=10 & weibsNposS$Events2>10 & weibsNposS$Events3>10),]
+mean(weibsNg10S$shape1/weibsNg10S$shape2);mean(weibsNg10S$shape1/weibsNg10S$shape3)
+1-1/mean(weibsNg10S$shape1/weibsNg10S$shape2);1-1/mean(weibsNg10S$shape1/weibsNg10S$shape3) # proportion drop from full
+
+sum(weibsAN$shape<1,na.rm=TRUE)/sum(!is.na(weibsAN$shape)) # 27% of new parts exhibit infant mortality
+hist(weibsAN[weibsAN$shape<3,"shape"])
+sum(weibsBN$shape<1,na.rm=TRUE)/sum(!is.na(weibsBN$shape))
+sum(weibsCN$shape<1,na.rm=TRUE)/sum(!is.na(weibsCN$shape))
+
+# plot
+source("C:/Users/tbaer/Desktop/m1a1/randCWwork/m1functions.R")
+myconn<-odbcConnectAccess("C:/Users/tbaer/Desktop/m1a1/totalsDB")
+system.time(totalsSub<-sqlQuery(myconn,"SELECT * FROM totals WHERE NSN = 5963014746208")) # 3.2 seconds #1240015455913 #2530015319542
+system.time(leftandright<-CensUncensm1(totalsSub[totalsSub$NSN %in% 5963014746208,],1)) # 5310009388387;5830013823218
+system.time(zweib1<-fitdistcens(leftandright,distr="weibull")) # sometimes singular - not enough failures
+plot(zweib1);zweib1$estimate;gamma(1+1/zweib1$estimate[1])*zweib1$estimate[2]
+(meanestimate<-mean(rweibull(50000,shape=zweib1$estimate[1],scale=zweib1$estimate[2])))
+zexpo1<-fitdistcens(leftandright,distr="weibull",fix.arg=list(shape=1),start=list(scale=meanestimate))# try expo
+sum(leftandright$left)/sum(!is.na(leftandright$right)) # soedst-style mttf - total time on test over total failures
+# be sure to adjust x and y axis limits
+hist(leftandright[!is.na(leftandright$right),"left"],breaks=seq(from=0,to=9000,by=500),main="New Part Time to Failure",xlab="Days",col="royalblue",ylim=c(0,80)) # 700x400
+
+system.time(leftandright<-CensUncensm1(totalsSub[totalsSub$NSN %in% 5963014746208,],3))
+system.time(zweib2<-fitdistcens(leftandright,distr="weibull"))
+plot(zweib2);zweib2$estimate;gamma(1+1/zweib2$estimate[1])*zweib2$estimate[2]
+zexpo2<-fitdistcens(leftandright,distr="weibull",fix.arg=list(shape=1),start=list(scale=meanestimate))# try expo
+sum(leftandright$left)/sum(!is.na(leftandright$right)) # soedst-style mttf - total time on test over total failures
+# be sure to adjust the x and y axis limits
+hist(leftandright[!is.na(leftandright$right),"left"],main="Repaired Part Time to Failure",xlab="Days",col="royalblue",xlim=c(0,9000)) 
+#cdf
+plot(ecdf(rweibull(10000,zweib1$estimate[1],zweib1$estimate[2])))
+lines(ecdf(rweibull(10000,zweib2$estimate[1],zweib2$estimate[2])),col="blue")
+#pdf
+hist(rweibull(10000,zweib1$estimate[1],zweib1$estimate[2]),probability=TRUE)
+plot(density(rweibull(10000,zweib2$estimate[1],zweib2$estimate[2])),xlim=c(0,40000),main="Failure Probability Is Greater for\nRepaired Part Until",
+     xlab="Days")
+lines(density(rweibull(10000,zweib1$estimate[1],zweib1$estimate[2])),col="blue")
+legend("topright",c("New Parts","Repaired Parts"),fill=c("black","blue"))
+
+24204/447*4 # miles per year 
+24204/447*4/365 # miles per day
+# one example pdf of wear out to infant mortality
+
+### hazard function
+# S = 1 - F
+# h = f/S = f/(1-F)
+fortheX<-seq(1,8000,10)
+S1 <- 1 - pweibull(fortheX,zweib1$estimate[1],zweib1$estimate[2])
+h1 <- dweibull(fortheX,zweib1$estimate[1],zweib1$estimate[2])/S1
+S2 <- 1 - pweibull(fortheX,zweib2$estimate[1],zweib2$estimate[2])
+h2 <- dweibull(fortheX,zweib2$estimate[1],zweib2$estimate[2])/S2
+plot(fortheX,h1,type="l",xlab="Days",ylab="Hazard Rate",main="Failure Rate");lines(fortheX,h2,col="royalblue")
+legend("top",c("New Part","Repaired Part"),fill=c("black","royalblue"))
 
 ### wtf confint
 # 50/50 mixture
@@ -1049,11 +1177,56 @@ erosForLT[erosForLT$LeadTime<0,"LeadTime"]<-NA
 erosForLT<-erosForLT[!is.na(erosForLT$LeadTime),] # take out NAs
 erosForLT[erosForLT$LeadTime==0,"LeadTime"]<-as.numeric(0.1)
 # exclude negatives
+# plot a few
+par(mar=c(4,4,1,1))
+par(mfcol=c(1,2))
+h<-hist(as.numeric(erosForLT[erosForLT$FSC %in% 1095,"LeadTime"]),probability=TRUE,
+        xlab="Lead Time (days)",ylab="Probability Density",main="Lead Time for FSC 1095 - Weapons",ylim=c(0,0.09)) # fairly normal fsc, weapons
+oneShip<-fitdist(as.numeric(erosForLT[erosForLT$FSC %in% 1095,"LeadTime"]),distr="lnorm")
+abline(v=exp(oneShip$estimate[1]),col="orange",lwd=2)
+text(16,0.06,paste0("median = ",round(exp(oneShip$estimate[1]),1)),col="orange")#;text(16,0.065,"mdn",col="orange")
+abline(v=exp(oneShip$estimate[1]+oneShip$estimate[2]^2/2),col="blue",lwd=2)
+text(16,0.07,paste0("mean = ",round(exp(oneShip$estimate[1]+oneShip$estimate[2]^2/2),1)),col="blue")#;text(16,0.075,"mean",col="blue")
+text(16,0.08,paste0("orders = ",length(erosForLT[erosForLT$FSC %in% 1095,"LeadTime"])))
+lines(density(rlnorm(100000,oneShip$estimate[1],oneShip$estimate[2])),col="red",lwd=2,lty=2)
+#xfit<-seq(from=min(as.numeric(erosForLT[erosForLT$FSC %in% 1095,"LeadTime"])),
+          #to=max(as.numeric(erosForLT[erosForLT$FSC %in% 1095,"LeadTime"])),length=40)
+#yfit<-rlnorm(xfit,oneShip$estimate[1],oneShip$estimate[2])
+#yfit<-yfit*diff(h$mids[1:2])*length(as.numeric(erosForLT[erosForLT$FSC %in% 1095,"LeadTime"]))
+#lines(xfit,yfit)
+
+# long outliers, circuit breakers
+h<-hist(as.numeric(erosForLT[erosForLT$FSC %in% 5925,"LeadTime"]),probability=TRUE,breaks=20,
+        xlab="Lead Time (days)",ylab="Probability Density",main="Long-tailed Lead Time for FSC 5925 - Circuit Breakers",ylim=c(0,0.09)) # fairly normal fsc, weapons
+oneShip<-fitdist(as.numeric(erosForLT[erosForLT$FSC %in% 5925,"LeadTime"]),distr="lnorm")
+abline(v=exp(oneShip$estimate[1]),col="orange",lwd=2)
+text(40,0.06,paste0("median = ",round(exp(oneShip$estimate[1]),1)),col="orange");#text(40,0.07,"mdn",col="orange")
+abline(v=exp(oneShip$estimate[1]+oneShip$estimate[2]^2/2),col="blue",lwd=2)
+text(40,0.07,paste0("mean = ",round(exp(oneShip$estimate[1]+oneShip$estimate[2]^2/2),1)),col="blue")#;text(40,0.09,"mean",col="blue")
+text(40,0.08,paste0("orders = ",length(erosForLT[erosForLT$FSC %in% 5925,"LeadTime"])))
+lines(density(rlnorm(100000,oneShip$estimate[1],oneShip$estimate[2])),col="red",lwd=2,lty=2)
+
+## nsns
+h<-hist(as.numeric(erosForLT[erosForLT$NSN %in% 4730012965759,"LeadTime"]),xlim=c(0,100),breaks=70,probability=TRUE)
+oneShip<-fitdist(as.numeric(erosForLT[erosForLT$NSN %in% 4730012965759,"LeadTime"]),distr="lnorm")
+lines(density(rlnorm(100000,oneShip$estimate[1],oneShip$estimate[2])),col="red",lwd=2,lty=2)
+theM1ShipTimesAllYears[theM1ShipTimesAllYears$NSN %in% "4730012965759",]
+
+# some statistics
+hist(as.numeric(erosForLT$LeadTime),xlim=c(0,365),breaks=280)
+sum(as.numeric(erosForLT$LeadTime==0.1))/length(as.numeric(erosForLT$LeadTime))# 4.8% of lead times are 0
+sum(as.numeric(erosForLT$LeadTime>365))/length(as.numeric(erosForLT$LeadTime)) # 0.3$ of lead times over a year
+sum(as.numeric(erosForLT$LeadTime>(365/4)))/length(as.numeric(erosForLT$LeadTime)) # 2.6% of lead times over a quarter
+with(theM1ShipTimesAllYears[theM1ShipTimesAllYears$Events>1,],
+     sum(ActMeanTime>ActMedianTime)/length(Events))
+head(theM1ShipTimesAllYears[theM1ShipTimesAllYears$ActMeanTime<theM1ShipTimesAllYears$ActMedianTime,]) # median is higher
+with(erosForLT[erosForLT$FSC %in% 5925,],sum(as.numeric(LeadTime>(365/4)))/length(as.numeric(LeadTime))) # 2.1% of lead times over a quarter
+with(erosForLT[erosForLT$FSC %in% 5925,],sum(as.numeric(LeadTime>(365/12)))/length(as.numeric(LeadTime))) # 10.4% above a month
+with(erosForLT[erosForLT$FSC %in% 1095,],sum(as.numeric(LeadTime>(365/12)))/length(as.numeric(LeadTime))) # 10.4% above a month
 
 
 source("C:/Users/tbaer/Desktop/m1a1/randCWwork/m1functions.R")
 system.time(theM1ShipTimes<-gatherDistFitsm1(rawEros,distrib="lognormal",classTypes=c("NSN","Apps")))
-
 # getting error, try w/o apps?
 subsetoferos<-erosForLT[1:20000,]
 system.time(theM1ShipTimes<-gatherDistFitsm1(subsetoferos,distrib="lognormal",unbug=FALSE))#classTypes=c("NSN","Apps")))
@@ -1061,21 +1234,26 @@ system.time(theM1ShipTimes<-gatherDistFitsm1(subsetoferos,distrib="lognormal",un
 
 fitanlt<-function(df){
   leadtimes<-df[!is.na(df$LeadTime),"LeadTime"]
-  oneleadtime<-fitdistr(leadtimes,densfun="lognormal")
+  oneleadtime<-fitdistr(as.numeric(leadtimes),densfun="lognormal")
   out<-cbind(t(data.frame(oneleadtime[1])),t(data.frame(oneleadtime[2])))
   out<-as.data.frame(out)
   out[1,5]<-exp(oneleadtime[[1]][1]) # median time b/w order and receive
   out[1,6]<-exp(oneleadtime[[1]][1]+(oneleadtime[[1]][2])^2/2) # mean
-  out[1,7]<-oneleadtime$n # events
-  colnames(out)<-c("meanlog","sdlog","meanlogSE","sdlogSE","MedianTime","MeanTime","Events") 
+  out[1,7]<-median(leadtimes)
+  out[1,8]<-mean(leadtimes)
+  out[1,9]<-oneleadtime$n # events
+  colnames(out)<-c("meanlog","sdlog","meanlogSE","sdlogSE","CalcMedianTime","CalcMeanTime",
+                   "ActMedianTime","ActMeanTime","Events") 
   (out)
 }
 
 system.time(theM1ShipTimesSplitByAppsAllYears<-ddply(erosForLT,c("NSN","Apps"),fitanlt))
 system.time(theM1ShipTimesAllYears<-ddply(erosForLT,c("NSN"),fitanlt))
 
-write.csv(theM1ShipTimesSplitByAppsAllYears,"theM1ShipTimesSplitByAppsAllYears.csv",row.names=FALSE)
-write.csv(theM1ShipTimesAllYears,"theM1ShipTimesAllYears.csv",row.names=FALSE)
+#write.csv(theM1ShipTimesSplitByAppsAllYears,"theM1ShipTimesSplitByAppsAllYears.csv",row.names=FALSE)
+#write.csv(theM1ShipTimesAllYears,"theM1ShipTimesAllYears.csv",row.names=FALSE)
+theM1ShipTimesAllYears<-read.csv("theM1ShipTimesAllYears.csv")
+
 
 abc<-arrange(summarise(group_by(rawEros,NSN,Apps),n()),NSN)
 def<-arrange(summarise(group_by(abc,NSN,n())),NSN)
@@ -1094,8 +1272,10 @@ exp(allLT[[1]][1]+0.009745865);exp(allLT[[1]][1]-0.009745865) # +/1 1 SE
 exp(allLT[[1]][1]+allLT[[1]][1]/4);exp(allLT[[1]][1]-allLT[[1]][1]/4)
 exp(allLT[[1]][1]+allLT[[1]][1]/4+allLT[[1]][1]^2/2);exp(allLT[[1]][1]-allLT[[1]][1]/4+allLT[[1]][1]^2/2)
 
-
+###########################################################################
 ## DOE etc.
+#to get the correct factor to adjust lognormal shipping times to get +50/-50% of mean and median 
+#                     (add log(fraction) to meanlog, where fraction is fraction of 100% current)
 meanlog<-2.302585
 sdlog<-.7
 (mdn<-exp(meanlog))
@@ -1123,3 +1303,241 @@ exp(meanlog*y)
 
 abc<-seq(from=log(1/2),to=log(2),length.out=17)
 plot(abc,exp(abc))
+
+
+## initialize the OAI 09/23
+# read data
+dataCN<-odbcConnectAccess2007(paste0(getwd(),"/doe/m1baselineOAIInitialized.mdb")) #  100101001
+system.time(oai<-sqlQuery(dataCN, "SELECT * FROM [*Object Attributes Initial] WHERE [Object Type]=100101001"))
+print(object.size(oai),units="MB")
+system.time(oai<-sqlQuery(dataCN, "SELECT * FROM [*Object Attributes Initial]")) # 34 seconds
+print(object.size(oai),units="MB")
+# update the probabalistic age
+system.time(oai$`Probabilistic age`<-runif(nrow(oai)))
+# output result
+system.time(sqlSave(dataCN,oai,rownames=FALSE)) # 287 seconds  varTypes=c(NSN="Number",SerialNumber="Text",FstSttDt="Date",ScdSttDt="Date",
+# remove connection
+close(dataCN)
+
+
+# hist of current ages
+hist(oai[oai$Objecttype!=100101001,"AFHRv"])
+# fleet goes 24204 miles per quarter - 447 platforms
+24204/447*4 # platform average miles per year - 216
+24204/447*4*10 # platform averages before a rebuild - 2166
+sum(oai$CompletedRepairs>0)/nrow(oai) # 10% of parts with 1 CR
+
+##### 09/23:
+## 1: what is the average age of a part following a weibull distribution in steady state relative to its mttf? expo, shape
+set.seed(099)
+mttf<-100
+shape1<-1.5 # characteristic life should be higher than mttf
+shape2<-0.75 # characteristic life should be lower than mttf
+scale1<-mttf/gamma(1+1/shape1)
+scale2<-mttf/gamma(1+1/shape2)
+fails11<-(rweibull(100000,shape1,scale1)) # time @ first failure
+fails12<-(rweibull(10000,shape1,scale1)+fails11) # time @ second failure
+fails13<-(rweibull(10000,shape1,scale1)+fails12) # time @ third failure
+fails14<-(rweibull(10000,shape1,scale1)+fails13) # time @ fourth failure
+df1<-cbind(fails11,fails12,fails13,fails14)
+quantile(ecdf(fails11),0.5) # median
+hist(fails11);abline(v=quantile(ecdf(fails11),0.5),col="orange");abline(v=mttf,col="blue")
+fails21<-rweibull(10000,shape2,scale2)
+hist(fails21);abline(v=median(fails21),col="orange");abline(v=mttf,col="blue")
+fails31<-rweibull(10000,1,mttf)
+hist(fails31);abline(v=median(fails31),col="orange");abline(v=mttf,col="blue")
+plot(c(shape1,shape2,1,1.25),c(median(fails11),median(fails21),median(fails31),median(rweibull(10000,1.25,mttf/gamma(1+1/1.25)))),ylab="median")
+
+## 2: is it okay to calculate mttf as total time for all parts on test over number of failures (treating all parts as the same part) or 
+     #  should I count this as suspensions and a few failures?
+lr<-data.frame("left"=c(5,3,6,6,5,2,2,8,7,2,2,1,4),"right"=c(5,3,6,NA,NA,NA,2,8,7,2,NA,1,4))
+dist1<-fitdistcens(lr,distr="weibull")
+plot(dist1)
+sum(lr$left/sum(!is.na(lr$right))) # mttf one way - total time on test / total failures
+dist1$estimate[2]*gamma(1+1/dist1$estimate[1]) # mttf a second way
+# but this is a bad way to do it b/c my weibull is only an approximation
+# should really do it with real data( as sampled above )
+left<-fails11;sum(left)
+right<-fails11
+censFrac<-0.5# fraction censored
+right[head(order(runif(length(right))),length(fails11)*censFrac)]<-NA # assign 10% as censored
+left[which(is.na(right))]<-runif(sum(is.na(right)),0,left[which(is.na(right))]);sum(left) # assign random censoring time to those 10%
+weibEst<-fitdistcens(data.frame(left,right),distr="weibull")
+weibEst$estimate[2]*gamma(1+1/weibEst$estimate[1]) # mean estimate - overestimate, maybe a better way to assign random censor times
+weibEst
+sum(left)/sum(!is.na(right))# other mean estimate
+# now see what happens if mttf is 100 days but I only ever see 25 days
+sum(fails11<25)/length(fails11)
+f10fails11<-fails11
+f10fails11[f10fails11>25]<-25
+rightEyCn<-f10fails11;rightEyCn<-rightEyCn[rightEyCn==25]<-NA
+zweibEyCn<-fitdistcens(data.frame("left"=f10fails11,"right"=rightEyCn),distr="weibull")
+
+
+## mttf plot
+#m1mttf<-read.table("clipboard",header=TRUE)
+dataCN<-odbcConnectAccess2007(paste0(getwd(),"/doe/m1baseline.mdb")) #  100101001
+system.time(urr<-sqlQuery(dataCN, "SELECT urr.*, count.Count FROM [*Unscheduled Removal rates] AS urr INNER JOIN 
+                          (SELECT DOC.[Object Type], Count(DOC.Slot) AS Count FROM DOC GROUP BY DOC.[Object Type]) AS 
+                          [count] ON urr.[LRU  type] = count.[object type];"))
+print(object.size(urr),units="MB")
+close(dataCN)
+hist(urr$MTTF,breaks=40)
+hist(urr[urr$MTTF<3e6,"MTTF"])
+urr$medttf<-(1000/urr$Rate)*(log(2))^(1/urr$Shape) # urr$medttf<-urr$MTTF*(log(2))^(1/urr$Shape) # median time to fail
+sum(urr$MTTF<1000000)/nrow(urr) # 81% of parts are below 1 million miles mttf
+sum(urr$MTTF<500000)/nrow(urr) # 62% of parts are below 500k miles mttf
+sum(urr$MTTF<100000)/nrow(urr) # 31% of parts are below 100k miles mttf
+sum(urr$MTTF<10000)/nrow(urr) # 6% of parts are below 10k miles mttf
+sum(urr$MTTF<3e6)/nrow(urr) # 84% of parts are below 300000k miles mttf
+sum(urr$medttf<5e5)/nrow(urr) # 64
+
+# with hist of initial ages and mark at typical platform age
+par(mfrow=c(2,1)) # it's masking the axis labels I'll have to do them separately
+hist(oai[oai$Objecttype!=100101001,"AFHRv"],xlim=c(0,4e5),ylab="Part Quantity",xlab="Miles",main = "Currently Installed Part Ages",axes=FALSE)
+axis(2,at=c(0,1e5,2e5,3e5,4e5,5e5),labels=c("0","","","","",""))
+axis(1,at=c(0,1e5,2e5,3e5,4e5),labels=c("0","100K","200K","300K","400K"))
+mtext(text=c("200K","400K"),side=2,line=1,at=c(2e5,4e5))
+abline(v=24204/447*4*(447/40),col="orange") # average miles accrued between depot visits (10 year interval)
+#hist(urr[urr$MTTF<5e5,"MTTF"],probability=FALSE,breaks=40,xlab="Days to Failure",main="MTTF Histogram for Bottom 62% of Part Numbers - out of 1551 Total")
+# oai is in miles, mttfs are in days, convert the latter
+(a<-24204/447*4/365) # miles per day per platform for forecast period
+sum(urr$medttf*a<4e5)/nrow(urr) # miles instead of days - 80%
+hist(urr[urr$medttf*a<4e5,"medttf"]*a,probability=FALSE,breaks=40,xlab="Miles to Failure",axes=FALSE,
+     ylab="Part Number Quantity",main="Median TTF Histogram for Bottom 80% of Part Numbers - out of 1551 Total")
+axis(2,at=c(0,50,100,150,200,250,300,350),labels=c("0","","100","","200","","300",""))
+axis(1,at=c(0,1e5,2e5,3e5,4e5),labels=c("0","100K","200K","300K","400K"))
+mtext(text=c("100","200","300"),side=2,line=1,at=c(100,200,300))
+#hist(urr$medttf,probability=FALSE,breaks=40,xlab="Miles to Failure",main="Median TTF Histogram for Bottom 64% of Part Numbers - out of 1551 Total")
+# medians have are more dispersed because the parts with the same (high) mttfs have different shapes
+abline(v=24204/447*4*(447/40),col="orange")
+par(mfrow=c(1,1))
+
+# quantity of new parts in an m1 that exhibit at least some wear out
+sum(((urr$Shape>1 & urr$`Completed Repairs`==0)*urr$Count))/sum(urr[urr$`Completed Repairs`==0,"Count"]) # 94%
+# quantity of part numbers in an m1 that exhibit at least some wear out as new
+sum(urr$Shape>1 & urr$`Completed Repairs`==0)/nrow(urr[urr$`Completed Repairs`==0,]) # 94%
+# quantity of repaired parts in an m1 that exhibit at least some wear out
+sum(((urr$Shape>1 & urr$`Completed Repairs`==1)*urr$Count))/sum(urr[urr$`Completed Repairs`==1,"Count"]) # 75%
+# quantity of part numbers in an m1 that exhibit at least some wear out as repaired
+sum(urr$Shape>1 & urr$`Completed Repairs`==1)/nrow(urr[urr$`Completed Repairs`==1,]) # 75%
+
+par(mfrow=c(1,2))
+hist(urr[urr$`Completed Repairs`==0,"Shape"],ylim=c(0,800),xlab="Shape Parameter",main="New Part Wear Out Level")
+hist(urr[urr$`Completed Repairs`==1,"Shape"],ylim=c(0,800),xlab="Shape Parameter",main="Repaired Part Wear Out Level")
+par(mfrow=c(1,1))
+
+# 201281001
+onepart<-urr[urr$`LRU  type`==201281001,]
+onepart0<-onepart[1,];onepart1<-onepart[2,]
+
+### hazard function
+# S = 1 - F
+# h = f/S = f/(1-F)
+fortheX<-seq(1,8000,10)
+S1 <- 1 - pweibull(fortheX,zweib1$estimate[1],zweib1$estimate[2])
+h1 <- dweibull(fortheX,zweib1$estimate[1],zweib1$estimate[2])/S1
+S2 <- 1 - pweibull(fortheX,zweib2$estimate[1],zweib2$estimate[2])
+h2 <- dweibull(fortheX,zweib2$estimate[1],zweib2$estimate[2])/S2
+plot(fortheX,h1,type="l",xlab="Days",ylab="Hazard Rate",main="Failure Rate");lines(fortheX,h2,col="royalblue")
+legend("top",c("New Part","Repaired Part"),fill=c("black","royalblue"))
+
+# one NSN - 1015, weapons
+a<-weibsAN[weibsAN$NSN %in% 5963014746208,] # 1015011772671 gun tube # track 2530015319542
+c<-weibsCN[weibsCN$NSN %in% 5963014746208,]
+fortheX<-seq(1,50000,100) # 140000
+S1 <- 1 - pweibull(fortheX,a$shape,a$scale)
+h1<- a$shape*((1/a$scale)^a$shape)*fortheX^(a$shape-1)
+S2 <- 1 - pweibull(fortheX,c$shape,c$scale)
+h2<- c$shape*((1/c$scale)^c$shape)*fortheX^(c$shape-1)
+plot(fortheX,h1,type="l",xlab="Days",ylab="Hazard Rate",main="Instantaneous Failure Rate",lwd=2)
+lines(fortheX,h2,col="royalblue",lwd=2)
+legend("topright",c("New Part","Repaired Part"),fill=c("black","royalblue"),cex=0.85,bty="n")
+#plot(fortheX,h1,ylim=c(0,7e3),type="l") # 0.00005
+#lines(fortheX,h2,ylim=c(0,7e3))#,ylim=c(0,0.00005))
+
+par(mfrow=c(1,1))
+par(mar=c(4,4.1,4.1,2.1))
+# Survival Function
+plot(fortheX,S1,type="l",main="Gun Mount Tube MTTF Decreases  10%; Wear Out Turns to Infant Mortality",xlab="Days",ylab="Probability of Survival")
+lines(fortheX,S2,col="royalblue")
+legend("topright",legend=c("New Part","Repaired Part"),fill=c("black","royalblue"))
+abline(v=fortheX[which(abs(S1-S2)==(min(abs(S1-S2))))])
+text(x=-7500+fortheX[which(abs(S1-S2)==(min(abs(S1-S2))))],y=.8,label=paste(round(fortheX[which(abs(S1-S2)==(min(abs(S1-S2))))],-2),"days\n at cross"))
+abline(v=c(a$MeanTime,c$MeanTime),col=c("black","royalblue"))
+text(x=8000+a$MeanTime,y=0.6,label=paste(round(a$MeanTime,-2),"\n mean days"))
+text(x=-8000+c$MeanTime,y=0.9,label=paste(round(c$MeanTime,-2),"\n mean days"),col="royalblue")
+# pdf
+#histogram
+windows(width=10, height=6)
+par(mfrow=c(1,2))
+secondrandomdata<-rweibull(10000,c$shape,c$scale)
+abc<-hist(rweibull(10000,a$shape,a$scale),probability=TRUE,ylim=c(0,0.000230),xlim=c(0,3.5e4),col=rgb(.3,.3,.3,.5),
+          main="New Part Failure Times",xlab="Days",ylab="Probability Density",axes=T,
+          breaks=seq(0,max(secondrandomdata),by=2500))
+#axis(1,at=c(0,20000,40000,60000,80000,100000),labels=c(0,"20K","40K","60K","80K","100K"))
+#axis(2)
+lines(fortheX,dweibull(fortheX,a$shape,a$scale),lwd=2)
+abline(v=a$scale*(log(2))^(1/a$shape),col="orange",lwd=2)
+#text(x=a$scale*(log(2))^(1/a$shape)+20000,y=4e-5,col="darkorange",
+#     label=paste(round(a$scale*(log(2))^(1/a$shape),-3),"median\ndays to fail"))
+abline(v=a$scale*gamma(1+1/a$shape),col="blue",lwd=2)
+#text(x=a$scale*(log(2))^(1/a$shape)+20000,y=2e-5,col="blue",
+#     label=paste(round(a$scale*gamma(1+1/a$shape),-3),"mean\ndays to fail"))
+# 2
+hist(secondrandomdata,probability=TRUE,main="Repaired Part Failure Times",#Electronic Control Orders: Repaired Vs. New
+     xlab="Days",breaks=seq(from=0,to=max(secondrandomdata)+abc$breaks[2]-abc$breaks[1],by=abc$breaks[2]-abc$breaks[1]),ylab="Probability Density",
+     ylim=c(0,0.000230),xlim=c(0,35000),col=rgb(.2,.2,1,.5),axes=T)
+#axis(1,at=c(0,20000,40000,60000,80000,100000),labels=c(0,"20K","40K","60K","80K","100K"))
+#axis(2)
+lines(fortheX,dweibull(fortheX,c$shape,c$scale),lwd=2)
+abline(v=c$scale*(log(2))^(1/c$shape),col="orange",lwd=2)
+#text(x=c$scale*(log(2))^(1/c$shape)+3e4,y=4e-5,col="darkorange",
+#     label=paste(round(c$scale*(log(2))^(1/c$shape),-2),"median\ndays to fail"))
+abline(v=c$scale*gamma(1+1/c$shape),col="blue",lwd=2)
+#text(x=c$scale*(log(2))^(1/c$shape)+3e4,y=2e-5,col="blue",
+#     label=paste(round(c$scale*gamma(1+1/c$shape),-3),"mean\ndays to fail"))
+#legend("topright",legend=c("New Part","Repaired Part"),fill=c("black","royalblue"),cex=0.01)
+par(mfrow=c(1,1))
+#title("testtime")
+# hazard
+windows(width=10, height=8) # to fix this awful legend problem
+plot(fortheX,h1,type="l",xlab="Days",lwd=2,ylab="Failure Rate",main="Instantaneous Failure Rate",
+     cex=1.2,cex.axis=1.2,cex.lab=1.5)
+lines(fortheX,h2,col="royalblue",lwd=2)
+legend("right",legend=c("New Part","Repaired Part"),fill=c("black","royalblue"),bty="n",cex=1.5)
+abline(v=fortheX[which(abs(h1-h2)==(min(abs(h1-h2))))])
+text(x=7000+fortheX[which(abs(h1-h2)==(min(abs(h1-h2))))],y=0.00015,cex=1.3,
+     label=paste(round(fortheX[which(abs(h1-h2)==(min(abs(h1-h2))))],-2),"days\n at cross"))
+abline(v=c(a$MeanTime,c$MeanTime),col=c("black","royalblue"))
+text(x=4500+a$MeanTime,y=0.000031,label=paste(round(a$MeanTime,-2),"\n mean days"))
+text(x=-4500+c$MeanTime,y=0.000024,label=paste(round(c$MeanTime,-2),"\n mean days"),col="royalblue")
+
+s3<-1 - pweibull(fortheX,a$shape,a$scale);plot(fortheX,s3,type="l")
+s4<-1 - pweibull(fortheX,c$shape,a$scale);lines(fortheX,s4,type="l",col="red")
+abline(v=fortheX[which(abs(s3-s4)==(min(abs(s3-s4))))])
+# hazards with the same MTTF
+a$scale*gamma(1+1/a$shape)
+cnew<-c
+cnew$MeanTime<-a$MeanTime
+cnew$scale<-cnew$MeanTime/gamma(1+1/c$shape)
+h3<-a$shape*((1/a$scale)^a$shape)*fortheX^(a$shape-1)
+h4<-c$shape*((1/cnew$scale)^c$shape)*fortheX^(c$shape-1)
+plot(fortheX,h3,type="l",xlab="Days",ylab="Failure Rate",main="Instantaneous Failure Rate")
+lines(fortheX,h4,col="royalblue")
+legend("bottomright",legend=c("New Part","Repaired Part"),fill=c("black","royalblue"))
+abline(v=fortheX[which(abs(h3-h4)==(min(abs(h3-h4))))])
+text(x=-5500+fortheX[which(abs(h3-h4)==(min(abs(h3-h4))))],y=0.000022,label=paste(round(fortheX[which(abs(h3-h4)==(min(abs(h3-h4))))],-2),"days\n at cross"))
+abline(v=c(a$MeanTime,c$MeanTime),col=c("black","royalblue"))
+text(x=4500+a$MeanTime,y=0.000031,label=paste(round(a$MeanTime,-2),"\n mean days"))
+#text(x=-4500+c$MeanTime,y=0.000024,label=paste(round(cnew$MeanTime,-2),"\n mean days"),col="royalblue")
+
+5315013787824
+2590010986751
+2590011964716 # 1.9
+3040011028207 # 1.6
+1240014750276 # 1.5
+5330013170093 # 1.8
+5340013632705 # 2.5
+5895013177618 # 2.3
+2530015319542 # 1.6
