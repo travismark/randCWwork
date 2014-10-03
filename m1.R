@@ -185,7 +185,7 @@ first5Ordered<-function(dataframe,unbug=FALSE){
   ScdSttDt<-as.Date(ScdSttDt, origin = '1899-12-30') # unique ero is SN & ERO & Start Date ?
   ThdSttDt<-as.Date(ThdSttDt, origin = '1899-12-30') # I'm not accounting for downtime for other parts in between
   FurSttDt<-as.Date(FurSttDt, origin = '1899-12-30') # I'm not accounting for parts with sl qty > 1 (remove 1 part, then the 2nd different part a week later = 1 week removal time currently) 
-  FvhSttDt<-as.Date(FvhSttDt, origin = '1899-12-30')
+  FvhSttDt<-as.Date(FvhSttDt, origin = '1899-12-30') # I'm not accounting for new PN introductions and PN retirements and PN interchangeability/subsitutability
   FstEndDt<-as.Date(FstEndDt, origin = '1899-12-30')
   ScdEndDt<-as.Date(ScdEndDt, origin = '1899-12-30')
   ThdEndDt<-as.Date(ThdEndDt, origin = '1899-12-30') # doesn't handle overlapping eros - gives negative time, which I zero out
@@ -933,24 +933,33 @@ sum(weibsCN$shape<1,na.rm=TRUE)/sum(!is.na(weibsCN$shape))
 
 # plot
 source("C:/Users/tbaer/Desktop/m1a1/randCWwork/m1functions.R")
-myconn<-odbcConnectAccess("C:/Users/tbaer/Desktop/m1a1/totalsDB")
-system.time(totalsSub<-sqlQuery(myconn,"SELECT * FROM totals WHERE NSN = 5963014746208")) # 3.2 seconds #1240015455913 #2530015319542
-system.time(leftandright<-CensUncensm1(totalsSub[totalsSub$NSN %in% 5963014746208,],1)) # 5310009388387;5830013823218
-system.time(zweib1<-fitdistcens(leftandright,distr="weibull")) # sometimes singular - not enough failures
+myconn<-odbcConnectAccess("C:/Users/tbaer/Desktop/m1a1/totalsDB") # 2835015482910 -eng
+system.time(totalsSub<-sqlQuery(myconn,"SELECT * FROM totals WHERE NSN = 6110015147369")) # 3.2 seconds #1240015455913 #2530015319542
+system.time(leftandright0<-CensUncensm1(totalsSub[totalsSub$NSN %in% 6110015147369,],1)) # 5310009388387;5830013823218
+system.time(zweib1<-fitdistcens(leftandright0,distr="weibull")) # sometimes singular - not enough failures
 plot(zweib1);zweib1$estimate;gamma(1+1/zweib1$estimate[1])*zweib1$estimate[2]
+(fitmedian<-zweib1$estimate[2]*log(2)^(1/zweib1$estimate[1]))
 (meanestimate<-mean(rweibull(50000,shape=zweib1$estimate[1],scale=zweib1$estimate[2])))
-zexpo1<-fitdistcens(leftandright,distr="weibull",fix.arg=list(shape=1),start=list(scale=meanestimate))# try expo
-sum(leftandright$left)/sum(!is.na(leftandright$right)) # soedst-style mttf - total time on test over total failures
+zexpo1<-fitdistcens(leftandright0,distr="weibull",fix.arg=list(shape=1),start=list(scale=meanestimate))# try expo
+sum(leftandright0$left)/sum(!is.na(leftandright0$right)) # soedst-style mttf - total time on test over total failures
 # be sure to adjust x and y axis limits
-hist(leftandright[!is.na(leftandright$right),"left"],breaks=seq(from=0,to=9000,by=500),main="New Part Time to Failure",xlab="Days",col="royalblue",ylim=c(0,80)) # 700x400
+firsthist<-hist(leftandright0[!is.na(leftandright0$right),"left"])
+hist(leftandright0[!is.na(leftandright0$right),"left"],breaks=seq(from=0,to=3000,by=250),main="New Part Time to Failure",xlab="Days",col="royalblue",ylim=c(0,25)) # 600x350
+mean(leftandright0[!is.na(leftandright0$right),"left"]) # mean time to fail (only failures)
+median(leftandright0[!is.na(leftandright0$right),"left"])# median time to fail (only failures)
 
-system.time(leftandright<-CensUncensm1(totalsSub[totalsSub$NSN %in% 5963014746208,],3))
-system.time(zweib2<-fitdistcens(leftandright,distr="weibull"))
+system.time(leftandright1<-CensUncensm1(totalsSub[totalsSub$NSN %in% 6110015147369,],3))
+system.time(zweib2<-fitdistcens(leftandright1,distr="weibull"))
 plot(zweib2);zweib2$estimate;gamma(1+1/zweib2$estimate[1])*zweib2$estimate[2]
-zexpo2<-fitdistcens(leftandright,distr="weibull",fix.arg=list(shape=1),start=list(scale=meanestimate))# try expo
-sum(leftandright$left)/sum(!is.na(leftandright$right)) # soedst-style mttf - total time on test over total failures
+(fitmedian<-zweib2$estimate[2]*log(2)^(1/zweib2$estimate[1]))
+zexpo2<-fitdistcens(leftandright1,distr="weibull",fix.arg=list(shape=1),start=list(scale=meanestimate))# try expo
+sum(leftandright1$left)/sum(!is.na(leftandright1$right)) # soedst-style mttf - total time on test over total failures
 # be sure to adjust the x and y axis limits
-hist(leftandright[!is.na(leftandright$right),"left"],main="Repaired Part Time to Failure",xlab="Days",col="royalblue",xlim=c(0,9000)) 
+secondhist<-hist(leftandright1[!is.na(leftandright1$right),"left"])
+hist(leftandright1[!is.na(leftandright1$right),"left"],main="Repaired Part Time to Failure",xlab="Days",col="royalblue",xlim=c(0,3000),breaks=seq(from=0,to=4000,by=250),ylim=c(0,25)) 
+mean(leftandright1[!is.na(leftandright1$right),"left"]) # mean time to fail (only failures)
+median(leftandright1[!is.na(leftandright1$right),"left"])# median time to fail (only failures)
+
 #cdf
 plot(ecdf(rweibull(10000,zweib1$estimate[1],zweib1$estimate[2])))
 lines(ecdf(rweibull(10000,zweib2$estimate[1],zweib2$estimate[2])),col="blue")
@@ -961,6 +970,7 @@ plot(density(rweibull(10000,zweib2$estimate[1],zweib2$estimate[2])),xlim=c(0,400
 lines(density(rweibull(10000,zweib1$estimate[1],zweib1$estimate[2])),col="blue")
 legend("topright",c("New Parts","Repaired Parts"),fill=c("black","blue"))
 
+
 24204/447*4 # miles per year 
 24204/447*4/365 # miles per day
 # one example pdf of wear out to infant mortality
@@ -968,12 +978,12 @@ legend("topright",c("New Parts","Repaired Parts"),fill=c("black","blue"))
 ### hazard function
 # S = 1 - F
 # h = f/S = f/(1-F)
-fortheX<-seq(1,8000,10)
+fortheX<-seq(1,30000,100)
 S1 <- 1 - pweibull(fortheX,zweib1$estimate[1],zweib1$estimate[2])
 h1 <- dweibull(fortheX,zweib1$estimate[1],zweib1$estimate[2])/S1
 S2 <- 1 - pweibull(fortheX,zweib2$estimate[1],zweib2$estimate[2])
 h2 <- dweibull(fortheX,zweib2$estimate[1],zweib2$estimate[2])/S2
-plot(fortheX,h1,type="l",xlab="Days",ylab="Hazard Rate",main="Failure Rate");lines(fortheX,h2,col="royalblue")
+plot(fortheX,h1,type="l",xlab="Days",ylab="Hazard Rate",main="Failure Rate",ylim=c(0,.0007));lines(fortheX,h2,col="royalblue")
 legend("top",c("New Part","Repaired Part"),fill=c("black","royalblue"))
 
 ### wtf confint
@@ -1471,10 +1481,12 @@ text(x=-8000+c$MeanTime,y=0.9,label=paste(round(c$MeanTime,-2),"\n mean days"),c
 #histogram
 windows(width=10, height=6)
 par(mfrow=c(1,2))
+fortheX=seq(0,6e4,100)
 secondrandomdata<-rweibull(10000,c$shape,c$scale)
-abc<-hist(rweibull(10000,a$shape,a$scale),probability=TRUE,ylim=c(0,0.000230),xlim=c(0,3.5e4),col=rgb(.3,.3,.3,.5),
+firstrandomdata<-rweibull(10000,a$shape,a$scale)
+abc<-hist(rweibull(10000,a$shape,a$scale),probability=TRUE,ylim=c(0,0.000240),col=rgb(.3,.3,.3,.5),xlim=c(0,4.5e4),
           main="New Part Failure Times",xlab="Days",ylab="Probability Density",axes=T,
-          breaks=seq(0,max(secondrandomdata),by=2500))
+          breaks=seq(0,2499+max(c(firstrandomdata,secondrandomdata)),by=2500))
 #axis(1,at=c(0,20000,40000,60000,80000,100000),labels=c(0,"20K","40K","60K","80K","100K"))
 #axis(2)
 lines(fortheX,dweibull(fortheX,a$shape,a$scale),lwd=2)
@@ -1487,7 +1499,7 @@ abline(v=a$scale*gamma(1+1/a$shape),col="blue",lwd=2)
 # 2
 hist(secondrandomdata,probability=TRUE,main="Repaired Part Failure Times",#Electronic Control Orders: Repaired Vs. New
      xlab="Days",breaks=seq(from=0,to=max(secondrandomdata)+abc$breaks[2]-abc$breaks[1],by=abc$breaks[2]-abc$breaks[1]),ylab="Probability Density",
-     ylim=c(0,0.000230),xlim=c(0,35000),col=rgb(.2,.2,1,.5),axes=T)
+     ylim=c(0,0.000240),xlim=c(0,45000),col=rgb(.2,.2,1,.5),axes=T)
 #axis(1,at=c(0,20000,40000,60000,80000,100000),labels=c(0,"20K","40K","60K","80K","100K"))
 #axis(2)
 lines(fortheX,dweibull(fortheX,c$shape,c$scale),lwd=2)
@@ -1503,15 +1515,15 @@ par(mfrow=c(1,1))
 # hazard
 windows(width=10, height=8) # to fix this awful legend problem
 plot(fortheX,h1,type="l",xlab="Days",lwd=2,ylab="Failure Rate",main="Instantaneous Failure Rate",
-     cex=1.2,cex.axis=1.2,cex.lab=1.5)
+     cex=1.2,cex.axis=1.2,cex.lab=1.5,ylim=c(0,0.0004))
 lines(fortheX,h2,col="royalblue",lwd=2)
-legend("right",legend=c("New Part","Repaired Part"),fill=c("black","royalblue"),bty="n",cex=1.5)
+legend("topright",legend=c("New Part","Repaired Part"),fill=c("black","royalblue"),bty="n",cex=1.5)
 abline(v=fortheX[which(abs(h1-h2)==(min(abs(h1-h2))))])
-text(x=7000+fortheX[which(abs(h1-h2)==(min(abs(h1-h2))))],y=0.00015,cex=1.3,
+text(x=4500+fortheX[which(abs(h1-h2)==(min(abs(h1-h2))))],y=0.00016,cex=1.3,
      label=paste(round(fortheX[which(abs(h1-h2)==(min(abs(h1-h2))))],-2),"days\n at cross"))
 abline(v=c(a$MeanTime,c$MeanTime),col=c("black","royalblue"))
-text(x=4500+a$MeanTime,y=0.000031,label=paste(round(a$MeanTime,-2),"\n mean days"))
-text(x=-4500+c$MeanTime,y=0.000024,label=paste(round(c$MeanTime,-2),"\n mean days"),col="royalblue")
+text(x=-2600+a$MeanTime,y=0.000031,label=paste(round(a$MeanTime,-2),"\n mean days"))
+text(x=-2600+c$MeanTime,y=0.000128,label=paste(round(c$MeanTime,-2),"\n mean days"),col="royalblue")
 
 s3<-1 - pweibull(fortheX,a$shape,a$scale);plot(fortheX,s3,type="l")
 s4<-1 - pweibull(fortheX,c$shape,a$scale);lines(fortheX,s4,type="l",col="red")
@@ -1541,3 +1553,101 @@ text(x=4500+a$MeanTime,y=0.000031,label=paste(round(a$MeanTime,-2),"\n mean days
 5340013632705 # 2.5
 5895013177618 # 2.3
 2530015319542 # 1.6
+
+# histogram of tank birthdays
+hist(freq=TRUE,prodYear$IN.SERVICE,xlab="Year",main="M1A1 First Year of Service",
+     breaks=c(as.Date("1991-01-01"),as.Date("1992-01-01"),as.Date("1993-01-01"),as.Date("1994-01-01"),as.Date("1995-01-01"),
+              as.Date("1996-01-01"),as.Date("1997-01-01"),as.Date("1998-01-01"),as.Date("1999-01-01"),as.Date("2000-01-01"),
+              as.Date("2001-01-01"),as.Date("2002-01-01"),as.Date("2003-01-01"),as.Date("2004-01-01"),as.Date("2005-01-01"),
+              as.Date("2006-01-01"),as.Date("2007-01-01"),as.Date("2008-01-01"),as.Date("2009-01-01"),
+              as.Date("2010-01-01"),as.Date("2011-01-01"),as.Date("2012-01-01"),as.Date("2013-01-01"),
+              as.Date("2014-01-01"),as.Date("2015-01-01"))) # 700 x 280
+hist(freq=TRUE,totalsSub$LstSttDt,breaks=c(as.POSIXct("1991-01-01"),as.POSIXct("1992-01-01"),as.POSIXct("1993-01-01"),as.POSIXct("1994-01-01"),as.POSIXct("1995-01-01"),
+                                 as.POSIXct("1996-01-01"),as.POSIXct("1997-01-01"),as.POSIXct("1998-01-01"),as.POSIXct("1999-01-01"),as.POSIXct("2000-01-01"),
+                                 as.POSIXct("2001-01-01"),as.POSIXct("2002-01-01"),as.POSIXct("2003-01-01"),as.POSIXct("2004-01-01"),as.POSIXct("2005-01-01"),
+                                 as.POSIXct("2006-01-01"),as.POSIXct("2007-01-01"),as.POSIXct("2008-01-01"),as.POSIXct("2009-01-01"),
+                                 as.POSIXct("2010-01-01"),as.POSIXct("2011-01-01"),as.POSIXct("2012-01-01"),as.POSIXct("2013-01-01"),
+                                 as.POSIXct("2014-01-01"),as.POSIXct("2015-01-01")),
+     main="Last ERO Start Date Per Platform")
+hist(as.numeric(totalsSub$LstSttDt-totalsSub$INSERVICE)/365,xlab="Years",main="M1A1 Years in Service")
+
+############################################ OCTOBER redo for 1 part at a time
+# 2006 failure times
+# enginetotals<-totals[totals$NSN %in% 2835015482910,]
+# actually, start over
+# find the failures assuming start date of 2006, then build totals and merge
+#enginesSNnsnminOrdered5<-SNnsnminOrdered5[SNnsnminOrdered5$NSN %in% 2835015482910,] # go read on line 270ish - this DF has all the failures, including 2nd and 3rd, etc.
+enginerawEros<-rawEros[rawEros$NSN %in% 2835015482910,]
+enginerawEros$IN.SERVICE<-as.Date('2007-02-16')
+
+system.time(enginesSNnsnminOrdered5<-ddply(enginerawEros,c("SerialNumber","NSN"),first5Ordered)) #### FOR SOME REASON THIS IS RETURNING ALL THE DATES AS NOT NA EVEN THOUGH SOME ARE
+# apply(head(enginesSNnsnminOrdered5),FUN=is.na,MARGIN=1) # test to see the missing dates are actually NA
+# FSC NSN and group
+enginesSNnsnminOrdered5$FSC<-substr(enginesSNnsnminOrdered5$NSN,1,4) # add fsc
+enginesSNnsnminOrdered5$Grp<-substr(enginesSNnsnminOrdered5$NSN,1,2) # add group
+
+# makes ugly INF and NANs - make the Infs NA, NaN are treated as NA (not vice versa)
+enginesSNnsnminOrdered5$diff2[which(enginesSNnsnminOrdered5$diff2==Inf)]<-NA
+enginesSNnsnminOrdered5$diff3[which(enginesSNnsnminOrdered5$diff3==Inf)]<-NA
+enginesSNnsnminOrdered5$diff4[which(enginesSNnsnminOrdered5$diff4==Inf)]<-NA
+enginesSNnsnminOrdered5$diff5[which(enginesSNnsnminOrdered5$diff5==Inf)]<-NA
+nrow(enginesSNnsnminOrdered5) # 112
+# only 22% of 2nd removals are non-zero at this point
+sum(!is.na(enginesSNnsnminOrdered5$diff2))/length(is.na(enginesSNnsnminOrdered5$diff2))
+# zero out the negative or zero removal times
+enginesSNnsnminOrdered5$diff2[which(enginesSNnsnminOrdered5$diff2<=0)]<-NA
+enginesSNnsnminOrdered5$diff3[which(enginesSNnsnminOrdered5$diff3<=0)]<-NA
+enginesSNnsnminOrdered5$diff4[which(enginesSNnsnminOrdered5$diff4<=0)]<-NA
+enginesSNnsnminOrdered5$diff5[which(enginesSNnsnminOrdered5$diff5<=0)]<-NA
+# now only 21% of 2nd removals are non-zero
+sum(!is.na(enginesSNnsnminOrdered5$diff2))/length(is.na(enginesSNnsnminOrdered5$diff2))
+
+partnumbers<-data.frame("NSN"=as.character(2835015482910),stringsAsFactors = FALSE)
+serialnumbers<-data.frame("SerialNumber"=unique(rawEros$SerialNumber)) # this is a trimmed down list already
+system.time(enginetotals<-merge(x=partnumbers,y=serialnumbers,by=NULL))
+system.time(enginetotals<-join(x=enginetotals,y=enginesSNnsnminOrdered5,by=c("SerialNumber","NSN"),type="full"))
+# bring over in service date
+enginetotals<-join(x=enginetotals,y=prodYear[,c("SerialNumber","IN.SERVICE")],by="SerialNumber",type="full")
+colnames(enginetotals)[length(enginetotals)]<-"INSERVICE" # Rstats
+tail(enginetotals)
+enginetotals<-enginetotals[-nrow(enginetotals),]# some weird NA row at the end
+# bring over max date this serial number ordered a part
+enginetotals<-join(x=enginetotals,y=SNmaxStart,by="SerialNumber",type="full")
+                    ### DECISION POINT
+# treat all platforms as starting their lives on 1 Jan 2006 or 16 Feb 2007 (niin assignment date)
+enginetotals$INSERVICE<-as.Date('2007-02-16')
+enginetotals<-enginetotals[enginetotals$LstSttDt>as.Date('2007-02-16'),] # kill the platforms we saw last before 2006
+# or just look at platforms that were born after 1 Jan 2005
+#enginetotals<-enginetotals[enginetotals$INSERVICE>as.Date('2006-01-01'),] # kill the platforms that were born before 2006
+  
+## suspension data
+enginetotals[which(is.na(enginetotals$diff1)),"diff1"]<-as.numeric(enginetotals[which(is.na(enginetotals$diff1)),"LstSttDt"]-enginetotals[which(is.na(enginetotals$diff1)),"INSERVICE"])
+# need the other differences ; need only one suspension per row
+system.time(enginetotals[which(is.na(as.character(enginetotals$ScdSttDt)) & !is.na(as.character(enginetotals$FstSttDt))),"diff2"]<-
+              as.numeric(enginetotals[which(is.na(as.character(enginetotals$ScdSttDt)) & !is.na(as.character(enginetotals$FstSttDt))),"LstSttDt"]-
+                           enginetotals[which(is.na(as.character(enginetotals$ScdSttDt)) & !is.na(as.character(enginetotals$FstSttDt))),"FstSttDt"]))
+# I really need to subtract the previous END date instead of the previous START date, but I can't get that working right now!
+system.time(enginetotals[which(is.na(as.character(enginetotals$ThdSttDt)) & !is.na(as.character(enginetotals$ScdSttDt))),"diff3"]<-
+              as.numeric(enginetotals[which(is.na(as.character(enginetotals$ThdSttDt)) & !is.na(as.character(enginetotals$ScdSttDt))),"LstSttDt"]-
+                           enginetotals[which(is.na(as.character(enginetotals$ThdSttDt)) & !is.na(as.character(enginetotals$ScdSttDt))),"ScdSttDt"]))
+system.time(enginetotals[which(is.na(as.character(enginetotals$FurSttDt)) & !is.na(as.character(enginetotals$ThdSttDt))),"diff4"]<-
+              as.numeric(enginetotals[which(is.na(as.character(enginetotals$FurSttDt)) & !is.na(as.character(enginetotals$ThdSttDt))),"LstSttDt"]-
+                           enginetotals[which(is.na(as.character(enginetotals$FurSttDt)) & !is.na(as.character(enginetotals$ThdSttDt))),"ThdSttDt"]))
+system.time(enginetotals[which(is.na(as.character(enginetotals$FvhSttDt)) & !is.na(as.character(enginetotals$FurSttDt))),"diff5"]<-
+              as.numeric(enginetotals[which(is.na(as.character(enginetotals$FvhSttDt)) & !is.na(as.character(enginetotals$FurSttDt))),"LstSttDt"]-
+                           enginetotals[which(is.na(as.character(enginetotals$FvhSttDt)) & !is.na(as.character(enginetotals$FurSttDt))),"FurSttDt"]))
+
+## need to remove a few zeros (again) b/c of suspension times
+length(which(enginetotals$diff1<=0));enginetotals$diff1[which(enginetotals$diff1<=0)]<-NA
+length(which(enginetotals$diff2<=0));enginetotals$diff2[which(enginetotals$diff2<=0)]<-NA
+length(which(enginetotals$diff3<=0));enginetotals$diff3[which(enginetotals$diff3<=0)]<-NA
+length(which(enginetotals$diff4<=0));enginetotals$diff4[which(enginetotals$diff4<=0)]<-NA
+length(which(enginetotals$diff5<=0));enginetotals$diff5[which(enginetotals$diff5<=0)]<-NA
+
+source("C:/Users/tbaer/Desktop/m1a1/randCWwork/m1functions.R")
+system.time(leftandright0<-CensUncensm1(enginetotals,1))
+system.time(zweib1<-fitdistcens(leftandright0,distr="weibull"))
+system.time(leftandright1<-CensUncensm1(enginetotals,3))
+system.time(zweib2<-fitdistcens(leftandright1,distr="weibull"))
+# see line 935
+

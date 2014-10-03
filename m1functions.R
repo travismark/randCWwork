@@ -36,32 +36,32 @@ CensUncensm1 <- function(df,specCode=1) {
   }
   else if (specCode==3){ # 2nd, 3rd, 4th, 5th removals
     df2<-df[!is.na(df$diff2),] # take out rows with diff2==NA b/c they aren't under test or valid (0 or negative fail time)
-    if(sum(is.na(df2$ScdSttDt))==0) {censdf2<-NULL # set to null b/c empty
-    } else { censdf2<-data.frame(df2[is.na(df2$ScdSttDt),"diff2"],NA) # paste0("diff",1) to use other diffs
+    if(sum(as.numeric(df2$ScdSttDt)=="Inf")==0) {censdf2<-NULL # set to null b/c empty    - 10/3 change from sum(is.na(df2$ScdSttDt)) b/c it isn't catching the NAs properly
+    } else { censdf2<-data.frame(df2[as.numeric(df2$ScdSttDt)=="Inf","diff2"],NA) # paste0("diff",1) to use other diffs
              colnames(censdf2)<-c("left","right")}
-    if(sum(!is.na(df2$ScdSttDt))==0) {uncensdf2<-NULL # set to null b/c empty
-    } else {uncensdf2<-data.frame(df2[!is.na(df2$ScdSttDt),"diff2"],df2[!is.na(df2$ScdSttDt),"diff2"])
+    if(sum(!as.numeric(df2$ScdSttDt)=="Inf")==0) {uncensdf2<-NULL # set to null b/c empty
+    } else {uncensdf2<-data.frame(df2[!as.numeric(df2$ScdSttDt)=="Inf","diff2"],df2[!as.numeric(df2$ScdSttDt)=="Inf","diff2"])
             colnames(uncensdf2)<-c("left","right")}
-    df3<-df[!is.na(df$diff3),]
-    if(sum(is.na(df3$ThdSttDt))==0) {censdf3<-NULL # set to null b/c empty
-    } else { censdf3<-data.frame(df3[is.na(df3$ThdSttDt),"diff3"],NA) # paste0("diff",1) to use other diffs
+    df3<-df[!is.na(df$diff3),] # keep these as is.na b/c it works on diff columns (10/03)
+    if(sum(as.numeric(df3$ThdSttDt)=="Inf")==0) {censdf3<-NULL # set to null b/c empty
+    } else { censdf3<-data.frame(df3[as.numeric(df3$ThdSttDt)=="Inf","diff3"],NA) # paste0("diff",1) to use other diffs
              colnames(censdf3)<-c("left","right")}
-    if(sum(!is.na(df3$ScdSttDt))==0) {uncensdf3<-NULL # set to null b/c empty
-    } else {uncensdf3<-data.frame(df3[!is.na(df3$ThdSttDt),"diff3"],df3[!is.na(df3$ThdSttDt),"diff3"])
+    if(sum(!as.numeric(df3$ThdSttDt)=="Inf")==0) {uncensdf3<-NULL # set to null b/c empty   ### 10/3 - I found the bug here - it was looking at Second start date instead of third
+    } else {uncensdf3<-data.frame(df3[!as.numeric(df3$ThdSttDt)=="Inf","diff3"],df3[!as.numeric(df3$ThdSttDt)=="Inf","diff3"])
             colnames(uncensdf3)<-c("left","right")}
     df4<-df[!is.na(df$diff4),]
-    if(sum(is.na(df4$FurSttDt))==0) {censdf4<-NULL # set to null b/c empty
-    } else { censdf4<-data.frame(df4[is.na(df4$FurSttDt),"diff4"],NA) # paste0("diff",1) to use other diffs
+    if(sum(as.numeric(df4$FurSttDt)=="Inf")==0) {censdf4<-NULL # set to null b/c empty
+    } else { censdf4<-data.frame(df4[as.numeric(df4$FurSttDt)=="Inf","diff4"],NA) # paste0("diff",1) to use other diffs
              colnames(censdf4)<-c("left","right")}
-    if(sum(!is.na(df$FurSttDt))==0) {uncensdf4<-NULL # set to null b/c empty
-    } else {uncensdf4<-data.frame(df4[!is.na(df4$FurSttDt),"diff4"],df4[!is.na(df4$FurSttDt),"diff4"])
+    if(sum(!as.numeric(df4$FurSttDt)=="Inf")==0) {uncensdf4<-NULL # set to null b/c empty - 10/3 another bug here - it was looking at all of df instead of just df4
+    } else {uncensdf4<-data.frame(df4[!as.numeric(df4$FurSttDt)=="Inf","diff4"],df4[!as.numeric(df4$FurSttDt)=="Inf","diff4"])
             colnames(uncensdf4)<-c("left","right")}
     df5<-df[!is.na(df$diff5),]
-    if(sum(is.na(df5$FvhSttDt))==0) {censdf5<-NULL # set to null b/c empty
-    } else { censdf5<-data.frame(df5[is.na(df5$FvhSttDt),"diff5"],NA) # paste0("diff",1) to use other diffs
+    if(sum(as.numeric(df5$FvhSttDt)=="Inf")==0) {censdf5<-NULL # set to null b/c empty
+    } else { censdf5<-data.frame(df5[as.numeric(df5$FvhSttDt)=="Inf","diff5"],NA) # paste0("diff",1) to use other diffs
              colnames(censdf5)<-c("left","right")}
-    if(sum(!is.na(df5$FvhSttDt))==0) {uncensdf5<-NULL # set to null b/c empty
-    } else {uncensdf5<-data.frame(df5[!is.na(df5$FvhSttDt),"diff5"],df5[!is.na(df5$FvhSttDt),"diff5"])
+    if(sum(!as.numeric(df5$FvhSttDt)=="Inf")==0) {uncensdf5<-NULL # set to null b/c empty
+    } else {uncensdf5<-data.frame(df5[!as.numeric(df5$FvhSttDt)=="Inf","diff5"],df5[!as.numeric(df5$FvhSttDt)=="Inf","diff5"])
             colnames(uncensdf5)<-c("left","right")}
     newdf<-rbind(censdf2,uncensdf2,censdf3,uncensdf3,censdf4,uncensdf4,censdf5,uncensdf5)
   }
