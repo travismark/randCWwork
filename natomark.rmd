@@ -1,0 +1,175 @@
+---
+title: "NATO Lane Change Test"
+author: "Travis Baer"
+date: "Tuesday, August 12, 2014"
+output: html_document
+---
+
+Load data from database and run query to get data frame of one row per variant tested.
+
+```{r results="hide",message=FALSE,warning=FALSE}
+setwd("P:/External Projects/3104 - ALPS 2014/HMMWV Integration/Analysis")
+require(RODBC)
+require(ggplot2)
+require(MASS)
+require(DAAG)
+require(car)
+require(leaps)
+require(randomForest)
+require(gbm)
+require(dplyr)
+dataCN<-odbcConnectAccess("P:/External Projects/3104 - ALPS 2014/HMMWV Integration/Data/HMMWV Integration Master Data Consolidated")
+#dataCN<-odbcConnectAccess("C:/Users/tbaer/Desktop/integration/HMMWV Integration Master Data Consolidated")
+natoTest<-sqlQuery(dataCN,"SELECT * FROM NATOtest")
+```
+
+Clean up field names, switch the number of axles to a factor, remove the 4-axle test
+```{r}
+colnames(natoTest)<-gsub(" ","",colnames(natoTest))
+colnames(natoTest)<-gsub("(","_",colnames(natoTest),fixed=TRUE)
+colnames(natoTest)<-gsub("#","",colnames(natoTest),fixed=TRUE)
+colnames(natoTest)<-gsub("/","_",colnames(natoTest),fixed=TRUE)
+colnames(natoTest)<-gsub(")","_",colnames(natoTest),fixed=TRUE)
+colnames(natoTest)<-gsub("-","",colnames(natoTest),fixed=TRUE)
+colnames(natoTest)<-gsub(",","",colnames(natoTest),fixed=TRUE)
+colnames(natoTest)<-gsub("%","Percent",colnames(natoTest),fixed=TRUE)
+natoTest$Axles<-as.factor(natoTest$Axles)
+sum(natoTest$Axles==4);natoTest<-natoTest[which(natoTest$Axles!=4),]
+```
+
+
+Plot with All Data
+```{r}
+p<-ggplot(natoTest,aes(x=TotalWeightAsTested,y=MaxSpeedNATO_mph_)) + geom_point(aes(shape=Axles,colour=WeightPercentHMMWVRearAxle,size=HMMWVVertCOG)) + labs(y="Max Speed",x="Total Weight")  + ggtitle("Max NATO")
+plot(p)
+hist(natoTest$MaxSpeedNATO_mph_)
+plot(density(natoTest$MaxSpeedNATO_mph_))
+```
+
+With Trailers
+```{r}
+p<-ggplot(natoTest,aes(x=TotalWeightAsTested,y=MaxSpeedNATO_mph_)) + geom_point(aes(shape=Axles,colour=WeightPercentHMMWVRearAxle,size=TrailerVertCOG)) + labs(y="Max Speed",x="Total Weight")  + ggtitle("Max NATO")
+plot(p)
+```
+
+```{r, fig.height=10,fig.width=10}
+natosub2<-natoTest[,c("TotalWeightAsTested","HMMWVVertCOG","WeightRatioHMMWVFront_Rear","HMMWVLatCOG","MaxSpeedNATO_mph_")]
+spm(natosub2,smoother=FALSE)
+natosub1<-natoTest[,c("TrailerLongCOG","WeightPercentComboTrailerAxle","TrailerVertCOG","TrailerLatCOG","MaxSpeedNATO_mph_")] # Limited to Trailers
+spm(natosub1,smoother=FALSE)
+natosub3<-natoTest[,c("Hlength","Hwidth","Hheight","MaxSpeedNATO_mph_")]
+spm(natosub3,smoother=FALSE)
+natosub4<-natoTest[,c("Tlength","Twidth","Theight","MaxSpeedNATO_mph_")]
+spm(natosub4,smoother=FALSE)
+# interesting ones
+natosub5<-natoTest[,c("TotalWeightAsTested","Theight","WeightRatioHMMWVFront_Rear","MaxSpeedNATO_mph_")]
+pairs(natosub5)
+```
+
+Which is a better fit: WeightRatioHMMWVFront_Rear or HMMWVLongCOG?
+```{r}
+aggregate(natoTest$MaxSpeedNATO_mph_,by=list("Axles"=natoTest$Axles),mean)
+natoFitFR<-lm(MaxSpeedNATO_mph_ ~ WeightRatioHMMWVFront_Rear,data=natoTest)
+natoFitHLongCG<-lm(MaxSpeedNATO_mph_ ~ HMMWVLongCOG,data=natoTest)
+anova(natoFitFR,natoFitHLongCG) # all data
+summary(natoFitFR)
+plot(y=natoTest$MaxSpeedNATO_mph_,x=natoTest$WeightRatioHMMWVFront_Rear,col="orange",pch=16,
+       ylab="Max Speed",xlab="HMMWV Front/Rear Weight Ratio")
+abline(lm(natoTest$MaxSpeedNATO_mph_~natoTest$WeightRatioHMMWVFront_Rear),col="blue",lwd=2)
+natoFitFR<-lm(MaxSpeedNATO_mph_ ~ WeightRatioHMMWVFront_Rear,data=natoTest[natoTest$Axles==2,])
+natoFitHLongCG<-lm(MaxSpeedNATO_mph_ ~ HMMWVLongCOG,data=natoTest[natoTest$Axles==2,])
+anova(natoFitFR,natoFitHLongCG) # HMMWV-only
+plot(y=natoTest$MaxSpeedNATO_mph_[which(natoTest$Axles==2)],x=natoTest$WeightRatioHMMWVFront_Rear[which(natoTest$Axles==2)],col="orange",pch=16,
+       ylab="Max Speed",xlab="HMMWV Front/Rear Weight Ratio")
+abline(lm(natoTest$MaxSpeedNATO_mph_~natoTest$WeightRatioHMMWVFront_Rear,data=natoTest[natoTest$Axles==2,]),col="blue",lwd=2)
+```
+
+try a default RF, all data
+```{r}
+natoRightSpeedRF1st<-randomForest(MaxSpeedNATO_mph_~TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear,data=natoTest)
+```
+
+Stepwise Regression  - need to add in tire pressure soon - FULL MODEL
+```{r}
+#start<-lm(MaxSpeedNATO_mph_~TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+Hlength+Hwidth+Hheight,data=natoTest)
+start<-lm(MaxSpeedNATO_mph_~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear)^2,data=natoTest)
+#natoTopSpeedStepMany<-stepAIC(start)
+natoTopSpeedLeaps<-regsubsets(formula(start),data=natoTest,nvmax=6,nbest=8,method="exhaustive")
+#summary(natoTopSpeedLeaps)
+plot(natoTopSpeedLeaps,scale="adjr2")
+coef(natoTopSpeedLeaps,which(summary(natoTopSpeedLeaps)$adjr2==max(summary(natoTopSpeedLeaps)$adjr2))) # coefficients for the best model, still need to fit
+natoTopSpeed1st<-lm(as.formula(paste("MaxSpeedNATO_mph_ ~",paste(names(coef(natoTopSpeedLeaps,which(summary(natoTopSpeedLeaps)$adjr2==max(summary(natoTopSpeedLeaps)$adjr2))))[-1],collapse="+"))) , data=natoTest)
+summary(natoTopSpeed1st)
+```
+
+Diagnostics
+```{r}
+qqnorm(natoTopSpeed1st$residuals,main='Residual qqplot');qqline(natoTopSpeed1st$residuals)
+natofitData1<-cbind(natoTopSpeed1st$model,residuals(natoTopSpeed1st))
+spm(natofitData1,smoother=FALSE)
+```
+
+
+Stepwise Regression - Trailers only
+```{r}
+start<-lm(MaxSpeedNATO_mph_~TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+Hlength+Hwidth+Hheight+TrailerVertCOG+TrailerLatCOG+TrailerLongCOG+Tlength+Twidth+Theight+WeightPercentComboTrailerAxle,data=natoTest[natoTest$Axles==3,])
+start<-lm(MaxSpeedNATO_mph_~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+Hlength+Hwidth+Hheight+TrailerVertCOG+TrailerLatCOG+TrailerLongCOG+Tlength+Twidth+WeightPercentComboTrailerAxle)^2,data=natoTest[natoTest$Axles==3,])
+start<-lm(MaxSpeedNATO_mph_~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+TrailerVertCOG+TrailerLatCOG+TrailerLongCOG+WeightPercentComboTrailerAxle+WeightRatioComboHMMWV_Trailer+WeightRatioComboTongueWeight_TrailerAxleWeight+WeightAsTestedTotalTrailerWeight)^2+I(HMMWVLongCOG^2)+I(HMMWVLatCOG^2)+I(HMMWVVertCOG^2)+I(TrailerLongCOG^2)+I(TrailerLatCOG^2)+I(TrailerVertCOG^2)+I(WeightRatioHMMWVFront_Rear^2)+I(WeightPercentComboTrailerAxle^2)+I(log(HMMWVLongCOG))+I(log(HMMWVLatCOG))+I(log(HMMWVVertCOG))+I(HMMWVLongCOG^1/2)+I(HMMWVLatCOG^1/2)+I(HMMWVVertCOG^1/2)+I(HMMWVVertCOG^1/2)+I(TrailerLongCOG^1/2)+I(TrailerLatCOG^1/2)+I(WeightPercentComboTrailerAxle^1/2),data=natoTest[natoTest$Axles==3,]) # can't do logs b/c 0
+#start<-lm(MaxSpeedNATO_mph_~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+TrailerVertCOG+TrailerLatCOG+TrailerLongCOG+WeightPercentComboTrailerAxle)^2+I(HMMWVLongCOG^1/2)+I(HMMWVLatCOG^1/2)+I(HMMWVVertCOG^1/2)+I(HMMWVVertCOG^1/2)+I(TrailerLongCOG^1/2)+I(TrailerLatCOG^1/2)+I(WeightPercentComboTrailerAxle^1/2)-HMMWVLongCOG:WeightRatioHMMWVFront_Rear,data=natoTest[natoTest$Axles==3,])
+#start<-lm(MaxSpeedNATO_mph_~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+TrailerVertCOG+TrailerLatCOG+TrailerLongCOG+WeightPercentComboTrailerAxle)^2-HMMWVLongCOG:WeightRatioHMMWVFront_Rear+I(HMMWVLongCOG^2)+I(HMMWVLatCOG^2)+I(HMMWVVertCOG^2)+I(TrailerLongCOG^2)+I(TrailerLatCOG^2)+I(TrailerVertCOG^2)+I(WeightRatioHMMWVFront_Rear^2)+I(WeightPercentComboTrailerAxle^2),data=natoTest[natoTest$Axles==3,])
+#natoTopSpeedTrailStepMany<-stepAIC(start)
+natoTopSpeedTrailLeaps<-regsubsets(formula(start),data=natoTest[natoTest$Axles==3,],nbest=10,nvmax=3,method="exhaustive",really.big=T)
+#summary(natoTopSpeedTrailLeaps)
+plot(natoTopSpeedTrailLeaps,scale="adjr2")
+coef(natoTopSpeedTrailLeaps,which(summary(natoTopSpeedTrailLeaps)$adjr2==max(summary(natoTopSpeedTrailLeaps)$adjr2))) # coefficients for the best model, still need to fit
+natoTopSpeedTrail1st<-lm(as.formula(paste("MaxSpeedNATO_mph_ ~",paste(names(coef(natoTopSpeedTrailLeaps,which(summary(natoTopSpeedTrailLeaps)$adjr2==max(summary(natoTopSpeedTrailLeaps)$adjr2))))[-1],collapse="+"))) , data=natoTest)
+summary(natoTopSpeedTrail1st)
+newdata<-data.frame("TotalWeightAsTested"=16430,"HMMWVVertCOG"=42,"WeightRatioHMMWVFront_Rear"=0.667591257,"Theight"=66,"TrailerLatCOG"=0,"Tlength"=100,"WeightPercentComboTrailerAxle"=0.2,"HMMWVLongCOG"=105,"Hwidth"=86,"Hlength"=191,"TrailerLongCOG"=8,"TrailerVertCOG"=35,"Twidth"=44,"HMMWVLatCOG"=0.03,"Hheight"=72)
+predict(natoTopSpeedTrail1st,newdata,interval="prediction",level=0.6)
+```
+
+```{r, results='hide',warning=FALSE}
+CVSplits = 11#5 # how many groups to split the data into for cross validation?
+fitWcv<-CVlm(df=natoTest[natoTest$Axles==3 & !is.na(natoTest$TrailerVertCOG),],form.lm=formula(natoTopSpeedTrail1st),m=CVSplits) ## Cross Validation
+(cvR2<-1-sum(sum((fitWcv$MaxSpeedNATO_mph_-fitWcv$cvpred)^2))/sum((fitWcv$MaxSpeedNATO_mph_-mean(fitWcv$MaxSpeedNATO_mph_))^2))
+```
+
+Diagnostics
+```{r}
+qqnorm(natoTopSpeedTrail1st$residuals,main='Residual qqplot');qqline(natoTopSpeedTrail1st$residuals)
+natofitData1<-cbind(natoTopSpeedTrail1st$model,residuals(natoTopSpeedTrail1st))
+spm(natofitData1,smoother=FALSE) # see residuals against predictors to see if a transform makes sense
+```
+
+Stepwise Regression - only HMMWVs
+```{r}
+start<-lm(MaxSpeedNATO_mph_~TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+Hlength+Hwidth+Hheight,data=natoTest[natoTest$Axles==2,])
+start<-lm(MaxSpeedNATO_mph_~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear)^2+I(HMMWVLongCOG^2)+I(HMMWVLatCOG^2)+I(HMMWVVertCOG^2)+I(WeightRatioHMMWVFront_Rear^2)+I(log(HMMWVLongCOG))+I(log(HMMWVLatCOG))+I(log(HMMWVVertCOG))+I(log(WeightRatioHMMWVFront_Rear))+I(HMMWVLongCOG^2)++I(HMMWVLatCOG^1/2)+I(HMMWVVertCOG^1/2),data=natoTest[natoTest$Axles==2,])
+#start<-lm(MaxSpeedNATO_mph_~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear)^2+I(HMMWVLongCOG^2)-HMMWVLongCOG:WeightRatioHMMWVFront_Rear,data=natoTest[natoTest$Axles==2,])
+#natoTopSpeedHMStepMany<-stepAIC(start)
+natoTopSpeedHMLeaps<-regsubsets(formula(start),data=natoTest[natoTest$Axles==2,],nvmax=2,nbest=8,method="exhaustive")
+# just take out length - I DID MESS UP - for final results need to use Longitidinal COG
+#start<-lm(MaxSpeedNATO_mph_~TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+WeightRatioHMMWVFront_Rear+Hwidth+Hheight,data=natoTest[natoTest$Axles==2,])#summary(natoTopSpeedHMLeaps)
+natoTopSpeedHMLeaps<-regsubsets(formula(start),data=natoTest[natoTest$Axles==2,],nvmax=2,nbest=8,method="exhaustive")
+plot(natoTopSpeedHMLeaps,scale="adjr2")
+coef(natoTopSpeedHMLeaps,which(summary(natoTopSpeedHMLeaps)$adjr2==max(summary(natoTopSpeedHMLeaps)$adjr2))) # coefficients for the best model, still need to fit
+natoTopSpeedHM1st<-lm(as.formula(paste("MaxSpeedNATO_mph_ ~",paste(names(coef(natoTopSpeedHMLeaps,which(summary(natoTopSpeedHMLeaps)$adjr2==max(summary(natoTopSpeedHMLeaps)$adjr2))))[-1],collapse="+"))) , data=natoTest[natoTest$Axles==2,])
+summary(natoTopSpeedHM1st)
+
+predict(natoTopSpeedHM1st,newdata,interval="prediction",level=0.6)
+```
+
+```{r, results='hide',warning=FALSE}
+CVSplits=6#3
+fitWcv<-CVlm(df=natoTest[natoTest$Axles==2,],form.lm=formula(natoTopSpeedHM1st),m=CVSplits) ## Cross Validation
+(cvR2<-1-sum(sum((fitWcv$MaxSpeedNATO_mph_-fitWcv$cvpred)^2))/sum((fitWcv$MaxSpeedNATO_mph_-mean(fitWcv$MaxSpeedNATO_mph_))^2))
+```
+
+Diagnostics
+```{r}
+qqnorm(natoTopSpeedTrail1st$residuals,main='Residual qqplot');qqline(natoTopSpeedTrail1st$residuals)
+natofitData1<-cbind(natoTopSpeedTrail1st$model,residuals(natoTopSpeedTrail1st))
+spm(natofitData1,smoother=FALSE) # see residuals against predictors to see if a transform makes sense
+```
+
+must do cross validation!
