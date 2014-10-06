@@ -94,10 +94,10 @@ hist(skidTest$MaxRightSpeed_mph_,col=rgb(0,.4,.9,1/4),breaks=8,main="Maximum Spe
      xlab="Speed (mph)" , xlim=c(25,42))
 #axis(1,at=c(26,28,30,32,34,36,38,42))
 hist(skidTest$MaxLeftSpeed_mph_,col=rgb(.7,0,.2,1/4),breaks=8,add=T)
-legend("topright",c("Right Speed","Left Speed"),fill=c(rgb(0,.4,.9,1/4),rgb(.7,0,.2,1/4)))
+legend("topright",c("Right Speed","Left Speed"),fill=c(rgb(0,.4,.9,1/4),rgb(.7,0,.2,1/4))) # 525 x 460
 
 # Histogram of Maximum Lateral G-Force
-hist(skidTest$MaxRightLateralGForce,col=rgb(0,.4,.9,1/4),breaks=8,main="Maximum Lateral G-Force While Turning",xlab="G-force",xlim=c(0.4,0.58))
+hist(skidTest$MaxRightLateralGForce,col=rgb(0,.4,.9,1/4),ylim=c(0,7),breaks=8,main="Maximum Lateral G-Force While Turning",xlab="G-force",xlim=c(0.4,0.58))
 #axis(1,at=c(26,28,30,32,34,36,38,42))
 hist(skidTest$MaxLeftLateralGForce,col=rgb(.7,0,.2,1/4),breaks=8,add=T)
 legend("topright",c("Right G-force","Left G-force"),fill=c(rgb(0,.4,.9,1/4),rgb(.7,0,.2,1/4)))
@@ -116,6 +116,9 @@ remove(a);remove(b)
 #plot(gp<-ggplot(skidTest,aes(factor(RightReason),MaxRightLateralGForce))+geom_boxplot())
 #plot(gp<-ggplot(skidTest,aes(factor(LeftReason),MaxLeftSpeed_mph_))+geom_boxplot())
 #plot(gp<-ggplot(skidTest,aes(factor(RightReason),MaxRightSpeed_mph_))+geom_boxplot())
+
+# an important factor
+with(skidTest[skidTest$Axles==3,],plot(y=MaxLeftLateralGForce,x=WeightRatioHMMWVFront_Rear,xlab="HMMWV Front/Rear Weight Ratio",ylab="Maximum Lateral Acceleration (g)",main="Weight-balanced HMMWVs Achieve Higher\nLateral Acceleration"))
 ```
 
 ```{r, fig.height=10,fig.width=10}
@@ -148,15 +151,18 @@ skidRightSpeed1st<-lm(as.formula(paste("MaxRightSpeed_mph_ ~",paste(names(coef(s
 summary(skidRightSpeed1st)
 plot(y=skidRightSpeed1st$fitted.values,x=unlist(skidRightSpeed1st$model[1]))
 abline(0,1) # center line
-skidRightSpeed2nd<-lm(MaxRightSpeed_mph_~TotalWeightAsTested*WeightRatioHMMWVFront_Rear+HMMWVLatCOG:Hwidth+
-                        HMMWVLatCOG:Hheight,data=skidTest)
+skidRightSpeed2nd<-lm(MaxRightSpeed_mph_~TotalWeightAsTested*WeightRatioHMMWVFront_Rear+HMMWVLatCOG:Hwidth+HMMWVLatCOG:Hheight,data=skidTest)
 summary(skidRightSpeed2nd)
 plot(y=skidRightSpeed2nd$fitted.values,x=unlist(skidRightSpeed2nd$model[1]))
 abline(0,1) # center line
-newdf<-data.frame("TotalWeightAsTested"=16430,"HMMWVLatCOG"=0.03,"HMMWVLongCOG"=105,"TestSpeed_mph_"=20,"Hwidth"=44,
-                  "Hheight"=66,"WeightRatioHMMWVFront_Rear"=0.667591257,"HMMWVVertCOG"=42)
+skidRightSpeed3rd<-lm(MaxRightSpeed_mph_~TotalWeightAsTested+TotalWeightAsTested:WeightRatioHMMWVFront_Rear+I(log(WeightRatioHMMWVFront_Rear))+HMMWVLatCOG:HMMWVLongCOG,data=skidTest)
+summary(skidRightSpeed3rd)
+plot(y=skidRightSpeed3rd$fitted.values,x=unlist(skidRightSpeed3rd$model[1]))
+abline(0,1) # center line
+
+newdf<-data.frame("TotalWeightAsTested"=16430,"HMMWVLatCOG"=0.03,"HMMWVLongCOG"=56,"TestSpeed_mph_"=20,"Hwidth"=44,"Hheight"=66,"WeightRatioHMMWVFront_Rear"=0.667591257,"HMMWVVertCOG"=42)
 predict(skidRightSpeed1st,newdf,interval="prediction",level=0.80) # 0907 model
-predict(skidRightSpeed2nd,newdf,interval="prediction",level=0.80) 
+#predict(skidRightSpeed2nd,newdf,interval="prediction",level=0.80) 
 #skidRightSpeed3rd<-lm(MaxRightSpeed_mph_~TotalWeightAsTested+HMMWVVertCOG+WeightRatioHMMWVFront_Rear+TirePressureFrontHMMWVAxle2_psi_,data=skidTest)
 #skidRightSpeed4th<-lm(MaxRightSpeed_mph_~TotalWeightAsTested+WeightRatioHMMWVFront_Rear+HMMWVLatCOG,data=skidTest)
 #skidRightSpeed5th<-lm(MaxRightSpeed_mph_~HMMWVLatCOG,data=skidTest)
@@ -166,6 +172,9 @@ predict(skidRightSpeed2nd,newdf,interval="prediction",level=0.80)
 #anova(skidRightSpeed4th,skidRightSpeed3rd,skidRightSpeed2nd,skidRightSpeed1st)
 #summary(skidRightSpeed5th)
 #sum(resid(skidRightSpeed5th)^2)
+# squared lateral CG
+a<-lm(MaxRightSpeed_mph_~HMMWVLatCOG,data=skidTest)
+plot(y=residuals(a),x=unlist(a$model[1]))
 ```
 
 Diagnostics
@@ -184,7 +193,7 @@ spm(skidfitData1,smoother=FALSE)
 
 ```{r, results='hide',warning=FALSE}
 set.seed(45)
-CVSplits=7#15
+CVSplits=15#7
 fitWcv<-CVlm(df=skidTest[!is.na(skidTest$MaxRightSpeed_mph_),],form.lm=formula(skidRightSpeed1st),m=CVSplits) ## Cross Validation
 (cvR2<-1-sum(sum((fitWcv$MaxRightSpeed_mph_-fitWcv$cvpred)^2))/sum((fitWcv$MaxRightSpeed_mph_-mean(fitWcv$MaxRightSpeed_mph_))^2))
 fitWcv<-CVlm(df=skidTest[!is.na(skidTest$MaxRightSpeed_mph_),],form.lm=formula(skidRightSpeed2nd),m=CVSplits) ## Cross Validation
@@ -223,9 +232,7 @@ cvR2<-1-sum(sum((fitWcv$MaxRightSpeed_mph_-fitWcv$cvpred)^2))/sum((fitWcv$MaxRig
 Regular subsets doesn't work very well here - picks too many predictors
 ```{r}
 start<-lm(MaxRightSpeed_mph_~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+
-                                TirePressureFrontHMMWVAxle2_psi_+Hlength+Hwidth+Hheight+Tlength+Twidth+Theight+TrailerLatCOG+
-                                TrailerVertCOG+TrailerLongCOG)^2+I(HMMWVLongCOG^2)+
-                               I(HMMWVLatCOG^2)+I(HMMWVVertCOG^2),data=skidTest)
+TirePressureFrontHMMWVAxle2_psi_+Hlength+Hwidth+Hheight+Tlength+Twidth+Theight+TrailerLatCOG+TrailerVertCOG+TrailerLongCOG)^2+I(HMMWVLongCOG^2)+I(HMMWVLatCOG^2)+I(HMMWVVertCOG^2),data=skidTest)
 # max 3
 system.time(skidRightSpeedLeaps<-regsubsets(formula(start),data=skidTest,nvmax=5,nbest=8,method="exhaustive",really.big=TRUE))
 #summary(skidRightSpeedLeaps)
@@ -278,17 +285,24 @@ skidLeftSpeed1st<-lm(as.formula(paste("MaxLeftSpeed_mph_ ~",paste(names(coef(ski
 summary(skidLeftSpeed1st)
 plot(y=skidLeftSpeed1st$fitted.values,x=unlist(skidLeftSpeed1st$model[1]))
 abline(0,1) # center line
-newdf<-data.frame("TotalWeightAsTested"=16430,"HMMWVLatCOG"=0.03,"HMMWVLongCOG"=105,"TestSpeed_mph_"=20,"Hwidth"=44,"HMMWVVertCOG"=42,
-                  "Hheight"=66,"WeightRatioHMMWVFront_Rear"=0.667591257)
+newdf<-data.frame("TotalWeightAsTested"=16430,"HMMWVLatCOG"=0.03,"HMMWVLongCOG"=105,"TestSpeed_mph_"=20,"Hwidth"=44,"HMMWVVertCOG"=42,"Hheight"=66,"WeightRatioHMMWVFront_Rear"=0.667591257)
 predict(skidLeftSpeed1st,newdf,interval="prediction",level=c(0.60,0.80))
 # ridge is meaningless
 skidLeftSpeed1stRIDGE<-lm.ridge(as.formula(paste("MaxLeftSpeed_mph_ ~",paste(names(coef(skidLeftSpeedLeaps,which(summary(skidLeftSpeedLeaps)$adjr2==max(summary(skidLeftSpeedLeaps)$adjr2))))[-1],collapse="+"))) , data=skidTest,lambda=seq(0,1,.001))
 plot(skidLeftSpeed1stRIDGE)
 select(skidLeftSpeed1stRIDGE)
+skidLeftSpeed1stRIDGE<-lm.ridge(formula(start) , data=skidTest,lambda=seq(0,.000001,.00000001))
+plot(skidLeftSpeed1stRIDGE)
+select(skidLeftSpeed1stRIDGE)
+
+## model used for report (calculated before changing longi cg - in report)
+skidLeftSpeed1st<-lm(MaxLeftSpeed_mph_~HMMWVLatCOG:TotalWeightAsTested+HMMWVLatCOG:WeightRatioHMMWVFront_Rear,data=skidTest)
+summary(skidLeftSpeed1st)
+##
 ```
 
 ```{r, results='hide',warning=FALSE}
-CVSplits=15
+CVSplits=15#7
 fitWcv<-CVlm(df=skidTest[!is.na(skidTest$MaxLeftSpeed_mph_),],form.lm=formula(skidLeftSpeed1st),m=CVSplits) ## Cross Validation
 (cvR2<-1-sum(sum((fitWcv$MaxLeftSpeed_mph_-fitWcv$cvpred)^2))/sum((fitWcv$MaxLeftSpeed_mph_-mean(fitWcv$MaxLeftSpeed_mph_))^2))
 ```
@@ -344,40 +358,34 @@ cvR2<-1-sum(sum((fitWcv$MaxLeftSpeed_mph_-fitWcv$cvpred)^2))/sum((fitWcv$MaxLeft
 # Right Lateral G
 ```{r}
 #start<-lm(MaxRightLateralGForce~TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+TirePressureFrontHMMWVAxle2_psi_+Hlength+Hwidth+Hheight,data=skidTest)
-start<-lm(MaxRightLateralGForce~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear)^2+I(HMMWVLongCOG^2)+
-                               I(HMMWVLatCOG^2)+I(HMMWVVertCOG^2)+I(WeightRatioHMMWVFront_Rear^2)+I(log(HMMWVLongCOG))+
-                               I(log(HMMWVLatCOG))+I(log(HMMWVVertCOG))+I(log(WeightRatioHMMWVFront_Rear))+
-            +I(HMMWVLongCOG^2)++I(HMMWVLatCOG^1/2)++I(HMMWVVertCOG^1/2),data=skidTest)
+start<-lm(MaxRightLateralGForce~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear)^2+I(HMMWVLongCOG^2)+I(HMMWVLatCOG^2)+I(HMMWVVertCOG^2)+I(WeightRatioHMMWVFront_Rear^2)+I(log(HMMWVLongCOG))+I(log(HMMWVLatCOG))+I(log(HMMWVVertCOG))+I(log(WeightRatioHMMWVFront_Rear))+I(HMMWVLongCOG^2)+I(HMMWVLatCOG^1/2)+I(HMMWVVertCOG^1/2),data=skidTest)
 #skidRightGStepMany<-stepAIC(start)
 skidRightGLeaps<-regsubsets(formula(start),data=skidTest,nvmax=4,nbest=15,method="exhaustive")
 #summary(skidRightGLeaps)
 plot(skidRightGLeaps,scale="adjr2")
 coef(skidRightGLeaps,which(summary(skidRightGLeaps)$adjr2==max(summary(skidRightGLeaps)$adjr2))) # coefficients for the best model, still need to fit
-skidRightG1st<-lm(as.formula(paste("MaxRightLateralGForce ~",paste(names(coef(skidRightGLeaps,which(summary(skidRightGLeaps)$adjr2==max(summary(skidRightGLeaps)$adjr2))))[-1],collapse="+"))) , data=skidTest)
-summary(skidRightG1st) # miserable
+skidLeftSpeed1st<-lm(as.formula(paste("MaxRightLateralGForce ~",paste(names(coef(skidRightGLeaps,which(summary(skidRightGLeaps)$adjr2==max(summary(skidRightGLeaps)$adjr2))))[-1],collapse="+"))) , data=skidTest)
+summary(skidLeftSpeed1st) # miserable
 ```
 
 ## Right G without trailers
 Only the HMMWVs alone
 ```{r}
 #start<-lm(MaxRightLateralGForce~TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+TirePressureFrontHMMWVAxle2_psi_+Hlength+Hwidth+Hheight,data=skidTest[skidTest$Axles==2,])
-start<-lm(MaxRightLateralGForce~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear)^2+I(HMMWVLongCOG^2)+
-                               I(HMMWVLatCOG^2)+I(HMMWVVertCOG^2)+I(WeightRatioHMMWVFront_Rear^2)+I(log(HMMWVLongCOG))+
-                               I(log(HMMWVLatCOG))+I(log(HMMWVVertCOG))+I(log(WeightRatioHMMWVFront_Rear))+
-            +I(HMMWVLongCOG^2)++I(HMMWVLatCOG^1/2)++I(HMMWVVertCOG^1/2),data=skidTest)
+start<-lm(MaxRightLateralGForce~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear)^2+I(HMMWVLongCOG^2)+I(HMMWVLatCOG^2)+I(HMMWVVertCOG^2)+I(WeightRatioHMMWVFront_Rear^2)+I(log(HMMWVLongCOG))+I(log(HMMWVLatCOG))+I(log(HMMWVVertCOG))+I(log(WeightRatioHMMWVFront_Rear))+I(HMMWVLongCOG^2)+I(HMMWVLatCOG^1/2)+I(HMMWVVertCOG^1/2),data=skidTest)
 #skidRightGStepMany<-stepAIC(start)
 skidRightGLeaps<-regsubsets(formula(start),data=skidTest[skidTest$Axles==2,],nvmax=2,nbest=10,method="exhaustive")
 #summary(skidRightGLeaps)
 plot(skidRightGLeaps,scale="adjr2")
 coef(skidRightGLeaps,which(summary(skidRightGLeaps)$adjr2==max(summary(skidRightGLeaps)$adjr2))) # coefficients for the best model, still need to fit
-skidRightG1st<-lm(as.formula(paste("MaxRightLateralGForce ~",paste(names(coef(skidRightGLeaps,which(summary(skidRightGLeaps)$adjr2==max(summary(skidRightGLeaps)$adjr2))))[-1],collapse="+"))) , data=skidTest[skidTest$Axles==2,])
-summary(skidRightG1st)
-predict(skidRightG1st,newdata=data.frame("TotalWeightAsTested"=16430,"HMMWVLatCOG"=0.03,"HMMWVVertCOG"=42),interval="prediction",level=0.60) # much better
+skidLeftSpeed1st<-lm(as.formula(paste("MaxRightLateralGForce ~",paste(names(coef(skidRightGLeaps,which(summary(skidRightGLeaps)$adjr2==max(summary(skidRightGLeaps)$adjr2))))[-1],collapse="+"))) , data=skidTest[skidTest$Axles==2,])
+summary(skidLeftSpeed1st)
+predict(skidLeftSpeed1st,newdata=data.frame("TotalWeightAsTested"=15060,"HMMWVLatCOG"=1.9,"HMMWVVertCOG"=39.4),interval="prediction",level=c(0.60,0.80)) # much better
 ```
 
 ```{r, results='hide',warning=FALSE}
 CVSplits=6#3
-fitWcv<-CVlm(df=skidTest[skidTest$Axles==2,],form.lm=formula(skidRightG1st),m=CVSplits) ## Cross Validation
+fitWcv<-CVlm(df=skidTest[skidTest$Axles==2,],form.lm=formula(skidLeftSpeed1st),m=CVSplits) ## Cross Validation
 (cvR2<-1-sum(sum((fitWcv$MaxRightLateralGForce-fitWcv$cvpred)^2))/sum((fitWcv$MaxRightLateralGForce-mean(fitWcv$MaxRightLateralGForce))^2))
 ```
 
@@ -385,17 +393,18 @@ fitWcv<-CVlm(df=skidTest[skidTest$Axles==2,],form.lm=formula(skidRightG1st),m=CV
 
 ```{r}
 #start<-lm(MaxRightLateralGForce~TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+TirePressureFrontHMMWVAxle2_psi_+Hlength+Hwidth+Hheight+Tlength+Twidth+Theight+TrailerLatCOG+TrailerVertCOG+TrailerLongCOG,data=skidTest)
-start<-lm(MaxRightLateralGForce~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+TrailerVertCOG+TrailerLatCOG+TrailerLongCOG+WeightPercentComboTrailerAxle+WeightRatioComboHMMWV_Trailer+WeightRatioComboTongueWeight_TrailerAxleWeight)^2+I(HMMWVLongCOG^2)+I(HMMWVLatCOG^2)+I(HMMWVVertCOG^2)+I(TrailerLongCOG^2)+I(TrailerLatCOG^2)+I(TrailerVertCOG^2)+I(WeightRatioHMMWVFront_Rear^2)+I(WeightPercentComboTrailerAxle^2)+I(log(HMMWVLongCOG))+I(log(HMMWVLatCOG))+I(log(HMMWVVertCOG))+I(HMMWVLongCOG^1/2)+I(HMMWVLatCOG^1/2)+I(HMMWVVertCOG^1/2)+I(HMMWVVertCOG^1/2)+I(TrailerLongCOG^1/2)+I(TrailerLatCOG^1/2)+I(WeightPercentComboTrailerAxle^1/2),data=skidTest[skidTest$Axles==3,])
+#start<-lm(MaxRightLateralGForce~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+TrailerVertCOG+TrailerLatCOG+TrailerLongCOG+WeightPercentComboTrailerAxle+WeightRatioComboHMMWV_Trailer+WeightRatioComboTongueWeight_TrailerAxleWeight)^2+I(HMMWVLongCOG^2)+I(HMMWVLatCOG^2)+I(HMMWVVertCOG^2)+I(TrailerLongCOG^2)+I(TrailerLatCOG^2)+I(TrailerVertCOG^2)+I(WeightRatioHMMWVFront_Rear^2)+I(WeightPercentComboTrailerAxle^2)+I(log(HMMWVLongCOG))+I(log(HMMWVLatCOG))+I(log(HMMWVVertCOG))+I(HMMWVLongCOG^1/2)+I(HMMWVLatCOG^1/2)+I(HMMWVVertCOG^1/2)+I(HMMWVVertCOG^1/2)+I(TrailerLongCOG^1/2)+I(TrailerLatCOG^1/2)+I(WeightPercentComboTrailerAxle^1/2),data=skidTest[skidTest$Axles==3,])
+start<-lm(MaxRightLateralGForce~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+TrailerLatCOG+TrailerLongCOG+WeightPercentComboTrailerAxle+WeightRatioComboHMMWV_Trailer+WeightRatioComboTongueWeight_TrailerAxleWeight)^2+I(HMMWVLongCOG^2)+I(HMMWVLatCOG^2)+I(HMMWVVertCOG^2)+I(TrailerLongCOG^2)+I(TrailerLatCOG^2)+I(WeightRatioHMMWVFront_Rear^2)+I(WeightPercentComboTrailerAxle^2)+I(log(HMMWVLongCOG))+I(log(HMMWVLatCOG))+I(log(HMMWVVertCOG))+I(HMMWVLongCOG^1/2)+I(HMMWVLatCOG^1/2)+I(HMMWVVertCOG^1/2)+I(HMMWVVertCOG^1/2)+I(TrailerLongCOG^1/2)+I(TrailerLatCOG^1/2)+I(WeightPercentComboTrailerAxle^1/2),data=skidTest[skidTest$Axles==3,])
 start2<-lm(MaxRightLateralGForce~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+TrailerLatCOG+TrailerVertCOG+TrailerLongCOG+WeightPercentComboTrailerAxle)^2,data=skidTest)
 #skidRightGStepMany<-stepAIC(start)
 skidRightGLeaps<-regsubsets(formula(start),data=skidTest,nvmax=6,nbest=10,method="exhaustive",really.big=T)
 #summary(skidRightGLeaps)
 plot(skidRightGLeaps,scale="adjr2")
 coef(skidRightGLeaps,which(summary(skidRightGLeaps)$adjr2==max(summary(skidRightGLeaps)$adjr2))) # coefficients for the best model, still need to fit
-skidRightG1st<-lm(as.formula(paste("MaxRightLateralGForce ~",paste(names(coef(skidRightGLeaps,which(summary(skidRightGLeaps)$adjr2==max(summary(skidRightGLeaps)$adjr2))))[-1],collapse="+"))) , data=skidTest)
-summary(skidRightG1st)
-predict(skidRightG1st,newdata=data.frame("TotalWeightAsTested"=16430,"HMMWVLatCOG"=.03,"HMMWVLongCOG"=105,"TrailerLatCOG"=0,"TrailerVertCOG"=35,"TrailerLongCOG"=8,"WeightRatioHMMWVFront_Rear"=0.667591257),interval="prediction",level=0.6)
-plot(y=skidRightG1st$fitted.values,x=unlist(skidRightG1st$model[1]))
+skidLeftSpeed1st<-lm(as.formula(paste("MaxRightLateralGForce ~",paste(names(coef(skidRightGLeaps,which(summary(skidRightGLeaps)$adjr2==max(summary(skidRightGLeaps)$adjr2))))[-1],collapse="+"))) , data=skidTest)
+summary(skidLeftSpeed1st)
+predict(skidLeftSpeed1st,newdata=data.frame("TotalWeightAsTested"=16430,"HMMWVLatCOG"=.03,"HMMWVLongCOG"=56,"TrailerLatCOG"=0,"HMMWVVertCOG"=42,"TrailerVertCOG"=35,"TrailerLongCOG"=8,"WeightRatioHMMWVFront_Rear"=0.667591257,"WeightRatioComboTongueWeight_TrailerAxleWeight"=0.130612245,                                         "WeightPercentComboTrailerAxle"=0.168594035),interval="prediction",level=0.6)
+plot(y=skidLeftSpeed1st$fitted.values,x=unlist(skidLeftSpeed1st$model[1]))
 abline(0,1) # center line
 # 2
 skidRightGLeaps2<-regsubsets(formula(start2),data=skidTest,nvmax=6,nbest=10,method="exhaustive",really.big=T)
@@ -405,8 +414,8 @@ summary(skidRightG2nd) # the much better one
 ```
 
 ```{r, results='hide',warning=FALSE}
-CVSplits=6#11
-fitWcv<-CVlm(df=skidTest[skidTest$Axles==3&!is.na(skidTest$TrailerVertCOG),],form.lm=formula(skidRightG1st),m=CVSplits) ## Cross Validation
+CVSplits=6#12
+fitWcv<-CVlm(df=skidTest[skidTest$Axles==3&!is.na(skidTest$TrailerVertCOG),],form.lm=formula(skidLeftSpeed1st),m=CVSplits) ## Cross Validation
 (cvR2<-1-sum(sum((fitWcv$MaxRightLateralGForce-fitWcv$cvpred)^2))/sum((fitWcv$MaxRightLateralGForce-mean(fitWcv$MaxRightLateralGForce))^2))
 
 fitWcv<-CVlm(df=skidTest[skidTest$Axles==3&!is.na(skidTest$TrailerVertCOG),],form.lm=formula(skidRightG2nd),m=CVSplits) ## Cross Validation
@@ -419,8 +428,11 @@ With trailers
 #start<-lm(MaxLeftLateralGForce~TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+TirePressureFrontHMMWVAxle2_psi_+Hlength+Hwidth+Hheight+Tlength+Twidth+Theight+TrailerLatCOG+TrailerVertCOG+TrailerLongCOG,data=skidTest[skidTest$Axles==3,])
 #start<-lm(MaxLeftLateralGForce~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+TrailerLatCOG+TrailerVertCOG+TrailerLongCOG+WeightPercentComboTrailerAxle)^2,data=skidTest)
 start<-lm(MaxLeftLateralGForce~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+TrailerVertCOG+TrailerLatCOG+TrailerLongCOG+WeightPercentComboTrailerAxle+WeightRatioComboHMMWV_Trailer+WeightRatioComboTongueWeight_TrailerAxleWeight)^2+I(HMMWVLongCOG^2)+I(HMMWVLatCOG^2)+I(HMMWVVertCOG^2)+I(TrailerLongCOG^2)+I(TrailerLatCOG^2)+I(TrailerVertCOG^2)+I(WeightRatioHMMWVFront_Rear^2)+I(WeightPercentComboTrailerAxle^2)+I(log(HMMWVLongCOG))+I(log(HMMWVLatCOG))+I(log(HMMWVVertCOG))+I(HMMWVLongCOG^1/2)+I(HMMWVLatCOG^1/2)+I(HMMWVVertCOG^1/2)+I(HMMWVVertCOG^1/2)+I(TrailerLongCOG^1/2)+I(TrailerLatCOG^1/2)+I(WeightPercentComboTrailerAxle^1/2),data=skidTest[skidTest$Axles==3,])
+# take out trailer vertCoG
+start<-lm(MaxLeftLateralGForce~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+TrailerLatCOG+TrailerLongCOG+WeightPercentComboTrailerAxle+WeightRatioComboHMMWV_Trailer+WeightRatioComboTongueWeight_TrailerAxleWeight)^2+I(HMMWVLongCOG^2)+I(HMMWVLatCOG^2)+I(HMMWVVertCOG^2)+I(TrailerLongCOG^2)+I(TrailerLatCOG^2)+I(WeightRatioHMMWVFront_Rear^2)+I(WeightPercentComboTrailerAxle^2)+I(log(HMMWVLongCOG))+I(log(HMMWVLatCOG))+I(log(HMMWVVertCOG))+I(HMMWVLongCOG^1/2)+I(HMMWVLatCOG^1/2)+I(HMMWVVertCOG^1/2)+I(HMMWVVertCOG^1/2)+I(TrailerLongCOG^1/2)+I(TrailerLatCOG^1/2)+I(WeightPercentComboTrailerAxle^1/2),data=skidTest[skidTest$Axles==3,])
+
 #skidLeftGStepMany<-stepAIC(start)
-skidLeftGLeaps<-regsubsets(formula(start),data=skidTest[skidTest$Axles==3,],nvmax=5,nbest=10,method="exhaustive",really.big=T)
+system.time(skidLeftGLeaps<-regsubsets(formula(start),data=skidTest[skidTest$Axles==3,],nvmax=6,nbest=15,method="exhaustive",really.big=TRUE))
 #summary(skidLeftGLeaps)
 plot(skidLeftGLeaps,scale="adjr2")
 coef(skidLeftGLeaps,which(summary(skidLeftGLeaps)$adjr2==max(summary(skidLeftGLeaps)$adjr2))) # coefficients for the best model, still need to fit
@@ -428,26 +440,24 @@ skidLeftG1st<-lm(as.formula(paste("MaxLeftLateralGForce ~",paste(names(coef(skid
 summary(skidLeftG1st)
 plot(y=skidLeftG1st$fitted.values,x=unlist(skidLeftG1st$model[1]))
 abline(0,1) # center line
-predict(skidLeftG1st,newdata=data.frame("TotalWeightAsTested"=16430,"HMMWVVertCOG"=42,"HMMWVLongCOG"=105,"WeightRatioHMMWVFront_Rear"=0.666148551,"TirePressureFrontHMMWVAxle2_psi_"=55,"Hlength"=191,"Hwidth"=86,"Hheight"=72,"HMMWVLatCOG"=.03,"WeightPercentComboTrailerAxle"=0.097382836,"WeightRatioComboTongueWeight_TrailerAxleWeight"=0.142857143,"TrailerVertCOG"=35,"TrailerLongCOG"=8),interval="prediction",level=0.6)
+predict(skidLeftG1st,newdata=data.frame("TotalWeightAsTested"=16430,"HMMWVVertCOG"=42,"HMMWVLongCOG"=56,"WeightRatioHMMWVFront_Rear"=0.667591257,"TirePressureFrontHMMWVAxle2_psi_"=55,"Hlength"=191,"Hwidth"=86,"Hheight"=72,"HMMWVLatCOG"=.03,"WeightPercentComboTrailerAxle"=0.161290323,"WeightRatioComboTongueWeight_TrailerAxleWeight"=0.081632653,"TrailerVertCOG"=35,"TrailerLongCOG"=8),interval="prediction",level=0.6)
+# 0907 model skidLeftG1st<-lm(as.formula(paste("MaxLeftLateralGForce ~",paste(names(coef(skidLeftGLeaps,which(summary(skidLeftGLeaps)$adjr2==max(summary(skidLeftGLeaps)$adjr2))))[-1],collapse="+"))) , data=skidTest[skidTest$Axles==3,])
 ```
 
 ```{r}
-nrow(skidTest[skidTest$Axles==3*!is.na(skidTest$TrailerVertCOG),])
-CVSplits=11#5
+nrow(skidLeftG1st$model)
+CVSplits=6#12
 fitWcv<-CVlm(df=skidTest[skidTest$Axles==3*!is.na(skidTest$TrailerVertCOG),],form.lm=formula(skidLeftG1st),m=CVSplits) ## Cross Validation
 (cvR2<-1-sum(sum((fitWcv$MaxLeftLateralGForce-fitWcv$cvpred)^2))/sum((fitWcv$MaxLeftLateralGForce-mean(fitWcv$MaxLeftLateralGForce))^2))
 # PRESS R^2
-1-sum((resid(skidLeftG1st)/(1-hatvalues(skidLeftG1st)))^2)/sum((skidLeftG1st$model$MaxLeftLateralGForce-mean(skidLeftG1st$model$MaxLeftLateralGForce))^2) # same number as 11-fold CV
+1-sum((resid(skidLeftG1st)/(1-hatvalues(skidLeftG1st)))^2)/sum((skidLeftG1st$model$MaxLeftLateralGForce-mean(skidLeftG1st$model$MaxLeftLateralGForce))^2) # same number as 12-fold CV
 ```
 
 ## Left G without trailers
 Only the HMMWVs alone
 ```{r}
 start<-lm(MaxLeftLateralGForce~TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+TirePressureFrontHMMWVAxle2_psi_+Hlength+Hwidth+Hheight,data=skidTest[skidTest$Axles==2,]) # take out lenght?
-start<-lm(MaxLeftLateralGForce~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear)^2+I(HMMWVLongCOG^2)+
-                               I(HMMWVLatCOG^2)+I(HMMWVVertCOG^2)+I(WeightRatioHMMWVFront_Rear^2)+I(log(HMMWVLongCOG))+
-                               I(log(HMMWVLatCOG))+I(log(HMMWVVertCOG))+I(log(WeightRatioHMMWVFront_Rear))+
-            +I(HMMWVLongCOG^2)+I(HMMWVLatCOG^1/2)+I(HMMWVVertCOG^1/2),data=skidTest[skidTest$Axles==2,])
+start<-lm(MaxLeftLateralGForce~(TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear)^2+I(HMMWVLongCOG^2)+I(HMMWVLatCOG^2)+I(HMMWVVertCOG^2)+I(WeightRatioHMMWVFront_Rear^2)+I(log(HMMWVLongCOG))+I(log(HMMWVLatCOG))+I(log(HMMWVVertCOG))+I(log(WeightRatioHMMWVFront_Rear))+I(HMMWVLongCOG^2)+I(HMMWVLatCOG^1/2)+I(HMMWVVertCOG^1/2),data=skidTest[skidTest$Axles==2,])
 #skidLeftGStepMany<-step(start)
 skidLeftGLeaps<-regsubsets(formula(start),data=skidTest[skidTest$Axles==2,],nvmax=2,nbest=15,method="exhaustive")
 #summary(skidLeftGLeaps)
@@ -555,8 +565,8 @@ summary(fitRidgeSkidAll)
 ```{r}
 skidTest[order(skidTest$MaxRightSpeed_mph_),c("TestReportFilename","MaxRightSpeed_mph_","HMMWVLatCOG")]
 qplot(y=skidTest$MaxLeftSpeed_mph_,x=skidTest$HMMWVLatCOG)
-plot(y=skidTest$MaxLeftSpeed_mph_,x=skidTest$HMMWVLatCOG,pch=20,ylab="Maximum Left Speed  (mph)",xlab="HMMWV Lateral CoG (in from center)",col="orange",cex=2,main="Two Cases of Wheel Lift (Blue) Do Not Follow\n Max Left Turn Speed Split by HMMWV Lateral CoG") # export at 450
-with(skidTest[skidTest$TestReportFilename %in% c('Air Traffic System - ATNAVICS.pdf',"Draft - ITEG-II - Transportability Sections - File Size Reduced"),],points(MaxLeftSpeed_mph_,x=HMMWVLatCOG,col="blue",pch=20,cex=2))
+plot(y=skidTest$MaxLeftSpeed_mph_,x=skidTest$HMMWVLatCOG,pch=16,ylab="Maximum Left Speed (mph)",xlab="HMMWV Lateral CG (in. right of center)",col="black",cex=1,main="Maximum Speed During Left-turn\nSkidpad Test against Lateral CG ") # export at 500 - caption is Two Cases of Wheel Lift (Blue) Do Not Follow\n Max Left Turn Speed Split by HMMWV Lateral CoG
+with(skidTest[skidTest$TestReportFilename %in% c('Air Traffic System - ATNAVICS.pdf',"Draft - ITEG-II - Transportability Sections - File Size Reduced"),],points(MaxLeftSpeed_mph_,x=HMMWVLatCOG,col="blue",pch=20,cex=1))
 
 # weight
 with(skidTest[-which(is.na(skidTest$MaxRightSpeed_mph)),],cor(y=MaxRightLateralGForce,x=TotalWeightAsTested))
@@ -576,3 +586,113 @@ g=21.94 mi/hr/sec, 32.174 ft/s^2
 a=SSF_leftturn
 
 interaction w/ weight
+
+reverse engineering the prediction intervals
+```{r}
+# first get predictions
+b
+
+# Then get intervals 
+# what's qr? for each observation (row) difference of each term (column) from their mean?
+#   (for predicting the original observations used to make the fit)
+qr.Q(skidRightSpeed1st$qr)[,p1,drop=FALSE] 
+res.var<-{
+  r<-skidRightSpeed1st$residuals
+  rss<-sum(r^2)
+  df<-skidRightSpeed1st$df.residual
+  rss/df}
+# or just sigma^2, summary(skidRightSpeed1st)$sigma^2 - with weights calculation is slightly dif
+X<-model.matrix(skidRightSpeed1st) # not sure what this is, but it's used - to predict current values
+p<-skidRightSpeed1st$rank;p1<-seq_len(p)
+piv<-skidRightSpeed1st$qr$pivot[p1] # I think - predict has qr.lm(object)$pivot[p1] but qr.lm isn't a thing
+beta<-skidRightSpeed1st$coefficients
+predictor<-drop(X[,piv,drop=FALSE] %*% beta[piv])
+XRinv<-qr.Q(skidRightSpeed1st$qr)[,p1,drop=FALSE] # to predict fitted observations
+
+ip<-drop(XRinv^2 %*% rep(res.var,p)) # some sort of deviance from mean, being 1, of all predictors
+weights<-1;pred.var<-res.var/weights
+level=0.95
+tfrac<-qt((1-level)/2,df)
+hwidC<-tfrac*sqrt(ip)
+hwidP<-tfrac*sqrt(ip+pred.var)
+# compare to
+predict(skidRightSpeed1st,interval="prediction")
+
+# predict new data
+level=0.90 # two sided. use 1-(1-level)/2 for one-sided
+newdata<-data.frame("TotalWeightAsTested"=15060,"HMMWVLatCOG"=1.9,"HMMWVLongCOG"=46.8,"HMMWVVertCOG"=39.4,"TrailerVertCOG"=33.6,"WeightRatioHMMWVFront_Rear"=0.5606641123882500,"TrailerLatCOG"=0)
+pred.var = res.var#/weights
+Terms<-delete.response(terms(skidRightSpeed1st))
+m <- model.frame(Terms, newdata, na.action = na.pass,xlev = skidRightSpeed1st$xlevels)
+X <- model.matrix(Terms, m, contrasts.arg = skidRightSpeed1st$contrasts) 
+XRinv<-X[,piv] %*% qr.solve(qr.R(skidRightSpeed1st$qr)[p1,p1]) # returns something the dimension of X
+ip<-drop(XRinv^2 %*% rep(res.var,p))
+beta<-skidRightSpeed1st$coefficients
+predictor<-sum(X*t(beta))#drop(X[,p,drop=FALSE] %*% beta[piv]) ## matrix multiplication isn't working? it doesn't add terms together
+tfrac<-qt((1-level)/2,df,lower.tail=FALSE)
+(hwid<-tfrac*sqrt(ip+pred.var))
+(predictor + hwid %o% c(1,0,-1)) # prediction
+
+write.csv(qr.solve(qr.R(skidRightSpeed1st$qr)[p1,p1]),"Rinv_skidRightSpeed.csv")
+# compare to
+predict(skidRightSpeed1st,newdf,interval="prediction",level=0.95) # 0907 model - it's the same
+```
+
+Left speed predictions
+```{r}
+newdata<-data.frame("TotalWeightAsTested"=15060,"HMMWVLatCOG"=1.9,"HMMWVLongCOG"=46.8,"HMMWVVertCOG"=39.4,"TrailerVertCOG"=33.6,"WeightRatioHMMWVFront_Rear"=0.5606641123882500,"TrailerLatCOG"=0,WeightRatioComboTongueWeight_TrailerAxleWeight=0.098592,"TrailerLongCOG"=6,"WeightPercentComboTrailerAxle"=0.2071713)
+newdata<-data.frame("TotalWeightAsTested"=19360,"HMMWVLatCOG"=0.1,"HMMWVLongCOG"=54.3,"HMMWVVertCOG"=39.4,"TrailerVertCOG"=33.6,"WeightRatioHMMWVFront_Rear"=0.7142857,"TrailerLatCOG"=0,WeightRatioComboTongueWeight_TrailerAxleWeight=0.085052,"TrailerLongCOG"=6,"WeightPercentComboTrailerAxle"=0.2174587)
+res.var<-summary(skidLeftSpeed1st)$sigma^2; pred.var = res.var; Terms<-delete.response(terms(skidLeftSpeed1st))
+m <- model.frame(Terms, newdata, na.action = na.pass,xlev = skidLeftSpeed1st$xlevels)
+X <- model.matrix(Terms, m, contrasts.arg = skidLeftSpeed1st$contrasts) 
+p<-skidLeftSpeed1st$rank;p1<-seq_len(p); piv<-skidLeftSpeed1st$qr$pivot[p1]
+XRinv<-X[,piv] %*% qr.solve(qr.R(skidLeftSpeed1st$qr)[p1,p1]) # returns something the dimension of X
+ip<-drop(XRinv^2 %*% rep(res.var,p))
+beta<-skidLeftSpeed1st$coefficients
+predictor<-sum(X*t(beta))#drop(X[,p,drop=FALSE] %*% beta[piv]) ## matrix multiplication isn't working? it doesn't add terms together
+level1=0.80; df<-skidLeftSpeed1st$df.residual; tfrac<-qt((1-level1)/2,df,lower.tail=FALSE)
+(hwid<-tfrac*sqrt(ip+pred.var))
+(predictor + hwid %o% c(1,0,-1)) # prediction
+predict(skidLeftSpeed1st,newdata,interval="prediction",level=level1)
+write.csv(qr.solve(qr.R(skidLeftSpeed1st$qr)[p1,p1]),"Rinv_skidpadLeftSpeed.csv")
+```
+
+
+```{r} 
+# trailer g force
+# left
+predict(skidLeftG1st,interval="prediction")
+predict(skidLeftG1st,newdata,interval="prediction")
+predict(skidLeftG1st,newdata,interval="prediction")
+res.var<-summary(skidLeftG1st)$sigma^2; pred.var = res.var; Terms<-delete.response(terms(skidLeftG1st))
+m <- model.frame(Terms, newdata, na.action = na.pass,xlev = skidLeftG1st$xlevels)
+X <- model.matrix(Terms, m, contrasts.arg = skidLeftG1st$contrasts) 
+p<-skidLeftG1st$rank;p1<-seq_len(p); piv<-skidLeftG1st$qr$pivot[p1]
+XRinv<-X[,piv] %*% qr.solve(qr.R(skidLeftG1st$qr)[p1,p1]) # returns something the dimension of X
+ip<-drop(XRinv^2 %*% rep(res.var,p))
+beta<-skidLeftG1st$coefficients
+predictor<-sum(X*t(beta))#drop(X[,p,drop=FALSE] %*% beta[piv]) ## matrix multiplication isn't working? it doesn't add terms together
+level1=0.80; df<-skidLeftG1st$df.residual; tfrac<-qt((1-level1)/2,df,lower.tail=FALSE)
+(hwid<-tfrac*sqrt(ip+pred.var))
+(predictor + hwid %o% c(1,0,-1)) # prediction
+predict(skidLeftG1st,newdata,interval="prediction",level=level1)
+#write.csv(qr.solve(qr.R(skidLeftG1st$qr)[p1,p1]),"Rinv_skidpadLeftG.csv")
+write.csv(qr.solve(qr.R(skidLeftG1st$qr)[p1,p1]),"Rinv_skidpadLeftG-trails.csv")
+
+# right g force
+predict(skidLeftSpeed1st,newdata,interval="prediction")
+res.var<-summary(skidLeftSpeed1st)$sigma^2; pred.var = res.var; Terms<-delete.response(terms(skidLeftSpeed1st))
+m <- model.frame(Terms, newdata, na.action = na.pass,xlev = skidLeftSpeed1st$xlevels)
+X <- model.matrix(Terms, m, contrasts.arg = skidLeftSpeed1st$contrasts) 
+p<-skidLeftSpeed1st$rank;p1<-seq_len(p); piv<-skidLeftSpeed1st$qr$pivot[p1]
+XRinv<-X[,piv] %*% qr.solve(qr.R(skidLeftSpeed1st$qr)[p1,p1]) # returns something the dimension of X
+ip<-drop(XRinv^2 %*% rep(res.var,p))
+beta<-skidLeftSpeed1st$coefficients
+predictor<-sum(X*t(beta))#drop(X[,p,drop=FALSE] %*% beta[piv]) ## matrix multiplication isn't working? it doesn't add terms together
+level1=0.80; df<-skidLeftSpeed1st$df.residual; tfrac<-qt((1-level1)/2,df,lower.tail=FALSE)
+(hwid<-tfrac*sqrt(ip+pred.var))
+(predictor + hwid %o% c(1,0,-1)) # prediction
+  predict(skidLeftSpeed1st,newdata,interval="prediction",level=level1)
+#write.csv(qr.solve(qr.R(skidLeftSpeed1st$qr)[p1,p1]),"Rinv_skidpadRightG.csv")
+write.csv(qr.solve(qr.R(skidLeftSpeed1st$qr)[p1,p1]),"Rinv_skidpadRightG-trails.csv")
+```

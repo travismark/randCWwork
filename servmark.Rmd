@@ -22,6 +22,7 @@ require(dplyr)
 dataCN<-odbcConnectAccess("P:/External Projects/3104 - ALPS 2014/HMMWV Integration/Data/HMMWV Integration Master Data Consolidated")
 #dataCN<-odbcConnectAccess("C:/Users/tbaer/Desktop/integration/HMMWV Integration Master Data Consolidated")
 brakeTest<-sqlQuery(dataCN,"SELECT * FROM BrakeTestAvgTest")
+pardefault<-par()# save par
 ```
 
 Clean up field names, switch the number of axles to a factor, add momentum, remove the 4-axle test
@@ -35,12 +36,22 @@ colnames(brakeTest)<-gsub("%","Percent",colnames(brakeTest),fixed=TRUE)
 brakeTest$Axles<-as.factor(brakeTest$Axles)
 brakeTest$Momentum<-brakeTest$TestSpeed_mph_*brakeTest$TotalWeightAsTested
 sum(brakeTest$Axles==4);brakeTest<-brakeTest[which(brakeTest$Axles!=4),]
-# Mike deleted the HMMWV 5th wheel packhorse - the CoG
-sum(brakeTest$TestReportFilename=="5th Wheel Packhorse Trailer May 2007");brakeTest<-brakeTest[which(brakeTest$TestReportFilename!="5th Wheel Packhorse Trailer May 2007"),]
+brakeTest<-brakeTest[!is.na(brakeTest$HMMWVLongCOG),] # take out 5th wheel HMMWV too
+```
+
+```{r}
+p<-ggplot(brakeTest,aes(x=TotalWeightAsTested,y=AvgOfCorrectedStoppingDistance_ft_)) + geom_point(size=2.5) + labs(y="Stopping Distance (ft)",x="Total Weight (lbs)") + 
+  ggtitle("Stopping Distance Against Weight") #+ theme(legend.position="bottom")  
+plot(p) #320 x 280
+### 325 px width keeping aspect ratio constat and cropping allows two plots to be shown side by side
 ```
 
 Plot momentum, with front/rear distribution as color
 ```{r fig.height=5,fig.width=10}
+#without weight percent for export - # 320 x 280
+p<-ggplot(brakeTest,aes(x=Momentum,y=AvgOfCorrectedStoppingDistance_ft_)) + geom_point(size=2.5) + labs(y="Stopping Distance (ft)",x="Momentum (pound-miles per hour)")  + ggtitle("Stopping Distance Against Momentum")
+plot(p)
+#a few more terms
 p<-ggplot(brakeTest,aes(x=Momentum,y=AvgOfCorrectedStoppingDistance_ft_)) + geom_point(size=3.5,aes(shape=Axles,colour=WeightPercentHMMWVRearAxle)) + 
   labs(y="Stopping Distance (ft)",x="Momentum (pound-miles per hour)")  + ggtitle("Stopping Distance against Momentum")
 plot(p)
@@ -71,16 +82,21 @@ brakeTest40mph<-brakeTest[which(brakeTest$TestSpeed_mph_==40),];nrow(brakeTest40
 brakeTest50mph<-brakeTest[which(brakeTest$TestSpeed_mph_==50),];nrow(brakeTest50mph);plot(brakeTest50mph$TotalWeightAsTested,brakeTest50mph$AvgOfCorrectedStoppingDistance_ft_)
 brakeTest60mph<-brakeTest[which(brakeTest$TestSpeed_mph_==60),];nrow(brakeTest60mph);plot(brakeTest60mph$TotalWeightAsTested,brakeTest60mph$AvgOfCorrectedStoppingDistance_ft_)
 brakeTest5Tests<-rbind(brakeTest20mph,brakeTest30mph,brakeTest40mph,brakeTest50mph,brakeTest60mph);nrow(brakeTest5Tests)
+cor(brakeTest20mph$AvgOfCorrectedStoppingDistance_ft_,brakeTest20mph$Momentum);length(brakeTest20mph$Momentum)
+cor(brakeTest30mph$AvgOfCorrectedStoppingDistance_ft_,brakeTest30mph$Momentum);length(brakeTest30mph$Momentum)
+cor(brakeTest40mph$AvgOfCorrectedStoppingDistance_ft_,brakeTest40mph$Momentum);length(brakeTest40mph$Momentum)
+cor(brakeTest50mph$AvgOfCorrectedStoppingDistance_ft_,brakeTest50mph$Momentum);length(brakeTest50mph$Momentum)
+cor(brakeTest60mph$AvgOfCorrectedStoppingDistance_ft_,brakeTest60mph$Momentum);length(brakeTest60mph$Momentum)
 ```
 
 Run that plot again, and then with weight and speed separated
 ```{r fig.height=5,fig.width=10}
 p<-ggplot(brakeTest5Tests,aes(x=Momentum,y=AvgOfCorrectedStoppingDistance_ft_)) + geom_point(size=3.5,aes(shape=Axles,colour=WeightPercentHMMWVRearAxle)) + 
-  labs(y="Stopping Distance (ft)",x="Momentum (pound-miles per hour)")  + ggtitle("Stopping Distance against Momentum")
+  labs(y="Stopping Distance (ft)",x="Momentum (pound-miles per hour)")  + ggtitle("Stopping Distance Against Momentum")
 plot(p)
 
 p<-ggplot(brakeTest5Tests,aes(x=TestSpeed_mph_,y=AvgOfCorrectedStoppingDistance_ft_)) + geom_point(size=3.5,aes(shape=Axles,colour=TotalWeightAsTested)) + 
-  labs(y="Stopping Distance (ft)",x="Test Speed (mph)")  + ggtitle("Stopping Distance against Speed")
+  labs(y="Stopping Distance (ft)",x="Test Speed (mph)")  + ggtitle("Stopping Distance Against Speed")
 plot(p)
 ```
 
@@ -346,6 +362,7 @@ summary(fitLogAllMomentumSpdSqLog)
 
 Transforming the stopping distance into sqrt(stopping distance)
 ```{r}
+detach("package:dplyr", unload=TRUE)
 brakeTest5Tests$sqrtY<-sqrt(brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_)
 fitSqrtAllMomentumSpdSq<-lm(sqrt(AvgOfCorrectedStoppingDistance_ft_) ~ TestSpeed_mph_ * TotalWeightAsTested + I(TestSpeed_mph_^2),data=brakeTest5Tests)
 fitSqrtAllMomentumSpdSqAx<-lm(sqrt(AvgOfCorrectedStoppingDistance_ft_) ~ TestSpeed_mph_ * TotalWeightAsTested +  + Axles,data=brakeTest5Tests)
@@ -356,6 +373,19 @@ summary(fitSqrtAllMomentumSpdSq) ### speed squared looks unimportant
 fitSqrtAllMomentum<-lm(sqrt(AvgOfCorrectedStoppingDistance_ft_) ~ TestSpeed_mph_ * TotalWeightAsTested,data=brakeTest5Tests)
 anova(fitSqrtAllMomentum,fitSqrtAllMomentumSpdSq)
 summary(fitSqrtAllMomentum)
+plot(y=(fitSqrtAllMomentum$fitted.values)^2,x=brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_,main='Predicted against Actual, Sqrt(Y) in Original Scale')
+abline(0,1,col="red")
+plot(fitSqrtAllMomentum$fitted.values,abs(resid(fitSqrtAllMomentum)),xlab="Fitted Stopping Distance",ylab="Abs Residual (ft)",main="Residuals Increase\nwith Stopping Distance") # export at 500/400
+abline(lm(abs(resid(fitSqrtAllMomentum))~fitSqrtAllMomentum$fitted.values),col="blue")
+#
+# with no interaction, only speed and speed:weight
+fitSqrtAllMomentum2Preds<-lm(sqrt(AvgOfCorrectedStoppingDistance_ft_) ~ TestSpeed_mph_ + TestSpeed_mph_:TotalWeightAsTested-1,data=brakeTest5Tests)
+fitSqrtAllMomentum3Preds<-lm(sqrt(AvgOfCorrectedStoppingDistance_ft_) ~ TestSpeed_mph_*TotalWeightAsTested-1,data=brakeTest5Tests)
+anova(fitSqrtAllMomentum2Preds,fitSqrtAllMomentum3Preds)
+plot(y=(fitSqrtAllMomentum2Preds$fitted.values)^2,x=brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_,main='Predicted against Actual, Sqrt(Y) in Original Scale',xlim=c(0,280),ylim=c(0,280))
+abline(0,1,col="red")
+plot(fitSqrtAllMomentum2Preds$fitted.values,abs(resid(fitSqrtAllMomentum2Preds)),xlab="Fitted Stopping Distance",ylab="Abs Residual (ft)",main="Residuals Increase with Stopping Distance")
+abline(lm(abs(resid(fitSqrtAllMomentum2Preds))~fitSqrtAllMomentum$fitted.values),col="blue")
 #
 fitSqrtAllMomentumLat<-lm(sqrt(AvgOfCorrectedStoppingDistance_ft_) ~ TestSpeed_mph_ * TotalWeightAsTested + HMMWVLatCOG,data=brakeTest5Tests)
 anova(fitSqrtAllMomentum,fitSqrtAllMomentumLat)
@@ -367,51 +397,73 @@ fitSqrtAllMomentumLVert<-lm(sqrt(AvgOfCorrectedStoppingDistance_ft_) ~ TestSpeed
 anova(fitSqrtAllMomentum,fitSqrtAllMomentumLVert)
 #
 # Lateral and Longitudinal CoG improve sqt-spd fit
-#testSpeed<-brakeTest5Tests$TestSpeed_mph_
-#brakeTest5Tests$TestSpeed_mph_<-as.factor(brakeTest5Tests$TestSpeed_mph_)
-#brakeTest5Tests$TestSpeed_mph_<-testSpeed
-start<-lm(sqrt(AvgOfCorrectedStoppingDistance_ft_)~(TestSpeed_mph_ + TotalWeightAsTested + HMMWVVertCOG + HMMWVLatCOG + HMMWVLongCOG)^2,data=brakeTest5Tests)
-brakeSqrtLeaps<-regsubsets(formula(start),data=brakeTest5Tests,nvmax=10,nbest=12,method="exhaustive")
+start<-lm(sqrt(AvgOfCorrectedStoppingDistance_ft_)~(TestSpeed_mph_ + TotalWeightAsTested + HMMWVVertCOG + HMMWVLatCOG + HMMWVLongCOG)^2,data=brakeTest5Tests) # + Momentum
+brakeSqrtLeaps<-regsubsets(formula(start),data=brakeTest5Tests,nvmax=10,nbest=10,method="exhaustive")
 plot(brakeSqrtLeaps,scale="adjr2")
 brakeSqrtBestSub<-lm(as.formula(paste("sqrt(AvgOfCorrectedStoppingDistance_ft_) ~ ",paste(names(coef(brakeSqrtLeaps,which(summary(brakeSqrtLeaps)$adjr2==max(summary(brakeSqrtLeaps)$adjr2))))[-1],collapse="+"))) , data=brakeTest5Tests)
-#brakeSqrtBestSub<-lm(sqrt(AvgOfCorrectedStoppingDistance_ft_)~TestSpeed_mph_+TestSpeed_mph_:TotalWeightAsTested+TotalWeightAsTested:HMMWVLatCOG,data=brakeTest5Tests)
 summary(brakeSqrtBestSub)
-# previous (before long cg change) was weight, lateral, longit, speed*weight, speed*long, long*lat
 anova(fitSqrtAllMomentum,brakeSqrtBestSub)
+plot(y=(brakeSqrtBestSub$fitted.values)^2,x=brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_,main='Predicted against Actual, Sqrt(Y) in Original Scale')
+abline(0,1,col="red")
+par(mfrow=c(2,2),omi=c(0.5,0.5,0.5,0.5),mar=c(4.1,4.1,4.1,2.1))
+plot(fitAllMomentumSpdSq$fitted.values,abs(resid(fitAllMomentumSpdSq)),main='Residual Variance Increases\nWith Stopping Distance',ylab="Abs Residual (ft)",xlab="Fitted Stopping Distance",cex.main=0.85);abline(lm(abs(resid(fitAllMomentumSpdSq))~fitAllMomentumSpdSq$fitted.values),col="blue") # variance increases with stopping distance (y)
+plot(y=abs(unlist(brakeSqrtBestSub$fitted.values-brakeSqrtBestSub$model[1])),x=brakeSqrtBestSub$fitted.values,main='Residual Variance of Square Root Model\nDoes Not Increase With Speed',cex.main=0.85,ylab="Abs Residual (sqrt(ft))",xlab="Sqrt(Fitted Stopping Distance)",ylim=c(0,1.2),);abline(lm(abs(resid(brakeSqrtBestSub))~brakeSqrtBestSub$fitted.values),col="blue")
+qqnorm(rstandard(fitAllMomentumSpdSq),main="",cex.main=0.85,);qqline(rstandard(fitSqrtAllMomentum2Preds))#fitAllMomentumSpdSq$residuals) #main='Residual qqplot with Distance',
+qqnorm(rstandard(brakeSqrtBestSub),main="",cex.main=0.85);qqline(rstandard(brakeSqrtBestSub))  # main='Residual qqplot with Sqrt Distance',
+# export at 750 x 480 # 550
+par(mfrow=c(2,1),cex=0.7)
+title('Residual Distance Normal Plot Shows Quantiles from +1 Deviating from the Normal Quantile Line')
+par(mfrow=c(1,1));par(mfcol=c(1,1))
+# actual v predicted
+par(mfrow=c(1,2),omi=c(0.5,0.5,0.5,0.5),mar=c(1,1,3,1))
+plot(y=(fitSqrtAllMomentum2Preds$fitted.values)^2,x=brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_,,xlim=c(0,280),ylim=c(0,280),pch=16);abline(0,1,col="red") # main='Simple Model: 20ft Underestimate'
+points(x=fitSqrtAllMomentum2Preds$model["21",1]^2,y=fitSqrtAllMomentum2Preds$fitted.values["21"]^2,
+       col="royalblue",pch=16)
+plot(y=(brakeSqrtBestSub$fitted.values)^2,x=brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_,xlim=c(0,280),ylim=c(0,280),pch=16);abline(0,1,col="red") # main='Complex Model: 13ft Underestimate',
+points(x=brakeSqrtBestSub$model["21",1]^2,y=brakeSqrtBestSub$fitted.values["21"]^2,
+       col="royalblue",pch=16)
+par(mfrow=c(1,1)) # 658 x 303
+title("Actual vs. Predicted for Simple and Complex Models\n Failing Point at 50mph Hightlighted")
+
+# residual for failing point
+fitSqrtAllMomentum2Preds$fitted.values["21"]^2-fitSqrtAllMomentum2Preds$model["21",1]^2
+brakeSqrtBestSub$fitted.values["21"]^2-brakeSqrtBestSub$model["21",1]^2
+newdf<-brakeSqrtBestSub$model["21",]
+predict(brakeSqrtBestSub,newdf,interval="prediction",level=0.7)^2
+
+## residual standard deviation for each test speed
+sum((brakeSqrtBestSub$fitted.values[brakeTest5Tests$TestSpeed_mph_==20]^2-
+  brakeTest5Tests[brakeTest5Tests$TestSpeed_mph_==20,"AvgOfCorrectedStoppingDistance_ft_"])^2)/
+  nrow(brakeSqrtBestSub$model) # 2.1
+sum((brakeSqrtBestSub$fitted.values[brakeTest5Tests$TestSpeed_mph_==30]^2-
+  brakeTest5Tests[brakeTest5Tests$TestSpeed_mph_==30,"AvgOfCorrectedStoppingDistance_ft_"])^2)/
+  nrow(brakeSqrtBestSub$model) # 6.6
+sum((brakeSqrtBestSub$fitted.values[brakeTest5Tests$TestSpeed_mph_==40]^2-
+  brakeTest5Tests[brakeTest5Tests$TestSpeed_mph_==40,"AvgOfCorrectedStoppingDistance_ft_"])^2)/
+  nrow(brakeSqrtBestSub$model) # 14.6
+sum((brakeSqrtBestSub$fitted.values[brakeTest5Tests$TestSpeed_mph_==50]^2-
+  brakeTest5Tests[brakeTest5Tests$TestSpeed_mph_==50,"AvgOfCorrectedStoppingDistance_ft_"])^2)/
+  nrow(brakeSqrtBestSub$model) # 8.2
+sum((brakeSqrtBestSub$fitted.values[brakeTest5Tests$TestSpeed_mph_==60]^2-
+  brakeTest5Tests[brakeTest5Tests$TestSpeed_mph_==60,"AvgOfCorrectedStoppingDistance_ft_"])^2)/
+  nrow(brakeSqrtBestSub$model) # 15.3
+
+## continue with another fit
 brakeSqrtBestSubMod<-lm(sqrt(AvgOfCorrectedStoppingDistance_ft_) ~ TestSpeed_mph_ * TotalWeightAsTested + HMMWVLatCOG + HMMWVLongCOG,data=brakeTest5Tests)
 summary(brakeSqrtBestSubMod)
 anova(fitSqrtAllMomentum,brakeSqrtBestSubMod)
-anova(brakeSqrtBestSubMod,brakeSqrtBestSub)
+
 ## ridge
-detach("package:dplyr", unload=TRUE)
 lotsridge<-lm.ridge(sqrt(AvgOfCorrectedStoppingDistance_ft_)~(TestSpeed_mph_ + TotalWeightAsTested + HMMWVVertCOG + HMMWVLatCOG + HMMWVLongCOG)^2,data=brakeTest5Tests,lambda=seq(0,1,.001))
 plot(lotsridge)
 select(lotsridge)
-require(dplyr)
-(coefs<-coef(lotsridge)[which(lotsridge$lambda==.137),])
+(coefs<-coef(lotsridge)[which(lotsridge$lambda==.221),])
 ridgePred<-coefs[1]+coefs[2]*brakeTest5Tests$TestSpeed_mph_+coefs[3]*brakeTest5Tests$TotalWeightAsTested+coefs[4]*brakeTest5Tests$HMMWVVertCOG+coefs[5]*brakeTest5Tests$HMMWVLatCOG+coefs[6]*brakeTest5Tests$HMMWVLongCOG+coefs[7]*brakeTest5Tests$TestSpeed_mph_*brakeTest5Tests$TotalWeightAsTested+coefs[8]*brakeTest5Tests$TestSpeed_mph_*brakeTest5Tests$HMMWVVertCOG+coefs[9]*brakeTest5Tests$TestSpeed_mph_*brakeTest5Tests$HMMWVLatCOG+coefs[10]*brakeTest5Tests$TestSpeed_mph_*brakeTest5Tests$HMMWVLongCOG+coefs[11]*brakeTest5Tests$TotalWeightAsTested*brakeTest5Tests$HMMWVVertCOG+coefs[12]*brakeTest5Tests$TotalWeightAsTested*brakeTest5Tests$HMMWVLatCOG+coefs[13]*brakeTest5Tests$TotalWeightAsTested*brakeTest5Tests$HMMWVLongCOG+coefs[14]*brakeTest5Tests$HMMWVVertCOG*brakeTest5Tests$HMMWVLatCOG+coefs[15]*brakeTest5Tests$HMMWVVertCOG*brakeTest5Tests$HMMWVLongCOG+coefs[16]*brakeTest5Tests$HMMWVLatCOG*brakeTest5Tests$HMMWVLongCOG
-plot(y=ridgePred,sqrt(brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_))
-points(y=brakeSqrtBestSub$fitted.values,sqrt(brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_),col="dodgerblue")
-legend("bottomright",legend=c("Ridge","Subsets"),fill=c("black","dodgerblue"))
-abline(0,1)
-sum((ridgePred^2-brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_)^2) # RSS 4412 vs. 4391 with best subsets (8 coefs)
-sqrt(sum((ridgePred^2-brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_)^2)/(nrow(brakeTest5Tests)-length(coefs))) # 7.88 vs. 7.5 - using first select() lambda gives 7.8
-newdata<-data.frame("TotalWeightAsTested"=16430,"HMMWVVertCOG"=42,"WeightRatioHMMWVFront_Rear"=0.667591257,"Theight"=66,"TrailerLatCOG"=0,"Tlength"=100,"WeightPercentComboTrailerAxle"=0.2,"HMMWVLongCOG"=56,"TrailerLongCOG"=8,"TrailerVertCOG"=35,"HMMWVLatCOG"=0.03,"TestSpeed_mph_"=60)
-predict(brakeSqrtBestSub,newdata,interval="prediction",level=0.6)^2
-  # less ridge
-lessridge<-lm.ridge(formula(brakeSqrtBestSub),data=brakeTest5Tests,lambda=seq(0,1,.001))
-plot(lotsridge)
-select(lotsridge)
-(coefs<-coef(lessridge)[which(lessridge$lambda==.137),])
-ridgePred<-coefs[1]+coefs[2]*brakeTest5Tests$TestSpeed_mph_+coefs[3]*brakeTest5Tests$TotalWeightAsTested+coefs[4]*brakeTest5Tests$HMMWVLatCOG+coefs[5]*brakeTest5Tests$HMMWVLongCOG+coefs[6]*brakeTest5Tests$TestSpeed_mph_*brakeTest5Tests$TotalWeightAsTested+coefs[7]*brakeTest5Tests$TestSpeed_mph_*brakeTest5Tests$HMMWVLatCOG+coefs[8]*brakeTest5Tests$TestSpeed_mph_*brakeTest5Tests$HMMWVLongCOG+coefs[9]*brakeTest5Tests$TotalWeightAsTested*brakeTest5Tests$HMMWVLongCOG+coefs[10]*brakeTest5Tests$HMMWVVertCOG*brakeTest5Tests$HMMWVLatCOG+coefs[11]*brakeTest5Tests$HMMWVLatCOG*brakeTest5Tests$HMMWVLongCOG
-plot(y=ridgePred,sqrt(brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_))
-points(y=brakeSqrtBestSub$fitted.values,sqrt(brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_),col="royalblue")
-legend("bottomright",legend=c("Ridge","Subsets"),fill=c("black","royalblue"))
-abline(0,1)
-sum((ridgePred^2-brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_)^2) # RSS 4519 vs. 4391 with best subsets (8 coefs) - does worse than w/ all predictors
-sqrt(sum((ridgePred^2-brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_)^2)/(nrow(brakeTest5Tests)-length(coefs))) # 7.71 vs. 7.5 - slightly less error
+plot(ridgePred,sqrt(brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_))
+sum((ridgePred^2-sqrt(brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_)^2)^2) # RSS
 
-## boosting # ugly
+## boosting
+require(dplyr)
 brakeBostReg<-bst(y=sqrt(brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_),x=select(brakeTest5Tests,TotalWeightAsTested,TestSpeed_mph_,HMMWVVertCOG,HMMWVLatCOG,HMMWVLongCOG),family="gaussian")
 plot(predict(brakeBostReg),sqrt(brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_))
 ##
@@ -422,10 +474,39 @@ summary(fitSqrtAllMomentum)$sigma^2
 (predict(fitSqrtAllMomentum,data.frame(TestSpeed_mph_=40,TotalWeightAsTested=13000),interval="prediction",level=0.9,type="response"))^2
 # the failure (brakeTest[brakeTest$TestReportFilename=="ATC-10396","TotalWeightAsTested"])
 (predict(fitSqrtAllMomentum,data.frame(TestSpeed_mph_=50,TotalWeightAsTested=19680),interval="prediction",level=0.9,type="response"))^2
-newdf<-data.frame("TotalWeightAsTested"=16430,"HMMWVLatCOG"=0.03,"HMMWVLongCOG"=105,"TestSpeed_mph_"=20)
-predict(brakeSqrtBestSub,newdf,interval="prediction",level=0.80)^2
+newdf<-data.frame("TotalWeightAsTested"=16430,"HMMWVLatCOG"=0.03,"HMMWVLongCOG"=56,"HMMWVVertCOG"=42,
+                  "TestSpeed_mph_"=60)
+newdf<-data.frame("TotalWeightAsTested"=12060,"HMMWVLatCOG"=1.00,"HMMWVLongCOG"=63.9,"HMMWVVertCOG"=37.2,
+                  "TestSpeed_mph_"=50)
+predict(brakeSqrtBestSub,newdf,interval="prediction",level=0.90)^2
 plot(brakeSqrtBestSub$fitted.values^2,unlist(brakeSqrtBestSub$model[1]^2))
 abline(0,1)
+# calculate predictions with standard error estimtes
+newdata<-newdf
+res.var<-summary(brakeSqrtBestSub)$sigma^2; pred.var = res.var; Terms<-delete.response(terms(brakeSqrtBestSub))
+m <- model.frame(Terms, newdata, na.action = na.pass,xlev = brakeSqrtBestSub$xlevels)
+X <- model.matrix(Terms, m, contrasts.arg = brakeSqrtBestSub$contrasts) 
+p<-brakeSqrtBestSub$rank;p1<-seq_len(p); piv<-brakeSqrtBestSub$qr$pivot[p1]
+XRinv<-X[,piv] %*% qr.solve(qr.R(brakeSqrtBestSub$qr)[p1,p1]) # returns something the dimension of X
+ip<-drop(XRinv^2 %*% rep(res.var,p))
+beta<-brakeSqrtBestSub$coefficients
+predictor<-sum(X*t(beta))#drop(X[,p,drop=FALSE] %*% beta[piv]) ## matrix multiplication isn't working? it doesn't add terms together
+level1=0.98; df<-brakeSqrtBestSub$df.residual; tfrac<-qt((1-level1)/2,df,lower.tail=FALSE)
+(hwid<-tfrac*sqrt(ip+pred.var))
+(predictor + hwid %o% c(1,0,-1))^2 # prediction
+predict(brakeSqrtBestSub,newdf,interval="prediction",level=level1)^2
+write.csv(qr.solve(qr.R(brakeSqrtBestSub$qr)[p1,p1]),"Rinv_braking.csv")
+```
+
+```{r, results='hide',warning=FALSE}
+CVSplits=10
+fitWcv<-CVlm(df=brakeTest5Tests,form.lm=formula(fitSqrtAllMomentum2Preds),m=CVSplits) ## Fold Cross Validation
+(cvR2<-1-sum(sum((fitWcv$AvgOfCorrectedStoppingDistance_ft_-fitWcv$cvpred^2)^2))/sum((fitWcv$AvgOfCorrectedStoppingDistance_ft_-mean(fitWcv$AvgOfCorrectedStoppingDistance_ft_))^2))
+```
+
+```{r}
+modelCompare<-rbind(modelCompare,data.frame("name"="fitSqrtAllMomentum2Preds","data"="sqrt(5 tests)","factors"="wt,Wt*spd-interaction no intc","p"=length(fitSqrtAllMomentum2Preds$coef),"adjRsq"=summary(fitSqrtAllMomentum2Preds)$adj.r.squared,"predRsq"=1-sum(((fitSqrtAllMomentum2Preds$fitted.values^2-fitSqrtAllMomentum2Preds$model[1]^2)/(1-hatvalues(fitSqrtAllMomentum2Preds)))^2)/sum((fitSqrtAllMomentum2Preds$model[1]-mean(fitSqrtAllMomentum2Preds$model[1]^2))^2),"cvRsq"=cvR2,"AIC"=AIC(fitSqrtAllMomentum2Preds,k=2),"BIC"=AIC(fitSqrtAllMomentum2Preds,k=log(nrow(brakeTest5Tests))),"MSE"=sum((brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_-fitSqrtAllMomentum2Preds$fitted.values^2)^2)/nrow(brakeTest5Tests),"sigma"=sqrt(sum((fitSqrtAllMomentum2Preds$fitted.values^2-fitSqrtAllMomentum2Preds$model[1]^2)^2)/(nrow(fitSqrtAllMomentum2Preds$model)-length(coef(fitSqrtAllMomentum2Preds))))
+,"SSE"=sum(((fitSqrtAllMomentum2Preds$fitted.values^2-fitSqrtAllMomentum2Preds$model[1]^2))^2))) # store this
 ```
 
 ```{r, results='hide',warning=FALSE}
@@ -439,12 +520,13 @@ modelCompare<-rbind(modelCompare,data.frame("name"="fitSqrtAllMomentum","data"="
 ,"SSE"=sum(((fitSqrtAllMomentum$fitted.values^2-fitSqrtAllMomentum$model[1]^2))^2))) # store this
 ```
 
+
 residual diagnostics (take power of residual), predicted vs. actual
 ```{r}
 qqnorm(fitSqrtAllMomentum$residuals,main='Residual qqplot');qqline(fitSqrtAllMomentum$residuals)
 plot(y=unlist(fitSqrtAllMomentum$fitted.values-fitSqrtAllMomentum$model[1]),x=fitSqrtAllMomentum$fitted.values,ylab="Residuals",main='Residual against Predicted, Sqrt(Y)')
-plot(y=abs(unlist(fitSqrtAllMomentum$fitted.values-fitSqrtAllMomentum$model[1])),x=fitSqrtAllMomentum$fitted.values,main='Residual Variance of Square Root Model\nDoes Not Increase With Speed',ylab="Abs Residual (ft)",xlab="Fitted Stopping Distance")
-abline(lm(abs(unlist(fitSqrtAllMomentum$fitted.values-fitSqrtAllMomentum$model[1]))~fitSqrtAllMomentum$fitted.values),col="blue") # still overdispersion?
+plot(y=abs(unlist(fitSqrtAllMomentum$fitted.values-fitSqrtAllMomentum$model[1])),x=fitSqrtAllMomentum$fitted.values,main='Residual Variance of Square Root Model\nDoes Not Increase With Speed',ylab="Abs Residual (ft)",xlab="Fitted Stopping Distance") # export at 500x400 and reduce
+abline(lm(abs(unlist(fitSqrtAllMomentum$fitted.values-fitSqrtAllMomentum$model[1]))~fitSqrtAllMomentum$fitted.values),col="blue") # still overdispersion?s
 # residuals on original scale are the same as before
 plot(y=abs(unlist(fitSqrtAllMomentum$fitted.values^2-fitSqrtAllMomentum$model[1]^2)),x=fitSqrtAllMomentum$fitted.values,main='Residuals on Original Scale still Increase',ylab="Abs Residual (ft)")
 abline(lm(abs(unlist(fitSqrtAllMomentum$fitted.values^2-fitSqrtAllMomentum$model[1]^2))~fitSqrtAllMomentum$fitted.values),col="blue") # still the overdispersion on original scale
@@ -458,20 +540,18 @@ abline(0,1)
 
 Stats for best subest
 ```{r, results='hide',warning=FALSE}
-CVSplits=8
+CVSplits=10
 fitWcv<-CVlm(df=brakeTest5Tests,form.lm=formula(brakeSqrtBestSub),m=CVSplits) ##  Cross Validation
-#fitWcv<-CVlm(df=brakeTest5Tests,form.lm=formula(start),m=CVSplits) ##  Cross Validation
 (cvR2<-1-sum(sum((fitWcv$AvgOfCorrectedStoppingDistance_ft_-fitWcv$cvpred^2)^2))/sum((fitWcv$AvgOfCorrectedStoppingDistance_ft_-mean(fitWcv$AvgOfCorrectedStoppingDistance_ft_))^2))
 ```
 
 ```{r}
-modelCompare<-rbind(modelCompare,data.frame("name"="brakeSqrtBestSub","data"="sqrt(5 tests)","factors"="spd,wt*spd,lat,long,ixn,spd*long/lat,long*wt","p"=length(brakeSqrtBestSub$coef),"adjRsq"=summary(brakeSqrtBestSub)$adj.r.squared,"predRsq"=1-sum(((brakeSqrtBestSub$fitted.values^2-fitSqrtAllMomentum$model[1]^2)/(1-hatvalues(brakeSqrtBestSub)))^2)/sum((brakeSqrtBestSub$model[1]-mean(brakeSqrtBestSub$model[1]^2))^2),"cvRsq"=cvR2,"AIC"=AIC(brakeSqrtBestSub,k=2),"BIC"=AIC(brakeSqrtBestSub,k=log(nrow(brakeTest5Tests))),"MSE"=sum((brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_-fitSqrtAllMomentum$fitted.values^2)^2)/nrow(brakeTest5Tests),"sigma"=sqrt(sum((brakeSqrtBestSub$fitted.values^2-brakeSqrtBestSub$model[1]^2)^2)/(nrow(brakeSqrtBestSub$model)-length(coef(brakeSqrtBestSub))))
+modelCompare<-rbind(modelCompare,data.frame("name"="brakeSqrtBestSub","data"="sqrt(5 tests)","factors"="wt,wt-spd-ixn,lat,long,ixn,spd-long-ixn","p"=length(brakeSqrtBestSub$coef),"adjRsq"=summary(brakeSqrtBestSub)$adj.r.squared,"predRsq"=1-sum(((brakeSqrtBestSub$fitted.values^2-brakeSqrtBestSub$model[1]^2)/(1-hatvalues(brakeSqrtBestSub)))^2)/sum((brakeSqrtBestSub$model[1]-mean(brakeSqrtBestSub$model[1]^2))^2),"cvRsq"=cvR2,"AIC"=AIC(brakeSqrtBestSub,k=2),"BIC"=AIC(brakeSqrtBestSub,k=log(nrow(brakeTest5Tests))),"MSE"=sum((brakeSqrtBestSub$model[1]^2-brakeSqrtBestSub$fitted.values^2)^2)/nrow(brakeTest5Tests),"sigma"=sqrt(sum((brakeSqrtBestSub$fitted.values^2-brakeSqrtBestSub$model[1]^2)^2)/(nrow(brakeSqrtBestSub$model)-length(coef(brakeSqrtBestSub))))
 ,"SSE"=sum(((brakeSqrtBestSub$fitted.values^2-brakeSqrtBestSub$model[1]^2))^2))) # store this
 ```
 
 Stats for best subset less CoG interaction
 ```{r, results='hide',warning=FALSE}
-CVSplits=10
 fitWcv<-CVlm(df=brakeTest5Tests,form.lm=formula(brakeSqrtBestSubMod),m=CVSplits) ##  Cross Validation
 cvR2<-1-sum(sum((fitWcv$AvgOfCorrectedStoppingDistance_ft_-fitWcv$cvpred^2)^2))/sum((fitWcv$AvgOfCorrectedStoppingDistance_ft_-mean(fitWcv$AvgOfCorrectedStoppingDistance_ft_))^2)
 ```
@@ -481,8 +561,82 @@ modelCompare<-rbind(modelCompare,data.frame("name"="brakeSqrtBestSubMod","data"=
 ,"SSE"=sum(((brakeSqrtBestSubMod$fitted.values^2-brakeSqrtBestSubMod$model[1]^2))^2))) # store this
 ```
 
-Best subests with different number of max predictions (4-11)
+different models for 2 axle and 3 axle tests
+```{r}
+# hmmwvs without trailers
+start2<-lm(sqrt(AvgOfCorrectedStoppingDistance_ft_)~(TestSpeed_mph_+TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear)^2,data=brakeTest5Tests[brakeTest5Tests$Axles==2,])
+system.time(brakeSqrtLeaps<-regsubsets(formula(start2),data=brakeTest5Tests[brakeTest5Tests$Axles==2,],nvmax=7,nbest=10,method="exhaustive",really.big=TRUE)) # 8 max takes ~ 7.7 minutes
+plot(brakeSqrtLeaps,scale="adjr2")
+brakeSqrtBestSub2<-lm(as.formula(paste("sqrt(AvgOfCorrectedStoppingDistance_ft_) ~ ",paste(names(coef(brakeSqrtLeaps,which(summary(brakeSqrtLeaps)$adjr2==max(summary(brakeSqrtLeaps)$adjr2))))[-1],collapse="+"))) , data=brakeTest5Tests[brakeTest5Tests$Axles==2,])
+summary(brakeSqrtBestSub2)
+#residual diagnostics (take power of residual), predicted vs. actual
+qqnorm(brakeSqrtBestSub2$residuals,main='Residual qqplot');qqline(brakeSqrtBestSub2$residuals)
+plot(y=unlist(brakeSqrtBestSub2$fitted.values-brakeSqrtBestSub2$model[1]),x=brakeSqrtBestSub2$fitted.values,ylab="Residuals",main='Residual against Predicted, Sqrt(Y)',ylim=c(0,1.2))
+plot(y=abs(unlist(brakeSqrtBestSub2$fitted.values-brakeSqrtBestSub2$model[1])),x=brakeSqrtBestSub2$fitted.values,main='Residual Variance of Square Root Model\nDoes Not Increase With Speed',ylab="Abs Residual (ft)",xlab="Fitted Stopping Distance",ylim=c(0,1.2))
+abline(lm(abs(unlist(brakeSqrtBestSub2$fitted.values-brakeSqrtBestSub2$model[1]))~brakeSqrtBestSub2$fitted.values),col="blue") # still overdispersion?
+# residuals on original scale are the same as before
+plot(y=abs(unlist(brakeSqrtBestSub2$fitted.values^2-brakeSqrtBestSub2$model[1]^2)),x=brakeSqrtBestSub2$fitted.values,main='Residuals on Original Scale still Increase',ylab="Abs Residual (ft)")
+abline(lm(abs(unlist(brakeSqrtBestSub2$fitted.values^2-brakeSqrtBestSub2$model[1]^2))~brakeSqrtBestSub2$fitted.values),col="blue") # still the overdispersion on original scale
+plot(y=(brakeSqrtBestSub2$fitted.values^2-fitSqrtAllMomentum$model[1]^2),x=brakeTest5Tests$TotalWeightAsTested,main='Residual against Weight, Sqrt(Y)')
+plot(y=unlist((brakeSqrtBestSub2$fitted.values-brakeSqrtBestSub2$model[1])),x=unlist(brakeSqrtBestSub2$model[2]),main='Residual against Speed, Sqrt(Y)')
+plot(y=(brakeSqrtBestSub2$fitted.values^2-brakeSqrtBestSub2$model[1]^2),x=unlist(brakeSqrtBestSub2$model[2]),main='Residual against Speed, Sqrt(Y), Orig Scale')
+plot(y=(brakeSqrtBestSub2$fitted.values^2-brakeSqrtBestSub2$model[1]^2),x=unlist(brakeSqrtBestSub2$model[1]),main='Residual against Actual, Sqrt(Y)')
+plot(y=brakeSqrtBestSub2$fitted.values^2,x=unlist(brakeSqrtBestSub2$model[1])^2,main='Predicted against Actual, Sqrt(Y)') 
+abline(0,1)
+```
 
+```{r, results='hide',warning=FALSE}
+CVSplits=15
+fitWcv<-CVlm(df=brakeTest5Tests[brakeTest5Tests$Axles==2,],form.lm=formula(brakeSqrtBestSub2),m=CVSplits) ##  Cross Validation
+(cvR2<-1-sum(sum((fitWcv$AvgOfCorrectedStoppingDistance_ft_-fitWcv$cvpred^2)^2))/sum((fitWcv$AvgOfCorrectedStoppingDistance_ft_-mean(fitWcv$AvgOfCorrectedStoppingDistance_ft_))^2))
+```
+
+
+```{r}
+modelCompare<-rbind(modelCompare,data.frame("name"="brakeSqrtBestSub2","data"="sqrt(5 tests)3ax","factors"="wt,spd,ixn,lat,long,trail/tot","p"=length(brakeSqrtBestSub2$coef),"adjRsq"=summary(brakeSqrtBestSub2)$adj.r.squared,"predRsq"=1-sum(((brakeSqrtBestSub2$fitted.values^2-brakeSqrtBestSub2$model[1]^2)/(1-hatvalues(brakeSqrtBestSub2)))^2)/sum((brakeSqrtBestSub2$model[1]-mean(brakeSqrtBestSub2$model[1]^2))^2),"cvRsq"=cvR2,"AIC"=AIC(brakeSqrtBestSub2,k=2),"BIC"=AIC(brakeSqrtBestSub2,k=log(nrow(brakeTest5Tests[brakeTest5Tests$Axles==2,]))),"MSE"=sum((brakeTest5Tests[brakeTest5Tests$Axles==2,]$AvgOfCorrectedStoppingDistance_ft_-brakeSqrtBestSub2$fitted.values^2)^2)/nrow(brakeTest5Tests[brakeTest5Tests$Axles==2,]),"sigma"=sqrt(sum((brakeSqrtBestSub2$fitted.values^2-brakeSqrtBestSub2$model[1]^2)^2)/(nrow(brakeSqrtBestSub2$model)-length(coef(brakeSqrtBestSub2)))),"SSE"=sum(((brakeSqrtBestSub2$fitted.values^2-brakeSqrtBestSub2$model[1]^2))^2))) # store this
+```
+
+```{r, cache=TRUE}
+# trailers only
+start3<-lm(sqrt(AvgOfCorrectedStoppingDistance_ft_)~(TestSpeed_mph_+TotalWeightAsTested+HMMWVVertCOG+HMMWVLatCOG+HMMWVLongCOG+WeightRatioHMMWVFront_Rear+TrailerLatCOG+TrailerLongCOG+WeightPercentComboTrailerAxle+WeightRatioComboHMMWV_Trailer+WeightRatioComboTongueWeight_TrailerAxleWeight)^2,data=brakeTest5Tests[brakeTest5Tests$Axles==3,])
+system.time(brakeSqrtLeaps<-regsubsets(formula(start3),data=brakeTest5Tests[brakeTest5Tests$Axles==3,],nvmax=8,nbest=10,method="exhaustive",really.big=TRUE)) # 8 max takes ~ 7.7 minutes
+plot(brakeSqrtLeaps,scale="adjr2")
+brakeSqrtBestSub3<-lm(as.formula(paste("sqrt(AvgOfCorrectedStoppingDistance_ft_) ~ ",paste(names(coef(brakeSqrtLeaps,which(summary(brakeSqrtLeaps)$adjr2==max(summary(brakeSqrtLeaps)$adjr2))))[-1],collapse="+"))) , data=brakeTest5Tests[brakeTest5Tests$Axles==3,])
+summary(brakeSqrtBestSub3)
+#residual diagnostics (take power of residual), predicted vs. actual
+qqnorm(brakeSqrtBestSub3$residuals,main='Residual qqplot');qqline(brakeSqrtBestSub3$residuals)
+plot(y=unlist(brakeSqrtBestSub3$fitted.values-brakeSqrtBestSub3$model[1]),x=brakeSqrtBestSub3$fitted.values,ylab="Residuals",main='Residual against Predicted, Sqrt(Y)')
+plot(y=abs(unlist(brakeSqrtBestSub3$fitted.values-brakeSqrtBestSub3$model[1])),x=brakeSqrtBestSub3$fitted.values,main='Residual Variance of Square Root Model\nDoes Not Increase With Speed',ylab="Abs Residual (ft)",xlab="Fitted Stopping Distance")
+abline(lm(abs(unlist(brakeSqrtBestSub3$fitted.values-brakeSqrtBestSub3$model[1]))~brakeSqrtBestSub3$fitted.values),col="blue") # still overdispersion?
+# residuals on original scale are the same as before
+plot(y=abs(unlist(brakeSqrtBestSub3$fitted.values^2-brakeSqrtBestSub3$model[1]^2)),x=brakeSqrtBestSub3$fitted.values,main='Residuals on Original Scale still Increase',ylab="Abs Residual (ft)")
+abline(lm(abs(unlist(brakeSqrtBestSub3$fitted.values^2-brakeSqrtBestSub3$model[1]^2))~brakeSqrtBestSub3$fitted.values),col="blue") # still the overdispersion on original scale
+plot(y=(brakeSqrtBestSub3$fitted.values^2-fitSqrtAllMomentum$model[1]^2),x=brakeTest5Tests$TotalWeightAsTested,main='Residual against Weight, Sqrt(Y)')
+plot(y=unlist((brakeSqrtBestSub3$fitted.values-brakeSqrtBestSub3$model[1])),x=unlist(brakeSqrtBestSub3$model[2]),main='Residual against Speed, Sqrt(Y)')
+plot(y=(brakeSqrtBestSub3$fitted.values^2-brakeSqrtBestSub3$model[1]^2),x=unlist(brakeSqrtBestSub3$model[2]),main='Residual against Speed, Sqrt(Y), Orig Scale')
+plot(y=(brakeSqrtBestSub3$fitted.values^2-brakeSqrtBestSub3$model[1]^2),x=unlist(brakeSqrtBestSub3$model[1]),main='Residual against Actual, Sqrt(Y)')
+plot(y=brakeSqrtBestSub3$fitted.values^2,x=unlist(brakeSqrtBestSub3$model[1])^2,main='Predicted against Actual, Sqrt(Y)') 
+abline(0,1)
+```
+
+```{r, results='hide',warning=FALSE}
+CVSplits=8
+fitWcv<-CVlm(df=brakeTest5Tests[brakeTest5Tests$Axles==3,],form.lm=formula(brakeSqrtBestSub3),m=CVSplits) ##  Cross Validation
+(cvR2<-1-sum(sum((fitWcv$AvgOfCorrectedStoppingDistance_ft_-fitWcv$cvpred^2)^2))/sum((fitWcv$AvgOfCorrectedStoppingDistance_ft_-mean(fitWcv$AvgOfCorrectedStoppingDistance_ft_))^2))
+```
+
+```{r}
+modelCompare<-rbind(modelCompare,data.frame("name"="brakeSqrtBestSub3","data"="sqrt(5 tests)3ax","factors"="wt,spd,ixn,lat,long,trail/tot","p"=length(brakeSqrtBestSub3$coef),"adjRsq"=summary(brakeSqrtBestSub3)$adj.r.squared,"predRsq"=1-sum(((brakeSqrtBestSub3$fitted.values^2-brakeSqrtBestSub3$model[1]^2)/(1-hatvalues(brakeSqrtBestSub3)))^2)/sum((brakeSqrtBestSub3$model[1]-mean(brakeSqrtBestSub3$model[1]^2))^2),"cvRsq"=cvR2,"AIC"=AIC(brakeSqrtBestSub3,k=2),"BIC"=AIC(brakeSqrtBestSub3,k=log(nrow(brakeTest5Tests[brakeTest5Tests$Axles==3,]))),"MSE"=sum((brakeTest5Tests[brakeTest5Tests$Axles==3,]$AvgOfCorrectedStoppingDistance_ft_-brakeSqrtBestSub3$fitted.values^2)^2)/nrow(brakeTest5Tests[brakeTest5Tests$Axles==3,]),"sigma"=sqrt(sum((brakeSqrtBestSub3$fitted.values^2-brakeSqrtBestSub3$model[1]^2)^2)/(nrow(brakeSqrtBestSub3$model)-length(coef(brakeSqrtBestSub3)))),"SSE"=sum(((brakeSqrtBestSub3$fitted.values^2-brakeSqrtBestSub3$model[1]^2))^2))) # store this
+```
+
+compare 2 models for trailers/hmmwvs vs. the same model for both
+```{r}
+plot(y=brakeSqrtBestSub$fitted.values^2,x=unlist(brakeSqrtBestSub$model[1])^2,main='Predicted against Actual, Sqrt(Y)',
+     xlim=c(15,35),ylim=c(0,50)) # 20 MPH
+abline(0,1)
+points(y=c(brakeSqrtBestSub2$fitted.values^2,brakeSqrtBestSub3$fitted.values^2),
+       x=c(unlist(brakeSqrtBestSub2$model[1])^2,unlist(brakeSqrtBestSub3$model[1])^2),col="royalblue")
+```
 
 ### Transformed Predictors
 There are many predictors to choose from, so I'll do stepwise
@@ -626,7 +780,7 @@ points(brakeTest5Tests$Momentum,brakeTest5Tests$AvgOfCorrectedStoppingDistance_f
 
 ```{r fig.height=5,fig.width=10}
 p<-ggplot(brakeTest5Tests,aes(x=Momentum,y=AvgOfCorrectedStoppingDistance_ft_)) + geom_point(size=3.5,aes(shape=Axles,colour=TestSpeed_mph_)) + 
-  labs(y="Stopping Distance (ft)",x="Momentum (pound-miles per hour)")  + ggtitle("Stopping Distance against Momentum via Log(y) Model; Prediction and Confidence Intervals")
+  labs(y="Stopping Distance (ft)",x="Momentum (pound-miles per hour)")  + ggtitle("Stopping Distance Against Momentum via Log(y) Model; Prediction and Confidence Intervals")
 p+geom_line(data=bpToPlot,aes(x=Momentum,y=estStop,colour=TestSpeed_mph),size=1.3)+
   geom_line(data=bpToPlot,aes(x=Momentum,y=lcl,colour=TestSpeed_mph),size=1,linetype=4)+
   geom_line(data=bpToPlot,aes(x=Momentum,y=ucl,colour=TestSpeed_mph),size=1,linetype=4)+
@@ -636,27 +790,27 @@ p+geom_line(data=bpToPlot,aes(x=Momentum,y=estStop,colour=TestSpeed_mph),size=1.
 
 #### The same for sqrt(stopping distance) model
 ```{r}
-bp2pred<-predict(fitSqrtAllMomentum,newdata=bp2,se.fit=TRUE,interval="prediction",level=0.90)
+bp2pred<-predict(fitSqrtAllMomentum2Preds,newdata=bp2,se.fit=TRUE,interval="prediction",level=0.90)
 bp2$estStop<-bp2pred$fit[,1]^2 # 1st element of fit is the mean
 bp2$upr<-bp2pred$fit[,3]^2 # 3rd element of fit is the upper prediction range (level=.90 two sided gives a 95 one-sided)
 bp2$ucl<-(bp2pred$fit[,1]+bp2pred$se.fit*qt(0.975,80,lower.tail=TRUE))^2 # the same as using interval=confidence(95%)
 bp2$lcl<-(bp2pred$fit[,1]+bp2pred$se.fit*qt(0.975,80,lower.tail=FALSE))^2
-bp3pred<-predict(fitSqrtAllMomentum,newdata=bp3,se.fit=TRUE,interval="prediction",level=0.90)
+bp3pred<-predict(fitSqrtAllMomentum2Preds,newdata=bp3,se.fit=TRUE,interval="prediction",level=0.90)
 bp3$estStop<-(bp3pred$fit[,1])^2
 bp3$upr<-(bp3pred$fit)[,3]^2
 bp3$ucl<-(bp3pred$fit[,1]+bp3pred$se.fit*qt(0.975,80,lower.tail=TRUE))^2
 bp3$lcl<-(bp3pred$fit[,1]+bp3pred$se.fit*qt(0.975,80,lower.tail=FALSE))^2
-bp4pred<-predict(fitSqrtAllMomentum,newdata=bp4,se.fit=TRUE,interval="prediction",level=0.90)
+bp4pred<-predict(fitSqrtAllMomentum2Preds,newdata=bp4,se.fit=TRUE,interval="prediction",level=0.90)
 bp4$estStop<-(bp4pred$fit[,1])^2
 bp4$upr<-bp4pred$fit[,3]^2
 bp4$ucl<-(bp4pred$fit[,1]+bp4pred$se.fit*qt(0.975,80,lower.tail=TRUE))^2
 bp4$lcl<-(bp4pred$fit[,1]+bp4pred$se.fit*qt(0.975,80,lower.tail=FALSE))^2
-bp5pred<-predict(fitSqrtAllMomentum,newdata=bp5,se.fit=TRUE,interval="prediction",level=0.90)
+bp5pred<-predict(fitSqrtAllMomentum2Preds,newdata=bp5,se.fit=TRUE,interval="prediction",level=0.90)
 bp5$estStop<-(bp5pred$fit[,1])^2
 bp5$upr<-(bp5pred$fit)[,3]^2
 bp5$ucl<-(bp5pred$fit[,1]+bp5pred$se.fit*qt(0.975,80,lower.tail=TRUE))^2
 bp5$lcl<-(bp5pred$fit[,1]+bp5pred$se.fit*qt(0.975,80,lower.tail=FALSE))^2
-bp6pred<-predict(fitSqrtAllMomentum,newdata=bp6,se.fit=TRUE,interval="prediction",level=0.90)
+bp6pred<-predict(fitSqrtAllMomentum2Preds,newdata=bp6,se.fit=TRUE,interval="prediction",level=0.90)
 bp6$estStop<-(bp6pred$fit[,1])^2
 bp6$upr<-(bp6pred$fit)[,3]^2
 bp6$ucl<-(bp6pred$fit[,1]+bp6pred$se.fit*qt(0.975,80,lower.tail=TRUE))^2
@@ -672,34 +826,43 @@ bpToPlot$TestSpeed_mph<-as.factor(bpToPlot$TestSpeed_mph) # add a factor
 #fmt<-function(x){round(x,0)}
 p<-ggplot(brakeTest5Tests[brakeTest5Tests$TestSpeed_mph_==20|brakeTest5Tests$TestSpeed_mph_==30,],aes(x=Momentum,y=AvgOfCorrectedStoppingDistance_ft_)) + geom_point(size=3.5,aes(shape=Axles,colour=TestSpeed_mph_)) + scale_color_manual(values = c("steelblue4", "firebrick1")) + 
   #scale_x_continuous("",labels=fmt) +
-  labs(y="Stopping Distance (ft)",x="Momentum (pound-miles per hour)")  + ggtitle("Stopping Distance against Momentum via Sqrt(y) Model\nPrediction and Confidence Intervals") 
+  labs(y="Stopping Distance (ft)",x="Momentum (pound-miles per hour)")  + ggtitle("Stopping Distance Against Momentum via Simple Sqrt(y) Model\nPrediction and Confidence Intervals") 
 p+geom_line(data=bpToPlot[bpToPlot$TestSpeed_mph_==20|bpToPlot$TestSpeed_mph_==30,],aes(x=Momentum,y=estStop,colour=TestSpeed_mph),size=1.3)+
   geom_line(data=bpToPlot[bpToPlot$TestSpeed_mph_==20|bpToPlot$TestSpeed_mph_==30,],aes(x=Momentum,y=lcl,colour=TestSpeed_mph),size=1,linetype=4)+
   geom_line(data=bpToPlot[bpToPlot$TestSpeed_mph_==20|bpToPlot$TestSpeed_mph_==30,],aes(x=Momentum,y=ucl,colour=TestSpeed_mph),size=1,linetype=4)+
   geom_line(data=bpToPlot[bpToPlot$TestSpeed_mph_==20|bpToPlot$TestSpeed_mph_==30,],aes(x=Momentum,y=upr,colour=TestSpeed_mph),size=1,linetype=11)
 ## second two
 p<-ggplot(brakeTest5Tests[brakeTest5Tests$TestSpeed_mph_==40|brakeTest5Tests$TestSpeed_mph_==50,],aes(x=Momentum,y=AvgOfCorrectedStoppingDistance_ft_)) + geom_point(size=3.5,aes(shape=Axles,colour=TestSpeed_mph_)) + scale_color_manual(values = c("forestgreen", "darkgoldenrod3")) + 
-  labs(y="Stopping Distance (ft)",x="Momentum (pound-miles per hour)")  + ggtitle("Stopping Distance against Momentum via Sqrt(y) Model; Prediction and Confidence Intervals")
+  labs(y="Stopping Distance (ft)",x="Momentum (pound-miles per hour)")  + ggtitle("Stopping Distance against Momentum via Simple Sqrt(y) Model; Prediction and Confidence Intervals")
 p+geom_line(data=bpToPlot[bpToPlot$TestSpeed_mph_==40|bpToPlot$TestSpeed_mph_==50,],aes(x=Momentum,y=estStop,colour=TestSpeed_mph),size=1.3)+
   geom_line(data=bpToPlot[bpToPlot$TestSpeed_mph_==40|bpToPlot$TestSpeed_mph_==50,],aes(x=Momentum,y=lcl,colour=TestSpeed_mph),size=1,linetype=4)+
   geom_line(data=bpToPlot[bpToPlot$TestSpeed_mph_==40|bpToPlot$TestSpeed_mph_==50,],aes(x=Momentum,y=ucl,colour=TestSpeed_mph),size=1,linetype=4)+
   geom_line(data=bpToPlot[bpToPlot$TestSpeed_mph_==40|bpToPlot$TestSpeed_mph_==50,],aes(x=Momentum,y=upr,colour=TestSpeed_mph),size=1,linetype=11)
 
 ## all
-p<-ggplot(brakeTest5Tests,aes(x=Momentum,y=AvgOfCorrectedStoppingDistance_ft_)) + geom_point(size=3.5,aes(shape=Axles,colour=TestSpeed_mph_)) + scale_color_manual(values = c("steelblue4","firebrick1","forestgreen", "darkgoldenrod3","mediumorchid4")) + #scale_x_continuous(labels=fmt()) +
-  labs(y="Stopping Distance (ft)",x="Momentum (pound-miles per hour)")  + ggtitle("Stopping Distance against Momentum, Sqrt(response) Model") + 
-  theme(axis.text.x=element_text(size=15))+theme(axis.text.y=element_text(size=15)) +
-  theme(axis.title.x=element_text(size=20))+theme(axis.title.y=element_text(size=20)) +
-  theme(plot.title=element_text(size=20)) +
-  theme(legend.title=element_text(size=20))+theme(legend.text=element_text(size=15))
-print(p) 
+# for report here****
+p<-ggplot(brakeTest5Tests,aes(x=Momentum,y=AvgOfCorrectedStoppingDistance_ft_)) + geom_point(size=3.5,aes(shape=Axles,colour=TestSpeed_mph_)) + scale_color_manual(values = c("steelblue4","firebrick1","forestgreen", "darkgoldenrod3","mediumorchid4"), guide=guide_legend(title="Test Speed (mph)")) + labs(y="Stopping Distance (ft)",x="Momentum (pound-miles per hour)")  + ggtitle("Stopping Distance Against Momentum") +
+  theme(axis.text.x=element_text(size=20))+theme(axis.text.y=element_text(size=20)) +
+  theme(axis.title.x=element_text(size=25))+theme(axis.title.y=element_text(size=25)) +
+  theme(plot.title=element_text(size=25)) + # EXPORT AT 800 WIDTH
+  theme(legend.title=element_text(size=20))+theme(legend.text=element_text(size=20))
+#d<-data.frame(x = c(185000,185000,185000,185000,185000), y = c(25+7,78+7,138+7,216+7,310+7), label = c("25 feet","78 feet","138 feet","216 feet","310 feet"))
+d<-data.frame(x = c(170000,170000,170000,170000,170000), y = c(25+7,78+7,138+7,216+7,310+7), label = c("25'","78'","138'","216'","310'"))
+print(p+geom_hline(yintercept=c(25,78,138,216,310),colour=c("steelblue4","firebrick1","forestgreen", "darkgoldenrod3","mediumorchid4"),size=1) + 
+        geom_text(data = d, mapping=aes(x=x,y=y,label=label)))
+#******
 p+geom_line(data=bpToPlot,aes(x=Momentum,y=estStop,colour=TestSpeed_mph),size=1.3)+
   geom_line(data=bpToPlot,aes(x=Momentum,y=lcl,colour=TestSpeed_mph),size=1,linetype=4)+
   geom_line(data=bpToPlot,aes(x=Momentum,y=ucl,colour=TestSpeed_mph),size=1,linetype=4)+
   geom_line(data=bpToPlot,aes(x=Momentum,y=upr,colour=TestSpeed_mph),size=1,linetype=11)
-# exported at 
+p+geom_line(data=bpToPlot,aes(x=Momentum,y=estStop,colour=TestSpeed_mph),size=1.3)+
+  geom_line(data=bpToPlot,aes(x=Momentum,y=lcl,colour=TestSpeed_mph),size=1,linetype=4)+
+  geom_line(data=bpToPlot,aes(x=Momentum,y=ucl,colour=TestSpeed_mph),size=1,linetype=4)+
+  geom_line(data=bpToPlot,aes(x=Momentum,y=upr,colour=TestSpeed_mph),size=1,linetype=11)+geom_hline(yintercept=c(25,78,138,216,310),colour=c("steelblue4","firebrick1","forestgreen", "darkgoldenrod3","mediumorchid4"),size=1) + geom_text(data = d, mapping=aes(x=x,y=y,label=label),size=10)
+# exported at 800 x 700
 
-brakeTest5Tests$TestSpeed_mph_<-testSpeed # return speed to a numeric
+# beware
+#brakeTest5Tests$TestSpeed_mph_<-testSpeed # return speed to a numeric
 ```
 
 ```{r, results='hide',warning=FALSE}
@@ -719,8 +882,7 @@ fitWcv<-CVlm(df=brakeTest5Tests,form.lm=formula(fitTestSpeedCategWeightSqrtY),m=
 cvR2<-1-sum(sum((fitWcv$AvgOfCorrectedStoppingDistance_ft_-fitWcv$cvpred^2)^2))/sum((fitWcv$AvgOfCorrectedStoppingDistance_ft_-mean(fitWcv$AvgOfCorrectedStoppingDistance_ft_))^2)
 
 # with sqrt transform
-modelCompare<-rbind(modelCompare,data.frame("name"="fitTestSpeedCategWeightSqrtY","data"="sqrt(5 tests)","factors"="wt,spd(categ),interaction","p"=length(fitTestSpeedCategWeightSqrtY$coef),"adjRsq"=summary(fitTestSpeedCategWeightSqrtY)$adj.r.squared,"predRsq"=1-sum(((fitTestSpeedCategWeightSqrtY$fitted.values^2-fitTestSpeedCategWeightSqrtY$model[1]^2)/(1-hatvalues(fitTestSpeedCategWeightSqrtY)))^2)/sum((fitTestSpeedCategWeightSqrtY$model[1]-mean(fitTestSpeedCategWeightSqrtY$model[1]^2))^2),"cvRsq"=cvR2,"AIC"=AIC(fitTestSpeedCategWeightSqrtY,k=2),"BIC"=AIC(fitTestSpeedCategWeightSqrtY,k=log(nrow(brakeTest5Tests))),"MSE"=sum((brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_-fitTestSpeedCategWeightSqrtY$fitted.values^2)^2)/nrow(brakeTest5Tests),"sigma"=sqrt(sum((fitTestSpeedCategWeightSqrtY$fitted.values^2-fitTestSpeedCategWeightSqrtY$model[1]^2)^2)/(nrow(fitTestSpeedCategWeightSqrtY$model)-length(coef(fitTestSpeedCategWeightSqrtY))))
-                ,"SSE"=sum(((fitTestSpeedCategWeightSqrtY$fitted.values^2-fitTestSpeedCategWeightSqrtY$model[1]^2))^2))) # store this
+modelCompare<-rbind(modelCompare,data.frame("name"="fitTestSpeedCategWeightSqrtY","data"="sqrt(5 tests)","factors"="wt,spd(categ),interaction","p"=length(fitTestSpeedCategWeightSqrtY$coef),"adjRsq"=summary(fitTestSpeedCategWeightSqrtY)$adj.r.squared,"predRsq"=1-sum(((fitTestSpeedCategWeightSqrtY$fitted.values^2-fitTestSpeedCategWeightSqrtY$model[1]^2)/(1-hatvalues(fitTestSpeedCategWeightSqrtY)))^2)/sum((fitTestSpeedCategWeightSqrtY$model[1]-mean(fitTestSpeedCategWeightSqrtY$model[1]^2))^2),"cvRsq"=cvR2,"AIC"=AIC(fitTestSpeedCategWeightSqrtY,k=2),"BIC"=AIC(fitTestSpeedCategWeightSqrtY,k=log(nrow(brakeTest5Tests))),"MSE"=sum((brakeTest5Tests$AvgOfCorrectedStoppingDistance_ft_-fitTestSpeedCategWeightSqrtY$fitted.values^2)^2)/nrow(brakeTest5Tests),"sigma"=sqrt(sum((fitTestSpeedCategWeightSqrtY$fitted.values^2-fitTestSpeedCategWeightSqrtY$model[1]^2)^2)/(nrow(fitTestSpeedCategWeightSqrtY$model)-length(coef(fitTestSpeedCategWeightSqrtY)))),"SSE"=sum(((fitTestSpeedCategWeightSqrtY$fitted.values^2-fitTestSpeedCategWeightSqrtY$model[1]^2))^2))) # store this
 ```
 
 ```{r}
