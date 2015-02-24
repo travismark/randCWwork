@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE maintwp PUBLIC "-//USA-DOD//DTD MIL-STD-2361 TM Assembly REV 3.26 20100609//EN" "40051C_3_26.dtd"[
+<!ENTITY maint_saddle_Rdbrem01 SYSTEM "..\..\..\..\..\graphics\maint\saddle\Rdbrem01.pic">
+<!ENTITY M10605_other.maintsk SYSTEM "..\..\..\General\maint.xml">
+<!ENTITY M30101_remove SYSTEM "..\..\..\Elevmass\BOLTS\HPlines\removal.xml">
+<!ENTITY M30102_remove SYSTEM "..\..\..\Elevmass\BOLTS\LPlines\removal.xml">
+<!ENTITY M30101_remove SYSTEM "..\..\..\..\TM25_P\Elevmass\BOLTS\HPlines\removal.xml">
+<!ENTITY M30102_remove SYSTEM "..\..\..\..\TM25_P\Elevmass\BOLTS\LPlines\removal.xml">
+]>
+<?Indexfile href="..\..\..\..\prelim\botcar01.xml"?>
+<?BUTTON POS='2' SHOW='Y' LABEL='~Index' TYPE='FRAME' LINK='..\..\..\..\prelim\botcar01.xml'?>
+
+<?BUTTON POS='1' SHOW='Y' LABEL='~Help' TYPE='FRAME' LINK='..\..\..\..\prelim\howto.xml'?>
+
+<?stylesheet href="..\..\..\..\..\Styles\Howitzer.sty"?>
+<?title text="TM 10407C-OI/2 - [WP 0497 00] - 03 Jun 2013, ELEVATION DRIVE BELT RH, REMOVAL"?>
+<?stylesheet href="..\..\..\..\..\styles\Howitzer.sty"?>
+<?Domainfile href="..\..\..\..\..\Domain\tm9-1025-215-24p.lst"?>
+<?tocfile href="..\..\..\..\..\Domain\tm9-1025-215-24p.toc"?>
+<?EmbedWarnings ?>
+<?tagmap inlinegraphic="graphic"?>
+<?tagmap tabmat="table"?>
+<?tagmap icon-set="graphic"?>
+<?tagmap da2028="graphic"?>
+<?tagmap symbol="graphic"?>
+<?pub number='TM9-1025-215-24P' date='03 Jun 2013' mailto='2028@redstone.army.mil' ?>
+<?indexfile href="..\ppr_front.xml"?>
+<?multidomaindir href="..\..\Domain\MultiDomain"?>
+<?usechangeattributes attributes="inschlvl delchlvl level"?>
+<maintwp wpno="M40505_remove" wpseq="0497 00">
+<?frame id="wp0497_000_001" title="ELEVATION DRIVE BELT RH, REMOVAL [WP 0497 00]" toclevel="4" previous='#DMN'?>
+<wpidinfo>
+<maintlvl level="field" />
+<title>ELEVATION DRIVE BELT RH, REMOVAL</title>
+</wpidinfo>
+<wpinfo>
+<tools>
+<tools-setup-item>
+<name>Artillery mechanic's tool kit</name>
+</tools-setup-item>
+</tools>
+<persnreq>
+<?if test="$config EQ MARINE"?><persnreq-setup-item>
+<name>
+</name>
+<qty>2</qty>
+</persnreq-setup-item><?endif ?>
+<?if test="$config EQ ARMY"?><persnreq-setup-item>
+<name>Cannon Crewmember with
+ASI U6 13B U6</name>
+<qty>2</qty>
+</persnreq-setup-item><?endif ?>
+</persnreq>
+<eqpconds>
+<eqpconds-setup-item>
+<condition>Howitzer set in <xref wpid="M10605_other.maintsk" callout="maintenance position" hovertext="SETTING HOWITZER IN MAINTENANCE POSITION" push="1" />
+</condition>
+</eqpconds-setup-item>
+<eqpconds-setup-item>
+<condition>
+<xref wpid="M30101_remove" callout="High" hovertext="B.O.L.T.S. HIGH PRESSURE LINES, REMOVAL" push="1" /> and <xref wpid="M30102_remove" callout="low" hovertext="B.O.L.T.S. LOW PRESSURE LINES, REMOVAL" push="1" /> pressure gauges
+removed </condition>
+</eqpconds-setup-item>
+</eqpconds>
+</wpinfo>
+<?frame image="maint_saddle_Rdbrem01 -RGN '1'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" id="wp0497_000_002" title="ELEVATION DRIVE BELT RH"  next='#DMN'?>
+<maintsk>
+<remove title="ELEVATION DRIVE BELT RH" toclevel="5">
+<title>ELEVATION DRIVE BELT RH</title>
+<step1 id="M40505_remove_step_1" label="1.">
+<para>Using a 10 mm socket wrench and handle, remove two screws <xref linktype="picture" figid="maint_saddle_Rdbrem01 -RGN '1'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" callout="Figure 1, Item 1" splitwnd="1" hovertext="REMOVAL OF RH ELEVATION DRIVE BELT" /> and two shaped washers <xref linktype="picture" figid="maint_saddle_Rdbrem01 -RGN '2'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" callout="Figure 1, Item 2" splitwnd="1" hovertext="REMOVAL OF RH ELEVATION DRIVE BELT" />.</para>
+</step1>
+<step1 id="M40505_remove_step_2" label="2.">
+<para>Using two 10 mm socket wrenches and handles, remove screw <xref linktype="picture" figid="maint_saddle_Rdbrem01 -RGN '3'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" callout="Figure 1, Item 3" splitwnd="1" hovertext="REMOVAL OF RH ELEVATION DRIVE BELT" />, two flat washers <xref linktype="picture" figid="maint_saddle_Rdbrem01 -RGN '4'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" callout="Figure 1, Item 4" splitwnd="1" hovertext="REMOVAL OF RH ELEVATION DRIVE BELT" /> and nut <xref linktype="picture" figid="maint_saddle_Rdbrem01 -RGN '5'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" callout="Figure 1, Item 5" splitwnd="1" hovertext="REMOVAL OF RH ELEVATION DRIVE BELT" />.</para>
+</step1>
+<step1 id="M40505_remove_step_3" label="3.">
+<para>Remove the side plates <xref linktype="picture" figid="maint_saddle_Rdbrem01 -RGN '6'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" callout="Figure 1, Item 6" splitwnd="1" hovertext="REMOVAL OF RH ELEVATION DRIVE BELT" /> and <xref linktype="picture" figid="maint_saddle_Rdbrem01 -RGN '7'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" callout="Figure 1, Item 7" splitwnd="1" hovertext="REMOVAL OF RH ELEVATION DRIVE BELT" />.</para>
+</step1>
+<step1 id="M40505_remove_step_4" label="4.">
+<specpara>
+<note>
+<trim.para>Full removal of the cover plate <xref linktype="picture" figid="maint_saddle_Rdbrem01 -RGN '8'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" callout="Figure 1, Item 8" splitwnd="1" hovertext="REMOVAL OF RH ELEVATION DRIVE BELT" /> is not possible, unless
+both <xref wpid="M30101_remove" callout="high" hovertext="B.O.L.T.S. HIGH PRESSURE LINES, REMOVAL" push="1" />  and <xref wpid="M30102_remove" callout="low" hovertext="B.O.L.T.S. LOW PRESSURE LINES, REMOVAL" push="1" />  pressure gauges are removed. </trim.para>
+</note>
+<para>Using a 10 mm socket wrench and handle, remove three screws <xref linktype="picture" figid="maint_saddle_Rdbrem01 -RGN '9'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" callout="Figure 1, Item 9" splitwnd="1" hovertext="REMOVAL OF RH ELEVATION DRIVE BELT" /> and shaped washers <xref linktype="picture" figid="maint_saddle_Rdbrem01 -RGN '10'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" callout="Figure 1, Item 10" splitwnd="1" hovertext="REMOVAL OF RH ELEVATION DRIVE BELT" />.  Remove cover plate <xref linktype="picture" figid="maint_saddle_Rdbrem01 -RGN '8'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" callout="Figure 1, Item 8" splitwnd="1" hovertext="REMOVAL OF RH ELEVATION DRIVE BELT" /> and lower on to body.</para>
+</specpara>
+</step1>
+<step1 id="M40505_remove_step_5" label="5.">
+<para>Using a 13 mm wrench, loosen two nuts <xref linktype="picture" figid="maint_saddle_Rdbrem01 -RGN '11'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" callout="Figure 1, Item 11" splitwnd="1" hovertext="REMOVAL OF RH ELEVATION DRIVE BELT" /> and screw <xref linktype="picture" figid="maint_saddle_Rdbrem01 -RGN '12'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" callout="Figure 1, Item 12" splitwnd="1" hovertext="REMOVAL OF RH ELEVATION DRIVE BELT" />.</para>
+</step1>
+<step1 id="M40505_remove_step_6" label="6.">
+<para>Using a 13 mm wrench, loosen four screws <xref linktype="picture" figid="maint_saddle_Rdbrem01 -RGN '13'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" callout="Figure 1, Item 13" splitwnd="1" hovertext="REMOVAL OF RH ELEVATION DRIVE BELT" />.</para>
+</step1>
+<step1 id="M40505_remove_step_7" label="7.">
+<para>Slide axial stub <xref linktype="picture" figid="maint_saddle_Rdbrem01 -RGN '14'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" callout="Figure 1, Item 14" splitwnd="1" hovertext="REMOVAL OF RH ELEVATION DRIVE BELT" /> downwards to release tension on RH drive belt <xref linktype="picture" figid="maint_saddle_Rdbrem01 -RGN '15'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" callout="Figure 1, Item 15" splitwnd="1" hovertext="REMOVAL OF RH ELEVATION DRIVE BELT" />.</para>
+</step1>
+<step1 id="M40505_remove_step_8" label="8.">
+<para>Remove RH drive belt <xref linktype="picture" figid="maint_saddle_Rdbrem01 -RGN '15'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" callout="Figure 1, Item 15" splitwnd="1" hovertext="REMOVAL OF RH ELEVATION DRIVE BELT" /> from handwheel sprocket <xref linktype="picture" figid="maint_saddle_Rdbrem01 -RGN '16'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" callout="Figure 1, Item 16" splitwnd="1" hovertext="REMOVAL OF RH ELEVATION DRIVE BELT" /> and cross shaft sprocket <xref linktype="picture" figid="maint_saddle_Rdbrem01 -RGN '17'  -T 'Figure 1 - Removal of RH Elevation Drive Belt'" callout="Figure 1, Item 17" splitwnd="1" hovertext="REMOVAL OF RH ELEVATION DRIVE BELT" />.</para>
+<figure label="1." id="M40505_remove_fig_1">
+<title>
+<?hotspot splitwnd="1" linktype="picture" href="maint_saddle_Rdbrem01 -T 'Figure 1 - Removal of RH Elevation Drive Belt'" ?>Removal of RH Elevation Drive Belt<?endhotspot ?>
+</title>
+</figure>
+</step1>
+</remove>
+</maintsk>
+</maintwp>
+<?Pub *0000003890?>

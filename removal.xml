@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE maintwp PUBLIC "-//USA-DOD//DTD MIL-STD-2361 TM Assembly REV 3.26 20100609//EN" "40051C_3_26.dtd"[
+<!ENTITY maint_body_TAPrem01 SYSTEM "..\..\..\..\..\graphics\maint\body\TAPrem01.pic">
+<!ENTITY M10605_other.maintsk SYSTEM "..\..\..\General\maint.xml">
+]>
+<?Indexfile href="..\..\..\..\prelim\botcar01.xml"?>
+<?BUTTON POS='2' SHOW='Y' LABEL='~Index' TYPE='FRAME' LINK='..\..\..\..\prelim\botcar01.xml'?>
+
+<?BUTTON POS='1' SHOW='Y' LABEL='~Help' TYPE='FRAME' LINK='..\..\..\..\prelim\howto.xml'?>
+
+<?stylesheet href="..\..\..\..\..\Styles\Howitzer.sty"?>
+<?title text="TM 10407C-OI/2 - [WP 0647 00] - 03 Jun 2013, TRAIL ARM PAD, REMOVAL"?>
+<?stylesheet href="..\..\..\..\..\styles\Howitzer.sty"?>
+<?Domainfile href="..\..\..\..\..\Domain\tm9-1025-215-24p.lst"?>
+<?tocfile href="..\..\..\..\..\Domain\tm9-1025-215-24p.toc"?>
+<?EmbedWarnings ?>
+<?tagmap inlinegraphic="graphic"?>
+<?tagmap tabmat="table"?>
+<?tagmap icon-set="graphic"?>
+<?tagmap da2028="graphic"?>
+<?tagmap symbol="graphic"?>
+<?pub number='TM9-1025-215-24P' date='03 Jun 2013' mailto='2028@redstone.army.mil' ?>
+<?indexfile href="..\ppr_front.xml"?>
+<?multidomaindir href="..\..\Domain\MultiDomain"?>
+<?usechangeattributes attributes="inschlvl delchlvl level"?>
+<maintwp wpno="M40306_remove" wpseq="0647 00">
+<?frame id="wp0647_000_001" title="TRAIL ARM PAD, REMOVAL [WP 0647 00]" toclevel="4" previous='#DMN'?>
+<wpidinfo>
+<maintlvl level="field" />
+<title>TRAIL ARM PAD, REMOVAL</title>
+</wpidinfo>
+<wpinfo>
+<tools>
+<tools-setup-item>
+<name>Artillery mechanic's tool kit</name>
+</tools-setup-item>
+</tools>
+<persnreq>
+<?if test="$config EQ MARINE"?><persnreq-setup-item>
+<name>
+</name>
+<qty>2</qty>
+</persnreq-setup-item><?endif ?>
+<?if test="$config EQ ARMY"?><persnreq-setup-item>
+<name>Cannon Crewmember with ASI U6 13B U6</name>
+<qty>2</qty>
+</persnreq-setup-item><?endif ?>
+</persnreq>
+<eqpconds>
+<eqpconds-setup-item>
+<condition>Howitzer set in <xref wpid="M10605_other.maintsk" callout="maintenance position" hovertext="SETTING HOWITZER IN MAINTENANCE POSITION" push="1" />
+</condition>
+</eqpconds-setup-item>
+</eqpconds>
+</wpinfo>
+<?frame image="maint_body_TAPrem01 -RGN '1'  -T 'Figure 1 - Removal of Pad'" id="wp0647_000_002" title="TRAIL ARM PAD"  next='#DMN'?>
+<maintsk>
+<remove title="TRAIL ARM PAD" toclevel="5">
+<title>TRAIL ARM PAD</title>
+<note>
+<trim.para>The procedure described below applies to both the LH and RH assemblies.
+</trim.para>
+</note>
+<step1 id="M40306_remove_step_1" label="1.">
+<para>Using 13 mm socket wrench and handle, remove two screws <xref linktype="picture" figid="maint_body_TAPrem01 -RGN '1'  -T 'Figure 1 - Removal of Pad'" callout="Figure 1, Item 1" splitwnd="1" hovertext="Removal of Pad" /> and two flat washers <xref linktype="picture" figid="maint_body_TAPrem01 -RGN '2'  -T 'Figure 1 - Removal of Pad'" callout="Figure 1, Item 2" splitwnd="1" hovertext="Removal of Pad" />.  Remove pad <xref linktype="picture" figid="maint_body_TAPrem01 -RGN '3'  -T 'Figure 1 - Removal of Pad'" callout="Figure 1, Item 3" splitwnd="1" hovertext="Removal of Pad" />.</para>
+<figure label="1." id="M40306_remove_fig_1">
+<title>
+<?hotspot splitwnd="1" linktype="picture" href="maint_body_TAPrem01 -T 'Figure 1 - Removal of Pad'" ?>Removal of Pad<?endhotspot ?>
+</title>
+</figure>
+</step1>
+</remove>
+</maintsk>
+</maintwp>
