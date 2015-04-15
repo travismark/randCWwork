@@ -21,16 +21,14 @@
 
 # Import your stuff
 import os
-import csv
 import datetime
-#import time
 import pyodbc
 import pymysql.cursors
 
 # Define a few variables
-sID = 1000 # simulation id
-tID = 1000 # tenant id
-pID = 1 # project id
+sID = 100 # simulation id
+tID = 100 # tenant id
+pID = 100 # project id
 cUser = 'user' # default create_user
 
 ### Define the database connections
@@ -53,6 +51,8 @@ connSinkInput = pymysql.connect(host='localhost',
                              db='input',
                              charset='utf8mb4',
                              cursorclass=pymysql.cursors.DictCursor)
+#constr = 'DRIVER={MySQL ODBC 5.3 Unicode Driver};SERVER=localhost;PORT=%s;DATABASE=input;user=%s;Password=%s' % (localport,localuser,localpw) # this works, but it makes all the remaining things mess up
+#connSinkInput = pyodbc.connect(constr)
 cursorINP = connSinkInput.cursor()
 connSinkLCM = pymysql.connect(host='localhost',
 							 port=localport,
@@ -61,6 +61,8 @@ connSinkLCM = pymysql.connect(host='localhost',
                              db='lcm',
                              charset='utf8mb4',
                              cursorclass=pymysql.cursors.DictCursor)
+#constr = 'DRIVER={MySQL ODBC 5.3 Unicode Driver};SERVER=localhost;PORT=%s;DATABASE=lcm;user=%s;Password=%s' % (localport,localuser,localpw) # this works, but ugh
+#connSinkLCM = pyodbc.connect(constr)
 cursorLCM = connSinkLCM.cursor() 
 
 
@@ -89,9 +91,9 @@ if cursorLCM.execute(sql, (pID,)) != 1: # then create it
 sql = "SELECT id FROM `simulation` WHERE `id`=%s"
 cursorLCM.execute(sql, (sID,))
 if cursorLCM.rowcount == 0: # then create it, otherwise give an error
-    sqlEnterSimulation = '''INSERT INTO `simulation` (`id`, `tenant_id`, `name`, `simulation_type_id`, `output_flag`, `baseline_flag`, `project_id`, `number_of_replications`, `start_date`,
-    `interval_unit_id`, `create_user`, `create_timestamp`) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)'''
-    cursorLCM.execute(sqlEnterSimulation, (sID, tID, model.split('.')[0], 1, 1, 0, pID, 100, '2015-01-01', 14, 'user', datetime.datetime.now().isoformat()))
+    sqlEnterSimulation = '''INSERT INTO `simulation` (`id`, `tenant_id`, `name`, `simulation_type_id`, `output_flag`, `baseline_flag`, `project_id`, `number_of_replications`, `start_date`, `end_time`,
+    `interval_unit_id`, `create_user`, `create_timestamp`) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)'''
+    cursorLCM.execute(sqlEnterSimulation, (sID, tID, model.split('.')[0], 1, 1, 0, pID, 100, '2015-01-01', 315569520000, 14, 'user', datetime.datetime.now().isoformat()))
 else:
     print 'no simulation - many errors coming '# return; # gives an error b/c not in function, deal with later
 
@@ -106,6 +108,11 @@ cursorLCM.execute(sqlUoM, (tID, 'Hours', 10, 1, cUser)) # for failures
 cursorLCM.execute(sqlUoM, (tID, 'Days', 9, 2, cUser)) # for repairs
 print "Done with Unit of Measure"
 ###################################### / END UNIT OF MEASURE
+
+# DONE WITH THE LCM STUFF - COMMIT This
+connSinkLCM.commit()
+####
+
 
 ###################################### / BEGIN EVENT TYPE
 sqlET = '''INSERT INTO event_type (tenant_id, simulation_id, name, external_id, create_user, create_timestamp) VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)'''
@@ -159,7 +166,14 @@ for row in locations:
 print "Done with Location"
 ###################################### / END LOCATION
 
-# Insert the object information: group, class, type, name
+# Insert the object information: state_type, group, class, type, name
+###################################### / BEGIN STATE TYPE
+# HARD CODED
+sql = '''INSERT INTO `object_state_type` (`tenant_id`, `simulation_id`, `name`, `internal_name`, `external_id`, `create_user`, `create_timestamp`) VALUES (%s, %s, %s, %s, %s, %s, %s)'''
+cursorINP.execute(sql, (tID, sID, 'Serviceable', 'Serviceable', 1, 'user', datetime.datetime.now().isoformat()))
+cursorINP.execute(sql, (tID, sID, 'Unserviceable', 'Unserviceable', 2, 'user', datetime.datetime.now().isoformat()))
+print "Done with Object State Type"
+###################################### / END OBJECT STATE TYPE
 ###################################### / BEGIN OBJECT GROUP
 # group is hard coded as asset or component
 # we don't know the ids, so don't specify 
@@ -321,53 +335,60 @@ print "Done with Distribution Type Parameter"
 ###################################### / BEGIN DISTRIBUTION PARAMETER
 # failure distributions first - DEMAND Pro always uses weibull failure rates
 weibullExID = 5
-sqlFR = '''SELECT [*Unscheduled Removal rates].[LRU  type] AS etId, [*Unscheduled Removal rates].[Platform type] AS PetId, [*Unscheduled Removal rates].Base as lEid, [*Unscheduled Removal rates].[Age Unit] AS ageType, [*Unscheduled Removal rates].Rate AS scale, [*Unscheduled Removal rates].Shape, [*Unscheduled Removal rates].[Completed Repairs] as cr FROM [*Unscheduled Removal rates]'''
+sqlFR = '''SELECT [*Unscheduled Removal rates].[LRU  type] AS otEid, [*Unscheduled Removal rates].[Platform type] AS PetId, [*Unscheduled Removal rates].Base as lEid, [*Unscheduled Removal rates].[Age Unit] AS ageType, [*Unscheduled Removal rates].Rate AS scale, [*Unscheduled Removal rates].Shape, [*Unscheduled Removal rates].[Completed Repairs] as cr FROM [*Unscheduled Removal rates]'''
 curSource.execute(sqlFR)
 failureRates = curSource.fetchall()
 # lcm.unit_of_measure is in a different database, so I'll have to query it separately
 sqlUOM = 'SELECT id from unit_of_measure where external_id = 1 and tenant_id = %s' % tID 
 cursorLCM.execute(sqlUOM)
-failureUOM = cursorLCM.fetchone() # this gives me a dictionary
+failureUOM = cursorLCM.fetchone() # this gives me a dictionary (can use string.encode to convert from bytestring to unicodestring)
 failureUOM = failureUOM.get(u'id') # get the value
 exID = 1 # use as counter for inputting parameters later
 sqlFR = '''INSERT INTO distribution (tenant_id, simulation_id, external_id, name, distribution_class_id, distribution_type_id, unit_of_measure_id, create_user, create_timestamp) SELECT %s, %s, %s, %s, dc.id, dt.id, %s, %s, CURRENT_TIMESTAMP FROM distribution_class dc join distribution_type dt on dt.simulation_id = dc.simulation_id WHERE dc.tenant_id = %s and dc.simulation_id = %s and dt.external_id = %s'''
 for row in failureRates:
-    tempName = 'Failure exTID: ' + str(row.etId) + ' exPID' + str(row.PetId) + ' exLID: ' + str(row.lEid) + ' CR: ' + str(row.cr) # concat a name, can include spaces
+    tempName = 'Failure exTID: ' + str(row.otEid) + ' exPID' + str(row.PetId) + ' exLID: ' + str(row.lEid) + ' CR: ' + str(row.cr) # concat a name, can include spaces
     cursorINP.execute(sqlFR, (tID, sID, exID, tempName, failureUOM, cUser, tID, sID, weibullExID))
     exID += 1
 # now repair distributions ############# TBD TBD TBD ##########################
 #################################
-# REPAR DISTRIBUTION SOURCE QUERY ISN'T WORKING NOW ##################################3
+# REPAR DISTRIBUTION SOURCE QUERY ISN'T WORKING NOW ##################################
 #################################
 
+# lcm.unit_of_measure is in a different database, so I'll have to query it separately
 cursorLCM.execute('SELECT id from lcm.unit_of_measure where external_id = 2 and tenant_id = %s' % tID ) # hard coded
 repairUOM = cursorLCM.fetchone()
 repairUOM = repairUOM.get(u'id')
 constantExID = 1
 
-# no external ID
-dexID = 100
-otExternalID = 100201001 # engine
-hardcodeRepairDist = '''INSERT INTO distribution (tenant_id, simulation_id, external_id, name, distribution_class_id, distribution_type_id, unit_of_measure_id, create_user, create_timestamp) SELECT %s, %s, %s, %s, dc.id, dt.id, %s, %s, CURRENT_TIMESTAMP FROM distribution_class dc join distribution_type dt on dt.simulation_id = dc.simulation_id WHERE dc.tenant_id = %s and dc.simulation_id = %s and dt.external_id = %s'''
-tempName = 'engineRepair'
-cursorINP.execute(hardcodeRepairDist, (tID, sID, dexID, tempName, repairUOM, cUser, tID, sID, constantExID))
-hardcodeRepairParam = '''INSERT INTO distribution_parameter (tenant_id, simulation_id, external_id, parameter_value, distribution_id, distribution_type_parameter_id, create_user, create_timestamp) SELECT %s, %s, %s, %s, d.id, dtp.id, %s, CURRENT_TIMESTAMP FROM distribution_type dt JOIN distribution d on dt.simulation_id = d.simulation_id AND dt.id = d.distribution_type_id JOIN distribution_type_parameter dtp on dtp.simulation_id = d.simulation_id AND dtp.distribution_type_id = dt.id WHERE d.tenant_id = %s AND d.simulation_id = %s AND d.external_id = %s AND dtp.parameter_number = %s'''
-cursorINP.execute(hardcodeRepairParam, (tID, sID, dexID, 60, cUser, tID, sID, dexID, 1))
-hardcodeRepairEventDist = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT %s, %s, %s, d.name, d.id, e.id, ot.id, %s, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = %s and e.simulation_id = %s AND d.external_id = %s and ot.external_id = %s and e.name like "Repair"''' # can also include location and parent object type for failure rates, but haven't yet
-cursorINP.execute(hardcodeRepairEventDist, (tID, sID, dexID, cUser, tID, sID, dexID, otExternalID ))
+# no external ID - when hardcoded - TODO - still add distribution_parameter and event_distribution for repair events
+# dexID = 100
+# otExternalID = 100201001 # engine
+# hardcodeRepairDist = '''INSERT INTO distribution (tenant_id, simulation_id, external_id, name, distribution_class_id, distribution_type_id, unit_of_measure_id, create_user, create_timestamp) SELECT %s, %s, %s, %s, dc.id, dt.id, %s, %s, CURRENT_TIMESTAMP FROM distribution_class dc join distribution_type dt on dt.simulation_id = dc.simulation_id WHERE dc.tenant_id = %s and dc.simulation_id = %s and dt.external_id = %s'''
+# tempName = 'engineRepair'
+# cursorINP.execute(hardcodeRepairDist, (tID, sID, dexID, tempName, repairUOM, cUser, tID, sID, constantExID))
+# hardcodeRepairParam = '''INSERT INTO distribution_parameter (tenant_id, simulation_id, external_id, parameter_value, distribution_id, distribution_type_parameter_id, create_user, create_timestamp) SELECT %s, %s, %s, %s, d.id, dtp.id, %s, CURRENT_TIMESTAMP FROM distribution_type dt JOIN distribution d on dt.simulation_id = d.simulation_id AND dt.id = d.distribution_type_id JOIN distribution_type_parameter dtp on dtp.simulation_id = d.simulation_id AND dtp.distribution_type_id = dt.id WHERE d.tenant_id = %s AND d.simulation_id = %s AND d.external_id = %s AND dtp.parameter_number = %s'''
+# cursorINP.execute(hardcodeRepairParam, (tID, sID, dexID, 60, cUser, tID, sID, dexID, 1))
+# hardcodeRepairEventDist = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT %s, %s, %s, d.name, d.id, e.id, ot.id, %s, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = %s and e.simulation_id = %s AND d.external_id = %s and ot.external_id = %s and e.name like "Repair"''' # can also include location and parent object type for failure rates, but haven't yet
+# cursorINP.execute(hardcodeRepairEventDist, (tID, sID, dexID, cUser, tID, sID, dexID, otExternalID ))
 
 
 
 # right now I'm hardcoding to just get repair at any level 10000 because I'm short on time TODO: make repair distributions more general
-#sqlRep = '''SELECT sr.[SRAN ID] as lEid, sr.[SERVER TYPE] as mntType, sr.[Object type] as otEid, sr.[Tsf Dist] AS distType, sr.[Tsf P1] AS p1, sr.[Tsf P2] AS p2 FROM [*Server times] as sr WHERE sr.[SRAN ID]=10000 AND sr.[SERVER TYPE]="Repair"'''
-#curSource.execute(sqlRep)
-#repairDists = curSource.fetchall()
-# lcm.unit_of_measure is in a different database, so I'll have to query it separately
-#cursorLCM('SELECT id from lcm.unit_of_measure where external_id = 2 and tenant_id = %s' % tID )
-#repairUOM = cursorLCM.fetchone()
-#repairUOM = repairUOM.get(u'id')
-#exID = 1
-#sqlRep = '''INSERT INTO distribution (tenant_id, simulation_id, external_id, name, distribution_class_id, distribution_type_id, unit_of_measure_id, create_user, create_timestamp) SELECT %s, %s, %s, %s, dc.id, dt.id, %s, %s, CURRENT_TIMESTAMP FROM distribution_class dc join distribution_type dt on dt.simulation_id = dc.simulation_id WHERE dc.tenant_id = %s and dc.simulation_id = %s and dt.external_id = %s'''
+# I can't specify the type of maintenance without throwing an error so I'll pull all the data and cull it later
+sqlAllMaint = '''SELECT sr.[SRAN ID] as lEid, sr.[SERVER TYPE] as mntType, sr.[Object type] as otEid, sr.[Tsf Dist] AS distType, sr.[Tsf P1] AS p1, sr.[Tsf P2] AS p2 FROM [*Server times] as sr WHERE sr.[SRAN ID]=10000'''
+curSource.execute(sqlAllMaint)
+maintDists = curSource.fetchall()
+repairDists = []
+for row in maintDists:
+    if row.mntType.encode() == 'REPAIR':
+        repairDists.append(row)
+# now deposit
+exID = 1
+sqlRep = '''INSERT INTO distribution (tenant_id, simulation_id, external_id, name, distribution_class_id, distribution_type_id, unit_of_measure_id, create_user, create_timestamp) SELECT %s, %s, %s, %s, dc.id, dt.id, %s, %s, CURRENT_TIMESTAMP FROM distribution_class dc join distribution_type dt on dt.simulation_id = dc.simulation_id WHERE dc.tenant_id = %s and dc.simulation_id = %s and dt.external_id = %s'''
+for row in repairDists:
+    tempName = 'Repair exTID: ' + str(row.otEid) + ' exLID: ' + str(row.lEid) # concat a name, can include spaces
+    cursorINP.execute(sqlRep, (tID, sID, exID, tempName, repairUOM, cUser, tID, sID, constantExID))
+    exID += 1
 #print "Done with Distribution"
 ###################################### / END DISTRIBUTION PARAMETER
 ###################################### / BEGIN DISTRIBUTION PARAMETER
@@ -404,6 +425,8 @@ for row in failureRates:
 ######################### STILL ######################### MUST ######################### DO ######################### REPAIRS #########################
 
 ###################################### / END EVENT DISTRIBUTION
+
+###################################### / BEGIN STRUCTURE
 # FROM JESSICA W
 # parent structures (objects with at least one child)
 sqlPS ='''insert into input.structure 
@@ -500,18 +523,28 @@ sqlSO='''insert into input.structure_object
     and right(s.name,5) = 'Child'
     and s.tenant_id=%s and s.simulation_id=%s;''' % (tID, sID, cUser, tID, sID)
 cursorINP.execute(sqlSO)
-###################################### / BEGIN STRUCTURE
-
-
+print 'Done with Structure and Structure_Object'
 ###################################### / END STRUCTURE
-###################################### / BEGIN STRUCTURE OBJECT
+
+###################################### / BEGIN STORAGE TYPE
+# Types are hardcoded to 'MaintenanceAndStorage'
+sqlST = '''INSERT INTO storage_type (tenant_id, simulation_id, name, external_id, create_user, create_timestamp) values (%s, %s, %s, %s, %s, %s)''' # just one class right now
+cursorINP.execute(sqlST, (tID, sID, 'MaintenanceAndStorage', 1, cUser, datetime.datetime.now().isoformat()))
+print "Done with Storage Type"
+###################################### / END STORAGE TYPE
+###################################### / BEGIN STORAGE
+# Each location has one storage
+sqlS = '''INSERT INTO input.storage (tenant_id, simulation_id, name, internal_name, location_id, external_id, storage_type_id, default_for_new_buys, create_user, create_timestamp)
+select %s, %s, l.name, l.internal_name, l.id, l.external_id, st.id, 0, %s, current_timestamp() FROM location l join storage_type st on st.simulation_id=l.simulation_id where st.external_id = %s and l.tenant_id = %s and l.simulation_id = %s'''
+# query to paste into source input
+cursorINP.execute(sqlS, (tID, sID, cUser, 1, tID, sID))
+print "Done with Storage"
+###################################### / END STORAGE
 
 
-###################################### / END STRUCTURE OBJECT
 
-
-
-
+connSinkLCM.commit()
+connSinkInput.commit()
 
 
 
@@ -521,7 +554,7 @@ cursorINP.execute(sqlSO)
 
 #     # connection is not autocommit by default. So you must commit to save
 #     # your changes.
-#     connSinkLCM.commit()
+     
 
 #     with connSinkLCM.cursor() as cursor:
 #         # Read a single record
