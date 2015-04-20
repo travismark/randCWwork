@@ -20,21 +20,25 @@
 # create acquisitions and retirements: event_schedules
 
 # Import your stuff
+import math
 import os
 import datetime
 import pyodbc
 #import pymysql.cursors
 
 # Define a few variables
-sID = 100 # simulation id
-tID = 100 # tenant id
-pID = 100 # project id
+sID = 1000 # simulation id
+tID = 1000 # tenant id
+pID = 2 # project id
 cUser = 'user' # default create_user
+IorD = 'insight' # insight (with failure rates defined in calendar time) or demo (with failure rates defined in operating hours)
 
 ### Define the database connections
 # First the Source database (DEMAND Pro)
 db_path = 'P:/Internal Projects/Data Scientist Team/InsightLCM/Testing/FAST/DEMAND Pro Basic Training/BasicCourseModelsDEMAND/PreEx1/'
 model = "Model 0-01.mdb"
+db_path = "C:/Users/tbaer/Desktop/demo/"
+model = "1-Baseline_p70bp.mdb"
 full_filename = db_path+model
 constr = 'Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=%s;'  % full_filename
 connSource = pyodbc.connect(constr)
@@ -74,7 +78,7 @@ sqlCheck = "SELECT id FROM `tenant` WHERE `id`=?"
 sqlMax = "SELECT max(id) FROM `tenant`"
 if cursorLCM.execute(sqlCheck, (tID,)) != 1: # will return 1 if it exists, 0 if not
     sqlEnterTenant = '''INSERT INTO `tenant` (`id`, `name`, `create_user`, `create_timestamp`) VALUES (?, ?, ?, ?)'''
-    cursorLCM.execute(sqlEnterTenant, (tID, str('Tenant_'+str(tID)), 'user',datetime.datetime.now().isoformat()))
+    cursorLCM.execute(sqlEnterTenant, (tID, str('Tenant_'+str(tID)), 'user', datetime.datetime.now().isoformat()))
 else:
     cursorLCM.execute(sqlMax)
     maxID = cursorLCM.fetchone() + 1
@@ -97,7 +101,7 @@ cursorLCM.execute(sql, (sID,))
 if cursorLCM.rowcount == 0: # then create it, otherwise give an error
     sqlEnterSimulation = '''INSERT INTO `simulation` (`id`, `tenant_id`, `name`, `simulation_type_id`, `output_flag`, `baseline_flag`, `project_id`, `number_of_replications`, `start_date`, `end_time`,
     `interval_unit_id`, `create_user`, `create_timestamp`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'''
-    cursorLCM.execute(sqlEnterSimulation, (sID, tID, model.split('.')[0], 1, 1, 0, pID, 100, '2015-01-01', 315569520000, 14, 'user', datetime.datetime.now().isoformat()))
+    cursorLCM.execute(sqlEnterSimulation, (sID, tID, model.split('.')[0], 1, True, 0, pID, 100, '2015-01-01', 315569520000, 14, 'user', datetime.datetime.now().isoformat()))
 else:
     print 'no simulation - many errors coming '# return; # gives an error b/c not in function, deal with later
 
@@ -110,6 +114,7 @@ else:
 sqlUoM = '''INSERT INTO unit_of_measure (tenant_id, name, interval_unit_id, external_id, create_user, create_timestamp) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'''
 cursorLCM.execute(sqlUoM, (tID, 'Hours', 10, 1, cUser)) # for failures
 cursorLCM.execute(sqlUoM, (tID, 'Days', 9, 2, cUser)) # for repairs
+cursorLCM.execute(sqlUoM, (tID, 'Operating Hours', 10, 3, cUser)) # for operating hours (viewing failures in scenario editor)
 print "Done with Unit of Measure"
 ###################################### / END UNIT OF MEASURE
 
@@ -120,17 +125,17 @@ connSinkLCM.commit()
 
 ###################################### / BEGIN EVENT TYPE
 sqlET = '''INSERT INTO event_type (tenant_id, simulation_id, name, external_id, create_user, create_timestamp) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'''
-for aName in enumerate(('FAILURE','REPAIR','REPAIR_COMPLETE','PM','PM_COMPLETE','SHIPMENT','RELOCATE','INSTALLATION','INSTALLATION_COMPLETE','REMOVAL','REMOVAL_COMPLETE','ACQUISITION','CONDEMNATION','CONDEMNATION_COMPLETE','RETIREMENT','UDF','ACTIVATE','PASSIVATE','SPARE_REQUEST','SPARE_RESPONSE','REQUEST_CANCELLATION'),start=1): # distributions in alphabetical order
+for aName in enumerate(('Failure','Repair','Repair Complete','PM','PM Complete','Shipment','Relocate','Installation','Installation Complete','Removal','Removal Complete','Condemnation','Condemnation Complete','User Defined Function','Retirement','Activate','Passivate','Spare Request','Spare Response','Request Cancellation','Acquisition'),start=1): # 21 event types
     cursorINP.execute(sqlET, (tID, sID, aName[1], aName[0], cUser))
 print "Done with Event Type"
 ###################################### / END EVENT TYPE
 ###################################### / BEGIN EVENT
 # most event types only have one event, but we'll have to add a few more after looping through
 sqlE = '''INSERT INTO event (tenant_id, simulation_id, name, external_id, event_type_id, create_user, create_timestamp) SELECT ?, ?, ?, ?, et.id, ?, CURRENT_TIMESTAMP FROM event_type et WHERE et.tenant_id = ? and et.simulation_id = ? and et.external_id = ?'''
-for aName in enumerate(('FAILURE','REPAIR','REPAIR_COMPLETE','PM','PM_COMPLETE','SHIPMENT','RELOCATE','INSTALLATION','INSTALLATION_COMPLETE','REMOVAL','REMOVAL_COMPLETE','ACQUISITION','CONDEMNATION','CONDEMNATION_COMPLETE','RETIREMENT','UDF','ACTIVATE','PASSIVATE','SPARE_REQUEST','SPARE_AVAILABLE','REQUEST_CANCELLATION'),start=1): # distributions in alphabetical order
+for aName in enumerate(('Failure','Repair','Repair Complete','PM','PM Complete','Shipment','Relocate','Installation','Installation Complete','Removal','Removal Complete','Condemnation','Condemnation Complete','User Defined Function','Retiremnet','Activate','Passivate','Spare Request','Spare Available','Request Cancellation'),start=1): # 20 events here
     cursorINP.execute(sqlE, (tID, sID, aName[1], aName[0], cUser, tID, sID, aName[0]))
 # now add a few more
-cursorINP.execute(sqlE, (tID, sID, 'SPARE_UNAVAILABLE', 22, cUser, tID, sID, 20))  ### THIS IS BAD - HARDCODED !!! TODO: GET RID OF 
+cursorINP.execute(sqlE, (tID, sID, 'SPARE UNAVAILABLE', 21, cUser, tID, sID, 19))  ### THIS IS BAD - HARDCODED !!! TODO: GET RID OF 
 print "Done with Event"
 ###################################### / END EVENT
 
@@ -189,16 +194,9 @@ print "Done with Object Group"
 
 ###################################### / BEGIN OBJECT CLASS
 # Class comes from the class data table
-# create a temp table to store this for now
-#sqlTemp = '''CREATE TABLE input.tempObjectClass (ten integer, sim integer, ocEid integer, ogEid integer, name varchar(255), intname varchar(255))'''
-# drop table sqlDrop = '''DROP TABLE `input`.`tempobjectclass`;'''
-#cursorINP.execute(sqlTemp)
 # insert both assets and components
 sqlA = '''SELECT DISTINCT %s AS ten, %s AS sim, [*Class data].[object class] AS ocEid, 1 as ogEid, [*Class data].Name, [*Class data].Name AS intname FROM [*Class data] INNER JOIN [*Object type] ON [*Class data].[Object Class] = [*Object type].[Object class] WHERE ((([*Object type].[Ind level])=1))''' % (tID, sID) 
 sqlC = '''SELECT DISTINCT %s AS ten, %s AS sim, [*Class data].[object class] AS ocEid, 2 as ogEid, [*Class data].Name, [*Class data].Name AS intname FROM [*Class data] INNER JOIN [*Object type] ON [*Class data].[Object Class] = [*Object type].[Object class] WHERE ((([*Object type].[Ind level])<>1))'''  % (tID, sID)
-#sqlA = sqlA.format(tID,sID)
-#sqlC = sqlC.format(tID,sID) # replace tenant ID and simulation ID
-
 # first insert the assets, then the components
 curSource.execute(sqlA) # get the data
 classes=curSource.fetchall()
@@ -209,15 +207,7 @@ for row in classes:
     row.intname = row.intname.replace(' ','')
     # deposit the data
     cursorINP.execute(sqlAput, (tID,sID,row.ocEid, row.ogEid, row.Name, row.intname, cUser))
-  # then put the data in the real table
-# sqlA = '''INSERT INTO `object_class` (`tenant_id`, `simulation_id`, `external_id`, `name`, `internal_name`, `object_group_id`, `create_user`, `create_timestamp`) 
-# SELECT toc.ten, toc.sim, toc.ocEid, toc.name, toc.intname, og.id, 'user', CURRENT_TIMESTAMP from tempObjectClass toc, object_group og where og.simulation_id = %s and og.external_id = 1''' % sID
-# cursorINP.execute(sqlA)
-
 ## and repeat for components
-# clear out the temp table
-# sqlTemp = '''DELETE FROM input.tempObjectClass'''
-# cursorINP.execute(sqlTemp) 
 # get the pyodbc table
 curSource.execute(sqlC) 
 classes=curSource.fetchall()
@@ -281,8 +271,8 @@ print "Done with Object"
 ###################################### / BEGIN PROBABILITY CLASS
 # two of these so far - condemnation and nrts
 sqlPC = '''INSERT INTO probability_class (tenant_id, simulation_id, name, sum_of_one_flag, external_id, create_user, create_timestamp) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'''
-cursorINP.execute(sqlPC, (tID, sID, 'Maintenance_Unscheduled', 1, 1, cUser))
-cursorINP.execute(sqlPC, (tID, sID, 'Evacuation_Probability', 0, 2, cUser))
+cursorINP.execute(sqlPC, (tID, sID, 'Maintenance_Unscheduled', True, 1, cUser))
+cursorINP.execute(sqlPC, (tID, sID, 'Evacuation_Probability', False, 2, cUser))
 print "Done with Probabilty Class"
 ###################################### / END PROBABILITY CLASS
 ###################################### / BEGIN PROBABILITY TYPE
@@ -335,7 +325,7 @@ for aName in enumerate(('Fixed','Mean','Mean','Lower','Scale'),start=1): # distr
     cursorINP.execute(sqlDTP, (aName[1], 1, cUser, tID, sID, aName[0]))
 # enter second parameters manually
 cursorINP.execute(sqlDTP, ('Standard Deviation', 2 , cUser, tID, sID, 3))
-cursorINP.execute(sqlDTP, ('Lower', 2 , cUser, tID, sID, 4))
+cursorINP.execute(sqlDTP, ('Upper', 2 , cUser, tID, sID, 4))
 cursorINP.execute(sqlDTP, ('Shape', 2 , cUser, tID, sID, 5))
 print "Done with Distribution Type Parameter"
 ###################################### / END DISTRIBUTION TYPE PARAMETER
@@ -407,7 +397,7 @@ dexID = 1 # for the distribution number (row number)
 exID = 1 # for the parameter number (row number x 2-ish)
 for row in failureRates: 
     # first scale
-    cursorINP.execute(sqlFR, (tID, sID, exID, 1000/row.scale, cUser, tID, sID, dexID, 1)) # DEMAND model is in failures per thousand operating hours - we need hours between failure (need to also adjust for optempo)
+    cursorINP.execute(sqlFR, (tID, sID, exID, 1000/row.scale if row.scale>0 else 1e8, cUser, tID, sID, dexID, 1)) # DEMAND model is in failures per thousand operating hours - we need hours between failure (need to also adjust for optempo)
     exID += 1
     # now shape
     cursorINP.execute(sqlFR, (tID, sID, exID, row.shape, cUser, tID, sID, dexID, 2))
@@ -565,50 +555,52 @@ sqlS = '''UPDATE input.object o join input.storage s on s.location_id = o.locati
 cursorINP.execute(sqlS, (tID, sID))
 ###################################### / END STORAGE
  
+###################################### / BEGIN FUTURE INVENTORY
+# get data - only select the objects that are not originally in the simulation (with arrival time > 0)
+sqlS = '''SELECT oai.[object type] AS otEid, oai.sran AS lEid, Count(oai.id) AS num2acq, oai.[Arrival time ta] as ArrivalQtr FROM [*object attributes initial] AS oai
+WHERE (((oai.[Parent Pp])=0)) GROUP BY oai.[object type], oai.sran, oai.[parent pp], oai.[Arrival time ta] HAVING (((oai.[Arrival time ta])<>0))'''
+curSource.execute(sqlS)
+futureInventory = curSource.fetchall()
+# get analysis range
+sqlSY = '''SELECT [First year (>= 1999)] from [*Analysis Range]'''
+curSource.execute(sqlSY)
+startingFiscalYear = curSource.fetchone()[0]
+sqlSQ = '''SELECT [First quarter (1 - 4)] from [*Analysis Range]'''
+curSource.execute(sqlSQ)
+startingFiscalQtr = curSource.fetchone()[0]
+# insert events and event schedules
+SQLacquisitionID = '''SELECT id from input.event_type where name like "Acquisition" AND tenant_id = %s and simulation_id = %s''' % (tID,sID)
+cursorINP.execute(SQLacquisitionID)
+acquisitionEtId = cursorINP.fetchone()[0]
+sqlFIE = '''INSERT INTO input.event (tenant_id, simulation_id, external_id, name, event_type_id, create_user, create_timestamp) VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)'''
+sqlES = '''INSERT INTO input.event_schedule (tenant_id, simulation_id, external_id, name, timestamp_value, event_id, create_user, create_timestamp)
+SELECT ?, ?, ?, e.name, ?, e.id, ?, CURRENT_TIMESTAMP from input.event e where e.event_type_id = ? AND e.external_id = ? AND e.tenant_id = ? AND e.simulation_id = ?'''
+exID = 1
+for row in futureInventory:
+    Year = startingFiscalYear + math.floor((startingFiscalQtr + row.ArrivalQtr)/4)
+    Qtr = (startingFiscalQtr + row.ArrivalQtr) % 4 
+    cursorINP.execute(sqlFIE, (tID, sID, exID, str('Acquisition OT:' + str(row.otEid) + ' Loc:' + str(row.lEid) + ' Date:' + str(Year) + "Q" + str(Qtr)),acquisitionEtId, cUser))
+    cursorINP.execute(sqlES, (tID, sID, exID, str(str(int(Year))+'-'+str(1+((int(Qtr)-1)*3)).zfill(2)+'-01'), cUser, acquisitionEtId, exID, tID, sID)) 
+    exID += 1
+# insert properties
+
+# insert event_properties
+
+
+print "Done with Future Inventory"
+###################################### / END FUTURE INVENTORY
+
+###################################### / BEGIN OPTEMPO
+sqlFP = '''SELECT [Flying Program] from [*Analysis Control Panel]'''
+curSource.execute(sqlFP)
+FP = curSource.fetchone()
+###################################### / END OPTEMPO
+
+
+############################################################################ / BEGIN OUTPUT DATA ############################################################################ / BEGIN OUTPUT DATA
+############################################################################ / BEGIN OUTPUT DATA ############################################################################ / BEGIN OUTPUT DATA
+############################################################################ / BEGIN OUTPUT DATA ############################################################################ / BEGIN OUTPUT DATA
 
 
 connSinkLCM.commit()
 connSinkInput.commit()
-
-
-
-
-
-
-
-#     # connection is not autocommit by default. So you must commit to save
-#     # your changes.
-     
-
-#     with connSinkLCM.cursor() as cursor:
-#         # Read a single record
-#         sql = "SELECT `id`, `name` FROM `simulation` WHERE `id`=%s"
-#         cursor.execute(sql, ('1',))
-#         result = cursor.fetchone()
-#         print(result)
-# finally:
-#     connSinkLCM.close()
-
-# # simple example - enter in a new simulation into lcm
-# try:
-#     with connSinkLCM.cursor() as cursor:
-#         # Create a new record
-#         sql = '''INSERT INTO `simulation` (`id`, `tenant_id`, `name`, `simulation_type_id`, `output_flag`, `project_id`, `number_of_replications`, `start_date`,
-#             `interval_unit_id`, `create_user`, `create_timestamp`) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)'''
-#         cursor.execute(sql, (1, 4, 'testSim', 1, 0, 1, 100, '2015-01-01', 14, 'user',datetime.datetime.now().isoformat()))
-
-#     # connection is not autocommit by default. So you must commit to save
-#     # your changes.
-#     connSinkLCM.commit()
-
-#     with connSinkLCM.cursor() as cursor:
-#         # Read a single record
-#         sql = "SELECT `id`, `name` FROM `simulation` WHERE `id`=%s"
-#         cursor.execute(sql, ('1',))
-#         result = cursor.fetchone()
-#         print(result)
-# except IOError:
-
-# finally:
-#     connSinkLCM.close()
-
