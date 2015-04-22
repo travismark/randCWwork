@@ -21,17 +21,18 @@
 
 # Import your stuff
 import math
-import os
+import timeit # debug
 import datetime
 import pyodbc
 #import pymysql.cursors
 
 # Define a few variables
-sID = 1000 # simulation id
+sID = 1001 # simulation id
 tID = 1000 # tenant id
 pID = 2 # project id
 cUser = 'user' # default create_user
-IorD = 'insight' # insight (with failure rates defined in calendar time) or demo (with failure rates defined in operating hours)
+InsightOrDemand = 2 # insight, 1 (with failure rates defined in calendar time) or demo, 2 (with failure rates defined in operating hours)
+LocalOrWeb = 1 # local, 1 (localhost) or web, 2 (out on insight)
 numberOfReps = 100
 
 ### Define the database connections
@@ -46,31 +47,27 @@ connSource = pyodbc.connect(constr)
 curSource = connSource.cursor()
 
 # Now the Sink databases (FAST)
-localport = 3306 # 3307
-localuser = 'root'
-localpw = 'password' # ''
-# connSinkInput = pymysql.connect(host='localhost',
-# 							 port=localport,
-#                              user=localuser,
-#                              passwd=localpw,
-#                              db='input',
-#                              charset='utf8mb4',
-#                              cursorclass=pymysql.cursors.DictCursor)
-constr = 'DRIVER={MySQL ODBC 5.3 Unicode Driver};SERVER=localhost;PORT=%s;DATABASE=input;user=%s;Password=%s' % (localport,localuser,localpw) # this works, but I need to then change all the "%s" to ? in the sql strings
+# local or web
+if LocalOrWeb == 1:
+    aServer = 'localhost'
+    aPort = 3306
+    aUser = 'root'
+    aPW = 'password'
+else:
+    aServer = '10.100.1.229'  ### SET THIS TO YOUR FAVORITE WEB DB
+    aPort = 3306
+    aUser = 'csiuser'
+    aPW = 'LCMW!llMakeS0me'
+
+constr = 'DRIVER={MySQL ODBC 5.3 Unicode Driver};SERVER=%s;PORT=%s;DATABASE=input;user=%s;Password=%s' % (aServer,aPort,aUser,aPW)
 connSinkInput = pyodbc.connect(constr)
 cursorINP = connSinkInput.cursor()
-# connSinkLCM = pymysql.connect(host='localhost',
-# 							 port=localport,
-#                              user=localuser,
-#                              passwd=localpw,
-#                              db='lcm',
-#                              charset='utf8mb4',
-#                              cursorclass=pymysql.cursors.DictCursor)
-constr = 'DRIVER={MySQL ODBC 5.3 Unicode Driver};SERVER=localhost;PORT=%s;DATABASE=lcm;user=%s;Password=%s' % (localport,localuser,localpw) # this works, but I need to then change all the "%s" to ? in the sql strings
+
+constr = 'DRIVER={MySQL ODBC 5.3 Unicode Driver};SERVER=%s;PORT=%s;DATABASE=lcm;user=%s;Password=%s' % (aServer,aPort,aUser,aPW)
 connSinkLCM = pyodbc.connect(constr)
 cursorLCM = connSinkLCM.cursor() 
 
-constr = 'DRIVER={MySQL ODBC 5.3 Unicode Driver};SERVER=localhost;PORT=%s;DATABASE=lcm;user=%s;Password=%s' % (localport,localuser,localpw) # this works, but I need to then change all the "%s" to ? in the sql strings
+constr = 'DRIVER={MySQL ODBC 5.3 Unicode Driver};SERVER=%s;PORT=%s;DATABASE=output;user=%s;Password=%s' % (aServer,aPort,aUser,aPW)
 connSinkOut = pyodbc.connect(constr)
 cursorOUT = connSinkOut.cursor() 
 
@@ -111,12 +108,13 @@ totalSimMils = milsPerQ * dateInfo.NumQ
 
 # Assuming: user enters in a simulation id to build (vice just getting the next one)
 # Create a new simulation if it doesn't exist
+simTypeID = 1 if InsightOrDemand == 1 else 2 # set simulation_type_id to 1 (Insight) or 2 (DEMAND) 
 sql = "SELECT id FROM `simulation` WHERE `id`=?"
 cursorLCM.execute(sql, (sID,))
 if cursorLCM.rowcount == 0: # then create it, otherwise give an error
     sqlEnterSimulation = '''INSERT INTO `simulation` (`id`, `tenant_id`, `name`, `simulation_type_id`, `output_flag`, `baseline_flag`, `project_id`, `number_of_replications`, `start_date`, `end_time`,
     `interval_unit_id`, `create_user`, `create_timestamp`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'''
-    cursorLCM.execute(sqlEnterSimulation, (sID, tID, model.split('.')[0], 1, True, 0, pID, numberOfReps, dateInfo.Date.isoformat(), totalSimMils, 14, 'user', datetime.datetime.now().isoformat()))
+    cursorLCM.execute(sqlEnterSimulation, (sID, tID, model.split('.')[0], simTypeID, True, 0, pID, numberOfReps, dateInfo.Date.isoformat(), totalSimMils, 14, 'user', datetime.datetime.now().isoformat()))
 else:
     print 'no simulation - many errors coming '# return; # gives an error b/c not in function, deal with later
 
@@ -631,27 +629,72 @@ FP = curSource.fetchone()
 ############################################################################ / BEGIN OUTPUT DATA ############################################################################ / BEGIN OUTPUT DATA
 
 # Output data requires much some information from the LCM schema and much information from the INPUT schema.
+# First put data in the output.simulation table.
+###################################### / BEGIN SIMULATION
+sqlOS = '''INSERT INTO simulation (tenant_id, simulation_id, simulation_name, simulation_type_name) SELECT DISTINCT %s, %s, s.name, st.name FROM lcm.simulation s, lcm.simulation_type st WHERE s.id = %s AND st.id = %s ''' % (tID, sID, sID, simTypeID)
+cursorOUT.execute(sqlOS)
+###################################### / END SIMULATION
 ###################################### / BEGIN AVAILABILITY
 sqlDOAquarter = '''SELECT [*Weeks and Dates].Date, Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed]) AS avail, [out Availability].SRAN, [out Availability].Type
 FROM [out Availability] INNER JOIN [*Weeks and Dates] ON ([out Availability].Year = [*Weeks and Dates].Year) AND ([out Availability].Qtr = [*Weeks and Dates].Quarter)
 WHERE ((([*Weeks and Dates].Week)=1))
 GROUP BY [*Weeks and Dates].Date, [out Availability].Year, [out Availability].Qtr, [out Availability].SRAN, [out Availability].Type'''
-sqlDOAweek = '''SELECT [*Weeks and Dates].Date, Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed]) AS avail, [out Availability].SRAN, [out Availability].Type
+sqlDOAquarter = '''SELECT %s, %s, %s, %s, [*Weeks and Dates].Date, Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed])*100 AS avail, %s, %s, %s, [out Availability].SRAN, 
+[out Availability].Type FROM [out Availability] INNER JOIN [*Weeks and Dates] ON ([out Availability].Year = [*Weeks and Dates].Year) AND ([out Availability].Qtr = [*Weeks and Dates].Quarter) WHERE ((([*Weeks and Dates].Week)=1)) 
+GROUP BY [*Weeks and Dates].Date, [out Availability].Year, [out Availability].Qtr, [out Availability].SRAN, [out Availability].Type''' % (tID, sID, pID, qtr, pID, tID, qtr)
+sqlDOAweek = '''SELECT [*Weeks and Dates].Date, 
+Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed]) AS avail, [out Availability].SRAN, [out Availability].Type
 FROM [out Availability] INNER JOIN [*Weeks and Dates] ON ([*Weeks and Dates].Week = [out Availability].Week) AND ([out Availability].Qtr = [*Weeks and Dates].Quarter) AND ([out Availability].Year = [*Weeks and Dates].Year)
 GROUP BY [*Weeks and Dates].Date, [out Availability].SRAN, [out Availability].Type, [out Availability].Year, [out Availability].Qtr'''
 sqlFOA = '''INSERT INTO output.availability (tenant_id, simulation_id, project_name, project_id, asset, spare, interval_unit_id, interval_unit_name, timestamp, value, location_id, location_name, object_type_id, object_type_name)
-    SELECT ?, ?, pr.name, ?, 1, 0, iu.id, ?, ?, ?, l.id, l.name, ot.id, ot.name FROM lcm.project pr JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu WHERE pr.id = ? AND pr.tenant_id = ? AND iu.name like ?'''
+    SELECT ?, ?, pr.name, ?, 1, 0, iu.id, ?, ?, ?, l.id, l.name, ot.id, ot.name FROM lcm.project pr JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu WHERE pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND l.external_id = ? AND ot.external_id = ?'''
 curSource.execute(sqlDOAquarter)
-qtrAvail = curSource.fetchall() 
-qtr = "CALENDAR_QUARTER"
+qtrAvail = curSource.fetchall()
+qtr = ''' 'CALENDAR_QUARTER' '''
 curSource.execute(sqlDOAweek)
 wkyAvail = curSource.fetchall()
 wky = "CALENDAR_WEEK"
 # now load data
+# create temp list (of lists)
+qtrAvailAll = [[]]
+rownum = 0
 for row in qtrAvail:
-    cursorOUT.execute(sqlFOA, (tID, sID, pID, qtr, row.Date.isoformat(), row.avail, pID, tID, qtr))
+    for col in [tID, sID, pID, qtr, row.Date.isoformat(), row.avail*100, pID, tID, qtr, row.SRAN, row.Type]: # avail in Insight expects a value between 0 and 100
+        qtrAvailAll[rownum].append(col)
+    qtrAvailAll.append([])
+    rownum += 1
+qtrAvailAll.pop()
+cursorOUT.executemany(sqlFOA, qtrAvailAll)
 
+
+
+for row in wkyAvail:
+    cursorOUT.execute(sqlFOA, (tID, sID, pID, wky, row.Date.isoformat(), row.avail*100, pID, tID, wky, row.SRAN, row.Type))
+print 'Done with Output Availability'
 ###################################### / END AVAILABILITY
+###################################### / BEGIN COMPONENT EVENTS
+# first do LRU events (ASSUMES ONLY ONE EVENT OF TYPE FAILURE CALLED FAILURE - SINGLE FAILURE MODE)
+eventNameMatch = 'Failure'
+sqlDOLruEv = '''SELECT [out LRU events].[SRAN ID] as SRAN, [out LRU events].[Engine type] as Type, [*Weeks and Dates].Date, [out LRU events].UER, [out LRU events].[Life limits] as LL
+FROM [out LRU events] INNER JOIN [*Weeks and Dates] ON ([out LRU events].Year = [*Weeks and Dates].Year) AND ([out LRU events].Qtr = [*Weeks and Dates].Quarter)
+WHERE ((([*Weeks and Dates].Week)=1))'''
+curSource.execute(sqlDOLruEv)
+failures = curSource.fetchall()
+sqlFOLruEv = '''INSERT INTO output.component_events (tenant_id, simulation_id, project_name, project_id, event_id, event_name, event_type_id, event_type_name, interval_unit_id, interval_unit_name, timestamp, value, location_id, location_name, object_type_id, object_type_name)
+    SELECT ?, ?, pr.name, ?, e.id, e.name, et.id, et.name, iu.id, ?, ?, ?, l.id, l.name, ot.id, ot.name FROM input.event e JOIN input.event_type et on et.id = e.event_type_id JOIN lcm.project pr ON e.tenant_id = pr.tenant_id JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu WHERE et.tenant_id = ? and et.simulation_id = ? AND pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND l.external_id = ? AND ot.external_id = ? AND e.name = ?'''
+for row in failures:
+    cursorOUT.execute(sqlFOLruEv, (tID, sID, pID, qtr, row.Date.isoformat(), row.UER, tID, sID, pID, tID, qtr, row.SRAN, row.Type, eventNameMatch)) # avail in Insight expects a value between 0 and 100
+
+###################################### / END COMPONENT EVENTS
+
+###################################### / BEGIN SPARE QUANTITY
+sqlDSpQtr = '''SELECT [*Weeks and Dates].Date, [out Uninstalled-Serviceable items].[Object type] AS Type, [out Uninstalled-Serviceable items].[SRAN ID] AS SRAN, [out Uninstalled-Serviceable items].Serviceables
+FROM [out Uninstalled-Serviceable items] INNER JOIN [*Weeks and Dates] ON ([out Uninstalled-Serviceable items].Qtr = [*Weeks and Dates].Quarter) AND ([out Uninstalled-Serviceable items].Year = [*Weeks and Dates].Year) AND ([out Uninstalled-Serviceable items].Week = [*Weeks and Dates].Week)
+WHERE ((([*Weeks and Dates].Week)=1))'''
+sqlDSpWeek = '''SELECT [*Weeks and Dates].Date, [out Uninstalled-Serviceable items].[Object type] AS Type, [out Uninstalled-Serviceable items].[SRAN ID] AS SRAN, [out Uninstalled-Serviceable items].Serviceables
+FROM [out Uninstalled-Serviceable items] INNER JOIN [*Weeks and Dates] ON ([out Uninstalled-Serviceable items].Week = [*Weeks and Dates].Week) AND ([out Uninstalled-Serviceable items].Year = [*Weeks and Dates].Year) AND ([out Uninstalled-Serviceable items].Qtr = [*Weeks and Dates].Quarter)'''
+###################################### / END SPARE QUANTITY
 
 connSinkLCM.commit()
 connSinkInput.commit()
+connSinkOut.commit()
