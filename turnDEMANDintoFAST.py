@@ -32,6 +32,7 @@ tID = 1000 # tenant id
 pID = 2 # project id
 cUser = 'user' # default create_user
 IorD = 'insight' # insight (with failure rates defined in calendar time) or demo (with failure rates defined in operating hours)
+numberOfReps = 100
 
 ### Define the database connections
 # First the Source database (DEMAND Pro)
@@ -69,6 +70,10 @@ constr = 'DRIVER={MySQL ODBC 5.3 Unicode Driver};SERVER=localhost;PORT=%s;DATABA
 connSinkLCM = pyodbc.connect(constr)
 cursorLCM = connSinkLCM.cursor() 
 
+constr = 'DRIVER={MySQL ODBC 5.3 Unicode Driver};SERVER=localhost;PORT=%s;DATABASE=lcm;user=%s;Password=%s' % (localport,localuser,localpw) # this works, but I need to then change all the "%s" to ? in the sql strings
+connSinkOut = pyodbc.connect(constr)
+cursorOUT = connSinkOut.cursor() 
+
 
 ################################################################
 ################################################################ CONFIRM THREE IDS
@@ -93,6 +98,16 @@ if cursorLCM.execute(sql, (pID,)) != 1: # then create it
     cursorLCM.execute(sqlEnterProject, (pID, tID, str('Project_'+str(tID)), pID, 0, 'user', datetime.datetime.now().isoformat()))
 # otherwise do nothing - we'll use this project
 
+# get analysis range from DEMAND 
+sqlDates = '''SELECT [*Weeks and Dates].Year, [*Weeks and Dates].Quarter, [*Weeks and Dates].Date, [*Analysis Range].[Amount of quarters] as NumQ
+FROM [*Analysis Range] INNER JOIN [*Weeks and Dates] ON ([*Analysis Range].[First year (>= 1999)] = [*Weeks and Dates].Year) AND ([*Analysis Range].[First quarter (1 - 4)] = [*Weeks and Dates].Quarter)
+WHERE ((([*Weeks and Dates].Week)=1))'''
+curSource.execute(sqlDates)
+dateInfo = curSource.fetchone()
+sqlMSperQtr = '''SELECT milliseconds FROM lcm.interval_unit WHERE name LIKE "Quarter"'''
+cursorLCM.execute(sqlMSperQtr)
+milsPerQ = cursorLCM.fetchone()[0]
+totalSimMils = milsPerQ * dateInfo.NumQ
 
 # Assuming: user enters in a simulation id to build (vice just getting the next one)
 # Create a new simulation if it doesn't exist
@@ -101,7 +116,7 @@ cursorLCM.execute(sql, (sID,))
 if cursorLCM.rowcount == 0: # then create it, otherwise give an error
     sqlEnterSimulation = '''INSERT INTO `simulation` (`id`, `tenant_id`, `name`, `simulation_type_id`, `output_flag`, `baseline_flag`, `project_id`, `number_of_replications`, `start_date`, `end_time`,
     `interval_unit_id`, `create_user`, `create_timestamp`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'''
-    cursorLCM.execute(sqlEnterSimulation, (sID, tID, model.split('.')[0], 1, True, 0, pID, 100, '2015-01-01', 315569520000, 14, 'user', datetime.datetime.now().isoformat()))
+    cursorLCM.execute(sqlEnterSimulation, (sID, tID, model.split('.')[0], 1, True, 0, pID, numberOfReps, dateInfo.Date.isoformat(), totalSimMils, 14, 'user', datetime.datetime.now().isoformat()))
 else:
     print 'no simulation - many errors coming '# return; # gives an error b/c not in function, deal with later
 
@@ -112,9 +127,13 @@ else:
 
 ###################################### / BEGIN UNIT OF MEASURE
 sqlUoM = '''INSERT INTO unit_of_measure (tenant_id, name, interval_unit_id, external_id, create_user, create_timestamp) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'''
+sqlUoMnoIU = '''INSERT INTO unit_of_measure (tenant_id, name, external_id, create_user, create_timestamp) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)'''
 cursorLCM.execute(sqlUoM, (tID, 'Hours', 10, 1, cUser)) # for failures
 cursorLCM.execute(sqlUoM, (tID, 'Days', 9, 2, cUser)) # for repairs
 cursorLCM.execute(sqlUoM, (tID, 'Operating Hours', 10, 3, cUser)) # for operating hours (viewing failures in scenario editor)
+cursorLCM.execute(sqlUoMnoIU, (tID, 'Each', 4, cUser)) # for Future Inventory
+cursorLCM.execute(sqlUoMnoIU, (tID, 'Integer', 5, cUser)) # for Future Inventory
+
 print "Done with Unit of Measure"
 ###################################### / END UNIT OF MEASURE
 
@@ -132,10 +151,10 @@ print "Done with Event Type"
 ###################################### / BEGIN EVENT
 # most event types only have one event, but we'll have to add a few more after looping through
 sqlE = '''INSERT INTO event (tenant_id, simulation_id, name, external_id, event_type_id, create_user, create_timestamp) SELECT ?, ?, ?, ?, et.id, ?, CURRENT_TIMESTAMP FROM event_type et WHERE et.tenant_id = ? and et.simulation_id = ? and et.external_id = ?'''
-for aName in enumerate(('Failure','Repair','Repair Complete','PM','PM Complete','Shipment','Relocate','Installation','Installation Complete','Removal','Removal Complete','Condemnation','Condemnation Complete','User Defined Function','Retiremnet','Activate','Passivate','Spare Request','Spare Available','Request Cancellation'),start=1): # 20 events here
+for aName in enumerate(('Failure','Repair','Repair Complete','PM','PM Complete','Shipment','Relocate','Installation','Installation Complete','Removal','Removal Complete','Condemnation','Condemnation Complete','User Defined Function','Retiremnet','Activate','Passivate','Spare Request','Spare Available','Request Cancellation','Acquisition'),start=1): # 20 events here
     cursorINP.execute(sqlE, (tID, sID, aName[1], aName[0], cUser, tID, sID, aName[0]))
 # now add a few more
-cursorINP.execute(sqlE, (tID, sID, 'SPARE UNAVAILABLE', 21, cUser, tID, sID, 19))  ### THIS IS BAD - HARDCODED !!! TODO: GET RID OF 
+cursorINP.execute(sqlE, (tID, sID, 'SPARE UNAVAILABLE', 22, cUser, tID, sID, 19))  ### THIS IS BAD - HARDCODED !!! TODO: GET RID OF 
 print "Done with Event"
 ###################################### / END EVENT
 
@@ -551,14 +570,14 @@ select ?, ?, l.name, l.internal_name, l.id, l.external_id, st.id, 0, ?, current_
 cursorINP.execute(sqlS, (tID, sID, cUser, 1, tID, sID))
 print "Done with Storage"
 # Add spares to storages
-sqlS = '''UPDATE input.object o join input.storage s on s.location_id = o.location_id set o.storage_id = s.id where o.parent_object_id is null and asset = 0 and tenant_id = ? and simulation_id = ?'''
+sqlS = '''UPDATE input.object o join input.storage s on s.location_id = o.location_id set o.storage_id = s.id where o.parent_object_id is null and asset = 0 and s.tenant_id = ? and s.simulation_id = ?'''
 cursorINP.execute(sqlS, (tID, sID))
 ###################################### / END STORAGE
  
-###################################### / BEGIN FUTURE INVENTORY
+###################################### / BEGIN FUTURE INVENTORY 
 # get data - only select the objects that are not originally in the simulation (with arrival time > 0)
-sqlS = '''SELECT oai.[object type] AS otEid, oai.sran AS lEid, Count(oai.id) AS num2acq, oai.[Arrival time ta] as ArrivalQtr FROM [*object attributes initial] AS oai
-WHERE (((oai.[Parent Pp])=0)) GROUP BY oai.[object type], oai.sran, oai.[parent pp], oai.[Arrival time ta] HAVING (((oai.[Arrival time ta])<>0))'''
+sqlS = '''SELECT oai.[object type] AS otEid, oai.sran AS lEid, Count(oai.id) AS num2acq, oai.[Arrival time ta] as ArrivalYear FROM [*object attributes initial] AS oai
+WHERE (((oai.[Parent Pp])=0)) GROUP BY oai.[object type], oai.sran, oai.[Arrival time ta] HAVING (((oai.[Arrival time ta])<>0))'''
 curSource.execute(sqlS)
 futureInventory = curSource.fetchall()
 # get analysis range
@@ -568,25 +587,36 @@ startingFiscalYear = curSource.fetchone()[0]
 sqlSQ = '''SELECT [First quarter (1 - 4)] from [*Analysis Range]'''
 curSource.execute(sqlSQ)
 startingFiscalQtr = curSource.fetchone()[0]
-# insert events and event schedules
+# insert properties
+sqlProp = '''INSERT INTO property (tenant_id, simulation_id, name, unit_of_measure_id, external_id, create_user, create_timestamp) SELECT ?, ?, ?, uom.id, ?, ?, CURRENT_TIMESTAMP FROM lcm.unit_of_measure uom WHERE uom.tenant_id = ? AND uom.external_id = ?'''
+cursorINP.execute(sqlProp, (tID, sID, 'Object Type Internal Name', 1, cUser, tID, 4))
+cursorINP.execute(sqlProp, (tID, sID, 'Number to Acquire', 2, cUser, tID, 5))
+# insert events and event schedules and properties
 SQLacquisitionID = '''SELECT id from input.event_type where name like "Acquisition" AND tenant_id = %s and simulation_id = %s''' % (tID,sID)
 cursorINP.execute(SQLacquisitionID)
 acquisitionEtId = cursorINP.fetchone()[0]
+# save off the previous acquisition event's external id to replace later
+sqlExID = '''SELECT external_id from input.event WHERE tenant_id = %s AND simulation_id = %s AND event_type_id = %s''' % (tID, sID, acquisitionEtId)
+cursorINP.execute(sqlExID)
+oldAcqExID = cursorINP.fetchone()[0]
+sqlExID = '''UPDATE input.event SET external_id = 0 WHERE tenant_id = %s AND simulation_id = %s AND event_type_id = %s''' % (tID, sID, acquisitionEtId)
+cursorINP.execute(sqlExID)
 sqlFIE = '''INSERT INTO input.event (tenant_id, simulation_id, external_id, name, event_type_id, create_user, create_timestamp) VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)'''
 sqlES = '''INSERT INTO input.event_schedule (tenant_id, simulation_id, external_id, name, timestamp_value, event_id, create_user, create_timestamp)
-SELECT ?, ?, ?, e.name, ?, e.id, ?, CURRENT_TIMESTAMP from input.event e where e.event_type_id = ? AND e.external_id = ? AND e.tenant_id = ? AND e.simulation_id = ?'''
+    SELECT ?, ?, ?, e.name, ?, e.id, ?, CURRENT_TIMESTAMP FROM input.event e WHERE e.event_type_id = ? AND e.external_id = ? AND e.tenant_id = ? AND e.simulation_id = ?'''
+sqlEP1 = '''INSERT INTO input.event_property (tenant_id, simulation_id, external_id, event_id, property_id, property_value, create_user, create_timestamp)
+    SELECT ?, ?, ?, e.id, p.id, ot.internal_name, ?, CURRENT_TIMESTAMP FROM input.event e JOIN input.property p on e.simulation_id = p.simulation_id JOIN input.object_type ot on ot.simulation_id = e.simulation_id WHERE e.event_type_id = ? AND e.external_id = ? AND e.tenant_id = ? AND e.simulation_id = ? AND p.external_id = ? AND ot.external_id = ?'''
+sqlEP2 = '''INSERT INTO input.event_property (tenant_id, simulation_id, external_id, event_id, property_id, property_value, create_user, create_timestamp)
+    SELECT ?, ?, ?, e.id, p.id, ?, ?, CURRENT_TIMESTAMP FROM input.event e JOIN input.property p on e.simulation_id = p.simulation_id JOIN input.object_type ot on ot.simulation_id = e.simulation_id WHERE e.event_type_id = ? AND e.external_id = ? AND e.tenant_id = ? AND e.simulation_id = ? AND p.external_id = ? AND ot.external_id = ?'''
 exID = 1
 for row in futureInventory:
-    Year = startingFiscalYear + math.floor((startingFiscalQtr + row.ArrivalQtr)/4)
-    Qtr = (startingFiscalQtr + row.ArrivalQtr) % 4 
-    cursorINP.execute(sqlFIE, (tID, sID, exID, str('Acquisition OT:' + str(row.otEid) + ' Loc:' + str(row.lEid) + ' Date:' + str(Year) + "Q" + str(Qtr)),acquisitionEtId, cUser))
+    Year = startingFiscalYear + row.ArrivalYear + math.floor(((row.ArrivalYear % 1) + startingFiscalQtr)/4)
+    Qtr = (startingFiscalQtr + (row.ArrivalYear % 1) ) % 4
+    cursorINP.execute(sqlFIE, (tID, sID, exID, str('Acquisition OT:' + str(row.otEid) + ' Loc:' + str(row.lEid) + ' Date:' + str(int(Year)) + "Q" + str(int(Qtr))),acquisitionEtId, cUser))
     cursorINP.execute(sqlES, (tID, sID, exID, str(str(int(Year))+'-'+str(1+((int(Qtr)-1)*3)).zfill(2)+'-01'), cUser, acquisitionEtId, exID, tID, sID)) 
+    cursorINP.execute(sqlEP1, (tID, sID, exID, cUser, acquisitionEtId, exID, tID, sID, 1, row.otEid))
+    cursorINP.execute(sqlEP2, (tID, sID, exID, int(row.num2acq), cUser, acquisitionEtId, exID, tID, sID, 2, row.otEid))
     exID += 1
-# insert properties
-
-# insert event_properties
-
-
 print "Done with Future Inventory"
 ###################################### / END FUTURE INVENTORY
 
@@ -596,11 +626,32 @@ curSource.execute(sqlFP)
 FP = curSource.fetchone()
 ###################################### / END OPTEMPO
 
-
 ############################################################################ / BEGIN OUTPUT DATA ############################################################################ / BEGIN OUTPUT DATA
 ############################################################################ / BEGIN OUTPUT DATA ############################################################################ / BEGIN OUTPUT DATA
 ############################################################################ / BEGIN OUTPUT DATA ############################################################################ / BEGIN OUTPUT DATA
 
+# Output data requires much some information from the LCM schema and much information from the INPUT schema.
+###################################### / BEGIN AVAILABILITY
+sqlDOAquarter = '''SELECT [*Weeks and Dates].Date, Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed]) AS avail, [out Availability].SRAN, [out Availability].Type
+FROM [out Availability] INNER JOIN [*Weeks and Dates] ON ([out Availability].Year = [*Weeks and Dates].Year) AND ([out Availability].Qtr = [*Weeks and Dates].Quarter)
+WHERE ((([*Weeks and Dates].Week)=1))
+GROUP BY [*Weeks and Dates].Date, [out Availability].Year, [out Availability].Qtr, [out Availability].SRAN, [out Availability].Type'''
+sqlDOAweek = '''SELECT [*Weeks and Dates].Date, Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed]) AS avail, [out Availability].SRAN, [out Availability].Type
+FROM [out Availability] INNER JOIN [*Weeks and Dates] ON ([*Weeks and Dates].Week = [out Availability].Week) AND ([out Availability].Qtr = [*Weeks and Dates].Quarter) AND ([out Availability].Year = [*Weeks and Dates].Year)
+GROUP BY [*Weeks and Dates].Date, [out Availability].SRAN, [out Availability].Type, [out Availability].Year, [out Availability].Qtr'''
+sqlFOA = '''INSERT INTO output.availability (tenant_id, simulation_id, project_name, project_id, asset, spare, interval_unit_id, interval_unit_name, timestamp, value, location_id, location_name, object_type_id, object_type_name)
+    SELECT ?, ?, pr.name, ?, 1, 0, iu.id, ?, ?, ?, l.id, l.name, ot.id, ot.name FROM lcm.project pr JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu WHERE pr.id = ? AND pr.tenant_id = ? AND iu.name like ?'''
+curSource.execute(sqlDOAquarter)
+qtrAvail = curSource.fetchall() 
+qtr = "CALENDAR_QUARTER"
+curSource.execute(sqlDOAweek)
+wkyAvail = curSource.fetchall()
+wky = "CALENDAR_WEEK"
+# now load data
+for row in qtrAvail:
+    cursorOUT.execute(sqlFOA, (tID, sID, pID, qtr, row.Date.isoformat(), row.avail, pID, tID, qtr))
+
+###################################### / END AVAILABILITY
 
 connSinkLCM.commit()
 connSinkInput.commit()

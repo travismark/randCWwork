@@ -23,10 +23,10 @@ simid = 100 # 1000
    #> select "MySQL ODBC 5.3 Unicode Driver"
    #> give connection a name, server-localhost; enter password, specify output schema 
 cnF <- odbcConnect(dsn="Local3306output",uid="root",pw="password") # 3306
-cnF <- odbcConnect(dsn="Local3307output",uid="root",pw="") # 3307
+#cnF <- odbcConnect(dsn="Local3307output",uid="root",pw="") # 3307
 sqlTables(cnF)
 # a big query - avail <- sqlFetch(cn, "availability")
-avgAssetAvailFQ <- sqlQuery(cnF, paste0("SELECT timestamp, avg(value) as avail FROM
+avgAssetAvailFQ <- sqlQuery(cnF, paste0("SELECT timestamp as Date, avg(value) as avail FROM
                           availability WHERE asset = 1 and interval_unit_name like 'CALENDAR_QUARTER' and simulation_id = ",simid," GROUP BY timestamp"))
 plot(avgAssetAvailFQ, type = "l")
 
@@ -52,9 +52,9 @@ plot(avgAssetAvail, type = "l")
 
 ## from DEMAND Pro
 aPath<-"P:/Internal Projects/Data Scientist Team/InsightLCM/Testing/FAST/DEMAND Pro Basic Training/BasicCourseModelsDEMAND/PreEx1/"
-aPath<-"C:/Users/tbaer/Desktop/"
+#aPath<-"C:/Users/tbaer/Desktop/"
 cnD <- odbcConnectAccess2007(access.file=paste0(aPath,"Model 0-01.mdb"))
-cnD <- odbcConnectAccess2007(access.file=paste0(aPath,"test.mdb"))
+#cnD <- odbcConnectAccess2007(access.file=paste0(aPath,"test.mdb"))
 sqlTables(cnD)
 # this query converts the year and quarter to a timestamp using weeks and dates table
 avgAssetAvailDQ <- sqlQuery(cnD, "SELECT [*Weeks and Dates].Date, Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed]) AS avail
@@ -65,6 +65,6 @@ plot(avgAssetAvailDQ, type = "l")
 
 
 ## Now plot both
-plot(x=as.Date(avgAssetAvailDQ$Date)+365*8+91.25,y=avgAssetAvailDQ$avail, type = "l") # started in FY2007 Q1
-lines(x=as.Date(avgAssetAvailFQ$timestamp),y=avgAssetAvailFQ$avail/100, col="Red")
-legend()
+plot(x=avgAssetAvailDQ$Date,y=avgAssetAvailDQ$avail, type = "l",xlab="Date",ylab="Asset Avail") # started in FY2007 Q1
+lines(x=avgAssetAvailFQ$Date,y=avgAssetAvailFQ$avail/100, col="Red")
+legend(x="topright",legend=c("DEMAND","FAST"),fill=c("Black","Red"))
