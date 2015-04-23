@@ -381,9 +381,6 @@ for row in failureRates:
         cursorINP.execute(sqlFR, (tID, sID, exID, tempName, failureUOM, cUser, tID, sID, weibullExID))
         exID += 1
 # now repair distributions ############# TBD TBD TBD ##########################  - I SKIPPED REPAIRS AND THEIR DISTRIBUTION_PARAMETERS FOR ONLINE DEMO MODEL
-#################################
-# REPAR DISTRIBUTION SOURCE QUERY ISN'T WORKING NOW ##################################
-#################################
 
 # lcm.unit_of_measure is in a different database, so I'll have to query it separately -- THIS IS NOT TRUE - YOU CAN QUERY ANY SCHEMA
 cursorLCM.execute('SELECT id from lcm.unit_of_measure where external_id = 2 and tenant_id = %s' % tID ) # hard coded
@@ -482,99 +479,59 @@ for row in repairDists:
 ###################################### / BEGIN STRUCTURE
 # FROM JESSICA W
 # parent structures (objects with at least one child)
-sqlPS ='''insert into input.structure 
-        ( name
-        , internal_name
-        , minimum_count
-        , object_id
-        , tenant_id
-        , simulation_id
-        , create_user
-        , create_timestamp
-        )
-    select concat(obj.name,' Parent')
-        , concat(obj.internal_name,'Parent')
-        , 0
-        , obj.id
-        , %s
-        , %s
-        , '%s'
-        , CURRENT_TIMESTAMP
-    from input.object obj
+sqlPS ='''INSERT into input.structure 
+        ( name, internal_name, minimum_count, object_id, tenant_id
+        , simulation_id, create_user, create_timestamp)
+    SELECT concat(obj.name,' Parent'), concat(obj.internal_name,'Parent')
+        , 0, obj.id, %s, %s, '%s', CURRENT_TIMESTAMP 
+    FROM input.object obj
     where obj.id in (
         select distinct(parent_object_id) from input.object
         where tenant_id=%s and simulation_id=%s
         and parent_object_id is not null
-        )
-;''' % (tID, sID, cUser, tID, sID)
+        )''' % (tID, sID, cUser, tID, sID)
 cursorINP.execute(sqlPS)
 
 # min_count
-sqlMC='''update input.structure s
-    join (
-        select str.id
-            , count(obj.id) n 
-        from input.structure str 
-        join input.object obj 
+sqlMC='''UPDATE input.structure s
+    JOIN (
+        SELECT str.id, count(obj.id) n 
+        FROM input.structure str 
+        JOIN input.object obj 
         on str.object_id=obj.parent_object_id 
-        where str.tenant_id=%s and str.simulation_id=%s
-        group by str.object_id
+        WHERE str.tenant_id=%s AND str.simulation_id=%s
+        GROUP BY str.object_id
         ) num
     on s.id=num.id
-    set s.minimum_count = num.n
-    where s.tenant_id=%s and s.simulation_id=%s
-;''' % (tID, sID, tID, sID)
+    SET s.minimum_count = num.n
+    WHERE s.tenant_id=%s AND s.simulation_id=%s''' % (tID, sID, tID, sID)
 cursorINP.execute(sqlMC)
 
 #child structures
-sqlCS='''insert into input.structure
-        ( name
-        , internal_name
-        , minimum_count
-        , parent_structure_id
-        , tenant_id
-        , simulation_id
-        , create_user
-        , create_timestamp
-        )
-    select concat(obj.name,' Child')
-        , concat(obj.internal_name,'Child')
-        , 1
-        , str.id
-        , %s
-        , %s
-        , '%s'
-        , CURRENT_TIMESTAMP
-    from input.object obj
-    join input.structure str
+sqlCS='''INSERT INTO input.structure
+        ( name, internal_name, minimum_count, parent_structure_id
+        , tenant_id, simulation_id, create_user, create_timestamp)
+    SELECT concat(obj.name,' Child'), concat(obj.internal_name,'Child')
+        , 1, str.id, %s, %s, '%s', CURRENT_TIMESTAMP
+    FROM input.object obj
+    JOIN input.structure str
     on str.object_id = obj.parent_object_id
-    where str.tenant_id=%s and str.simulation_id=%s
-;''' % (tID, sID, cUser, tID, sID)
+    WHERE str.tenant_id=%s AND str.simulation_id=%s''' % (tID, sID, cUser, tID, sID)
 cursorINP.execute(sqlCS)
 
 #structure_object - connect children objects to their children (not top-level objects, e.g. assets)
 # the structures of interest are child structures whose names end with ' Child'
-sqlSO='''insert into input.structure_object
-        ( object_id
-        , structure_id
-        , tenant_id
-        , simulation_id
-        , create_user
-        , create_timestamp
-        )
-    select o.id
-        , s.id
-        , %s
-        , %s
-        , '%s'
-        , CURRENT_TIMESTAMP 
-    from input.object o 
-    join input.structure s 
+sqlSO='''INSERT INTO input.structure_object
+        ( object_id, structure_id, tenant_id
+        , simulation_id, create_user, create_timestamp)
+    SELECT o.id, s.id, %s, %s, '%s', CURRENT_TIMESTAMP 
+    FROM input.object o 
+    JOIN input.structure s 
     on left(s.name,length(s.name)-6)=o.name 
-    where s.object_id is null 
-    and o.parent_object_id is not null 
-    and right(s.name,5) = 'Child'
-    and s.tenant_id=%s and s.simulation_id=%s;''' % (tID, sID, cUser, tID, sID)
+    WHERE s.object_id is null 
+    AND o.parent_object_id is not null 
+    AND right(s.name,5) = 'Child'
+    AND s.tenant_id=%s and s.simulation_id=%s;''' % (tID, sID, cUser, tID, sID)
 cursorINP.execute(sqlSO)
 print 'Done with Structure and Structure_Object'
 ###################################### / END STRUCTURE
@@ -624,6 +581,7 @@ cursorINP.execute(sqlExID)
 oldAcqExID = cursorINP.fetchone()[0]
 sqlExID = '''UPDATE input.event SET external_id = 0 WHERE tenant_id = %s AND simulation_id = %s AND event_type_id = %s''' % (tID, sID, acquisitionEtId)
 cursorINP.execute(sqlExID)
+# can't do an executemany (yet) because the many tables have to reference eachother by external_id - probably a way to simplify it (create the integer steps first and then update python rows?)
 sqlFIE = '''INSERT INTO input.event (tenant_id, simulation_id, external_id, name, event_type_id, create_user, create_timestamp) VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)'''
 sqlES = '''INSERT INTO input.event_schedule (tenant_id, simulation_id, external_id, name, timestamp_value, event_id, create_user, create_timestamp)
     SELECT ?, ?, ?, e.name, ?, e.id, ?, CURRENT_TIMESTAMP FROM input.event e WHERE e.event_type_id = ? AND e.external_id = ? AND e.tenant_id = ? AND e.simulation_id = ?'''
@@ -651,6 +609,16 @@ sqlFP = '''SELECT [Flying Program] from [*Analysis Control Panel]'''
 curSource.execute(sqlFP)
 FP = curSource.fetchone()
 ###################################### / END OPTEMPO
+
+###################################### / BEGIN ROUTE
+sqlDRoute = '''SELECT %s, %s, '%s', [*Base Structure].[From Base], [*Base Structure].[To Base], %s, %s FROM [*Base Structure]''' % (tID, sID, cUser, tID, sID)
+curSource.execute(sqlDRoute)
+routes = curSource.fetchall()
+SQLFRoute = '''INSERT INTO input.route (tenant_id, simulation_id, from_location_id, to_location_id, create_user, create_timestamp) 
+SELECT ?, ?, l1.id, l2.id, ?, CURRENT_TIMESTAMP FROM location l1 JOIN l2 on l1.simulation_id = l2.simulation_id WHERE l1.external_id = ? AND l2.external_id = ? AND l1.tenant_id = ? AND l1.simulation_id = ?'''
+cursorINP.executemany(SQLFRoute, routes)
+print 'Done with Route'
+###################################### / END ROUTE
 
 ############################################################################ / BEGIN OUTPUT DATA ############################################################################ / BEGIN OUTPUT DATA
 ############################################################################ / BEGIN OUTPUT DATA ############################################################################ / BEGIN OUTPUT DATA
@@ -743,38 +711,77 @@ failures = curSource.fetchall()
 sqlFOLruEv = '''INSERT INTO output.component_events (tenant_id, simulation_id, project_name, project_id, event_id, event_name, event_type_id, event_type_name, interval_unit_id, interval_unit_name, timestamp, value, location_id, location_name, object_type_id, object_type_name)
     SELECT ?, ?, pr.name, ?, e.id, e.name, et.id, et.name, iu.id, ?, ?, ?, l.id, l.name, ot.id, ot.name FROM input.event e JOIN input.event_type et on et.id = e.event_type_id JOIN lcm.project pr ON e.tenant_id = pr.tenant_id JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu WHERE et.tenant_id = ? and et.simulation_id = ? AND pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND l.external_id = ? AND ot.external_id = ? AND e.name = ?'''
 cursorOUT.executemany(sqlFOLruEv, failures)
-# for row in failures:
-#     cursorOUT.execute(sqlFOLruEv, (tID, sID, pID, qtr, row.Date.isoformat(), row.UER, tID, sID, pID, tID, qtr, row.SRAN, row.Type, eventNameMatch)) # avail in Insight expects a value between 0 and 100
 
 sqlMoreCEInfo = '''UPDATE output.component_events a
-        JOIN
-    input.object_type ot ON ot.id = a.object_type_id
-        JOIN
-    input.object_class oc ON oc.id = ot.object_class_id
-        JOIN
-    input.object_group og ON og.id = oc.object_group_id
-        JOIN
-    input.location l ON l.id = a.location_id
-        JOIN
-    input.location_region lr ON lr.id = l.location_region_id
-SET 
-    a.object_class_id = oc.id,
-    a.object_class_name = oc.name,
-    a.object_group_id = og.id,
-    a.object_group_name = og.name,
-    a.region_id = lr.id,
-    a.region_name = lr.name
-WHERE
-    a.tenant_id = %s AND a.simulation_id = %s ''' (tID, sID)
+        JOIN    input.object_type ot ON ot.id = a.object_type_id
+        JOIN    input.object_class oc ON oc.id = ot.object_class_id
+        JOIN    input.object_group og ON og.id = oc.object_group_id
+        JOIN    input.location l ON l.id = a.location_id
+        JOIN    input.location_region lr ON lr.id = l.location_region_id
+    SET     a.object_class_id = oc.id, a.object_class_name = oc.name, a.object_group_id = og.id,
+            a.object_group_name = og.name, a.region_id = lr.id, a.region_name = lr.name
+    WHERE   a.tenant_id = %s AND a.simulation_id = %s ''' (tID, sID)
+cursorOUT.execute(sqlMoreAvInfo)    
+print 'Done with Output: Component Events'
 ###################################### / END COMPONENT EVENTS
 
 ###################################### / BEGIN SPARE QUANTITY
-sqlDSpQtr = '''SELECT [*Weeks and Dates].Date, [out Uninstalled-Serviceable items].[Object type] AS Type, [out Uninstalled-Serviceable items].[SRAN ID] AS SRAN, [out Uninstalled-Serviceable items].Serviceables
+sqlDSpQtr = '''SELECT %s, %s, %s, %s, [*Weeks and Dates].Date, [out Uninstalled-Serviceable items].Serviceables, %s, %s, %s, [out Uninstalled-Serviceable items].[SRAN ID] AS SRAN, [out Uninstalled-Serviceable items].[Object type] AS Type, %s, %s
 FROM [out Uninstalled-Serviceable items] INNER JOIN [*Weeks and Dates] ON ([out Uninstalled-Serviceable items].Qtr = [*Weeks and Dates].Quarter) AND ([out Uninstalled-Serviceable items].Year = [*Weeks and Dates].Year) AND ([out Uninstalled-Serviceable items].Week = [*Weeks and Dates].Week)
-WHERE ((([*Weeks and Dates].Week)=1))'''
-sqlDSpWeek = '''SELECT [*Weeks and Dates].Date, [out Uninstalled-Serviceable items].[Object type] AS Type, [out Uninstalled-Serviceable items].[SRAN ID] AS SRAN, [out Uninstalled-Serviceable items].Serviceables
-FROM [out Uninstalled-Serviceable items] INNER JOIN [*Weeks and Dates] ON ([out Uninstalled-Serviceable items].Week = [*Weeks and Dates].Week) AND ([out Uninstalled-Serviceable items].Year = [*Weeks and Dates].Year) AND ([out Uninstalled-Serviceable items].Qtr = [*Weeks and Dates].Quarter)'''
+WHERE ((([*Weeks and Dates].Week)=1))''' % (tID, sID, pID, qtr, pID, tID, qtr, tID, sID)
+sqlDSpWeek = '''SELECT %s, %s, %s, %s, [*Weeks and Dates].Date, [out Uninstalled-Serviceable items].Serviceables, %s, %s, %s, [out Uninstalled-Serviceable items].[SRAN ID] AS SRAN, [out Uninstalled-Serviceable items].[Object type] AS Type, %s, %s
+FROM [out Uninstalled-Serviceable items] INNER JOIN [*Weeks and Dates] ON ([out Uninstalled-Serviceable items].Week = [*Weeks and Dates].Week) AND ([out Uninstalled-Serviceable items].Year = [*Weeks and Dates].Year) AND ([out Uninstalled-Serviceable items].Qtr = [*Weeks and Dates].Quarter)''' % (tID, sID, pID, wky, pID, tID, wky, tID, sID)
+sqlFOspares = '''INSERT INTO output.spare_quantity (tenant_id, simulation_id, project_name, project_id, interval_unit_id, interval_unit_name, timestamp, value, location_id, location_name, object_type_id, object_type_name, internal_state)
+    SELECT ?, ?, pr.name, ?, iu.id, ?, ?, ?, l.id, l.name, ot.id, ot.name, 1 FROM lcm.project pr JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu WHERE pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND l.external_id = ? AND ot.external_id = ? AND ot.tenant_id = ? and ot.simulation_id = ?'''
+curSource.execute(sqlDSpQtr)
+spares = curSource.fetchall()
+cursorOUT.executemany(sqlFOspares, spares)
+curSource.execute(sqlDSpWeek)
+spares = curSource.fetchall()
+cursorOUT.executemany(sqlFOspares, spares)
+sqlMoreSPInfo = '''UPDATE output.spare_quantity a
+        JOIN    input.object_type ot ON ot.id = a.object_type_id
+        JOIN    input.object_class oc ON oc.id = ot.object_class_id
+        JOIN    input.object_group og ON og.id = oc.object_group_id
+        JOIN    input.location l ON l.id = a.location_id
+        JOIN    input.location_region lr ON lr.id = l.location_region_id
+    SET     a.object_class_id = oc.id, a.object_class_name = oc.name, a.object_group_id = og.id,
+            a.object_group_name = og.name, a.region_id = lr.id, a.region_name = lr.name
+    WHERE   a.tenant_id = %s AND a.simulation_id = %s ''' (tID, sID)
+cursorOUT.execute(sqlMoreSPInfo)
+print 'Done with Output: Spare Quantity'
 ###################################### / END SPARE QUANTITY
+
+###################################### / BEGIN DOWN ASSETS
+sqlDSpQtr = '''SELECT %s, %s, %s, %s, Format([date],"yyyy-mm-dd") AS [timestamp], [out AWP items].[in awp status] AS [value], %s, %s, %s, [out AWP items].[Object type] AS Type, [out AWP items].[SRAN ID] AS Sran
+FROM [*Weeks and Dates] INNER JOIN [out AWP items] ON ([*Weeks and Dates].Week = [out AWP items].Week) 
+AND ([*Weeks and Dates].Quarter = [out AWP items].Qtr) AND ([*Weeks and Dates].Year = [out AWP items].Year)
+WHERE ((([*Weeks and Dates].Week)=1))''' % (tID, sID, pID, qtr, pID, tID, qtr, tID, sID)
+sqlDDAwk = '''SELECT %s, %s, %s, %s, Format([date],"yyyy-mm-dd") AS [timestamp], [out AWP items].[in awp status] AS [value], %s, %s, %s, [out AWP items].[Object type] AS Type, [out AWP items].[SRAN ID] AS Sran
+FROM [*Weeks and Dates] INNER JOIN [out AWP items] ON ([*Weeks and Dates].Week = [out AWP items].Week) 
+AND ([*Weeks and Dates].Quarter = [out AWP items].Qtr) AND ([*Weeks and Dates].Year = [out AWP items].Year)''' % (tID, sID, pID, wky, pID, tID, wky, tID, sID)
+
+sqlFOdownassets = '''INSERT INTO output.down_assets_parts_delay (tenant_id, simulation_id, project_name, project_id, interval_unit_id, interval_unit_name, timestamp, value, location_id, location_name, object_type_id, object_type_name)
+    SELECT ?, ?, pr.name, ?, iu.id, ?, ?, ?, l.id, l.name, ot.id, ot.name FROM lcm.project pr JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu WHERE pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND l.external_id = ? AND ot.external_id = ? AND ot.tenant_id = ? and ot.simulation_id = ?'''
+curSource.execute(sqlDSpQtr)
+downAssets = curSource.fetchall()
+cursorOUT.executemany(sqlFOdownassets, downAssets)
+curSource.execute(sqlDDAwk)
+downAssets = curSource.fetchall()
+cursorOUT.executemany(sqlFOdownassets, downAssets)
+sqlMoreDAInfo = '''UPDATE output.down_assets_parts_delay a
+        JOIN    input.object_type ot ON ot.id = a.object_type_id
+        JOIN    input.object_class oc ON oc.id = ot.object_class_id
+        JOIN    input.object_group og ON og.id = oc.object_group_id
+        JOIN    input.location l ON l.id = a.location_id
+        JOIN    input.location_region lr ON lr.id = l.location_region_id
+    SET     a.object_class_id = oc.id, a.object_class_name = oc.name, a.object_group_id = og.id,
+            a.object_group_name = og.name, a.region_id = lr.id, a.region_name = lr.name
+    WHERE   a.tenant_id = %s AND a.simulation_id = %s ''' (tID, sID)
+cursorOUT.execute(sqlMoreDAInfo)
+print 'Done with Output: Down Assets Part Delay'
+###################################### / END DOWN ASSETS
+
 
 connSinkLCM.commit()
 connSinkInput.commit()
