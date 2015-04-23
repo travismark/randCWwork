@@ -20,7 +20,9 @@
 # create acquisitions and retirements: event_schedules
 
 # Import your stuff
+import os
 import math
+import csv # output data
 import timeit # debug
 import datetime
 import pyodbc
@@ -32,9 +34,12 @@ tID = 1000 # tenant id
 pID = 2 # project id
 cUser = 'user' # default create_user
 InsightOrDemand = 2 # insight, 1 (with failure rates defined in calendar time) or demo, 2 (with failure rates defined in operating hours)
-LocalOrWeb = 1 # local, 1 (localhost) or web, 2 (out on insight)
+LocalOrWeb = 2 # local, 1 (localhost) or web, 2 (out on insight)
 numberOfReps = 100
 
+### Define working directory
+workDir = 'C:/Users/tbaer/Desktop/demo/data/'
+os.chdir(workDir)
 ### Define the database connections
 # First the Source database (DEMAND Pro)
 db_path = 'P:/Internal Projects/Data Scientist Team/InsightLCM/Testing/FAST/DEMAND Pro Basic Training/BasicCourseModelsDEMAND/PreEx1/'
@@ -108,7 +113,7 @@ totalSimMils = milsPerQ * dateInfo.NumQ
 
 # Assuming: user enters in a simulation id to build (vice just getting the next one)
 # Create a new simulation if it doesn't exist
-simTypeID = 1 if InsightOrDemand == 1 else 2 # set simulation_type_id to 1 (Insight) or 2 (DEMAND) 
+simTypeID = 1 if InsightOrDemand == 1 else 1 # set simulation_type_id to 1 (Insight) for all cases - only these models show up in the scenarios tab  
 sql = "SELECT id FROM `simulation` WHERE `id`=?"
 cursorLCM.execute(sql, (sID,))
 if cursorLCM.rowcount == 0: # then create it, otherwise give an error
@@ -152,7 +157,7 @@ sqlE = '''INSERT INTO event (tenant_id, simulation_id, name, external_id, event_
 for aName in enumerate(('Failure','Repair','Repair Complete','PM','PM Complete','Shipment','Relocate','Installation','Installation Complete','Removal','Removal Complete','Condemnation','Condemnation Complete','User Defined Function','Retiremnet','Activate','Passivate','Spare Request','Spare Available','Request Cancellation','Acquisition'),start=1): # 20 events here
     cursorINP.execute(sqlE, (tID, sID, aName[1], aName[0], cUser, tID, sID, aName[0]))
 # now add a few more
-cursorINP.execute(sqlE, (tID, sID, 'SPARE UNAVAILABLE', 22, cUser, tID, sID, 19))  ### THIS IS BAD - HARDCODED !!! TODO: GET RID OF 
+cursorINP.execute(sqlE, (tID, sID, 'Spare Unavailable', 22, cUser, tID, sID, 19))  ### THIS IS BAD - HARDCODED !!! TODO: GET RID OF 
 print "Done with Event"
 ###################################### / END EVENT
 
@@ -217,22 +222,22 @@ sqlC = '''SELECT DISTINCT %s AS ten, %s AS sim, [*Class data].[object class] AS 
 # first insert the assets, then the components
 curSource.execute(sqlA) # get the data
 classes=curSource.fetchall()
-sqlAput = '''INSERT INTO object_class (tenant_id, simulation_id, external_id, object_group_id, name, internal_name, create_user, create_timestamp) SELECT ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP''' ## pymysql takes %s, wheras pyodbc takes ?
+sqlAput = '''INSERT INTO object_class (tenant_id, simulation_id, external_id, object_group_id, name, internal_name, create_user, create_timestamp) SELECT ?, ?, ?, og.id, ?, ?, ?, CURRENT_TIMESTAMP FROM input.object_group og where og.tenant_id = ? and og.simulation_id = ? and og.external_id = ?''' ## pymysql takes %s, wheras pyodbc takes ?
 # now loop through data
 for row in classes:
     # convert internal name so it doesn't have spaces
     row.intname = row.intname.replace(' ','')
     # deposit the data
-    cursorINP.execute(sqlAput, (tID,sID,row.ocEid, row.ogEid, row.Name, row.intname, cUser))
+    cursorINP.execute(sqlAput, (tID,sID,row.ocEid, row.Name, row.intname, cUser, tID, sID, row.ogEid))
 ## and repeat for components
 # get the pyodbc table
 curSource.execute(sqlC) 
 classes=curSource.fetchall()
-sqlCput = '''INSERT INTO object_class (tenant_id, simulation_id, external_id, object_group_id, name, internal_name, create_user, create_timestamp) SELECT ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP''' ## pymysql takes %s, wheras pyodbc takes ?
+sqlCput = '''INSERT INTO object_class (tenant_id, simulation_id, external_id, object_group_id, name, internal_name, create_user, create_timestamp) SELECT ?, ?, ?, og.id, ?, ?, ?, CURRENT_TIMESTAMP FROM input.object_group og where og.tenant_id = ? and og.simulation_id = ? and og.external_id = ?''' ## pymysql takes %s, wheras pyodbc takes ?
 # take out spaces
 for row in classes:
     row.intname = row.intname.replace(' ','')
-    cursorINP.execute(sqlCput, (tID,sID,row.ocEid, row.ogEid, row.Name, row.intname, cUser))
+    cursorINP.execute(sqlCput, (tID,sID,row.ocEid, row.Name, row.intname, cUser, tID, sID, row.ogEid))
 
 # for row in classes:
 #     cursorINP.execute(sqlC, list(row))
@@ -271,13 +276,17 @@ print "Done with Object Type"
 
 ###################################### / BEGIN OBJECT
 # only select the objects that are originally in the simulation (with arrival time = 0)
-sqlO = '''SELECT id as oEid, TreeCode as name, [object type] as otEid, sran as lEid, [parent pp] as poEid, iif(mid([object type],4,1)=1,1,0) as asset FROM [*object attributes initial] WHERE [Arrival time ta] = 0'''
-curSource.execute(sqlO)
+# sqlO = '''SELECT id as oEid, TreeCode as name, [object type] as otEid, sran as lEid, [parent pp] as poEid, iif(mid([object type],4,1)=1,1,0) as asset FROM [*object attributes initial] WHERE [Arrival time ta] = 0'''
+# curSource.execute(sqlO)
+# objects = curSource.fetchall()
+sqlOAll = '''SELECT %s as tenantID, %s as simulationID, iif(mid([object type],4,1)=1,1,0) as asset, TreeCode as name, TreeCode as intname, TreeCode as sernum, [parent pp] as poEid, id as oEid, '%s' as username, %s as tenant_id2, %s as simulation_id2, sran as lEid, [object type] as otEid FROM [*object attributes initial] WHERE [Arrival time ta] = 0''' % (tID, sID, cUser, tID, sID)
+sqlOIns = '''INSERT INTO object (tenant_id, simulation_id, object_type_id, location_id, active, available, asset, cloned_flag, template_flag, name, internal_name, serial_number, stg_id, external_id, create_user, create_timestamp) SELECT ?, ?, ot.id, l.id, 1, 1, ?, 0, 0, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP FROM object_type ot join location l on l.tenant_id = ot.tenant_id and l.simulation_id = ot.simulation_id WHERE ot.tenant_id = ? AND ot.simulation_id = ? and l.external_id = ? and ot.external_id = ?'''
+curSource.execute(sqlOAll)
 objects = curSource.fetchall()
-sqlO = '''INSERT INTO object (tenant_id, simulation_id, object_type_id, location_id, active, available, asset, cloned_flag, template_flag, name, internal_name, serial_number, stg_id, external_id, create_user, create_timestamp) SELECT ?, ?, ot.id, l.id, 1, 1, ?, 0, 0, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP FROM object_type ot join location l on l.tenant_id = ot.tenant_id and l.simulation_id = ot.simulation_id WHERE ot.tenant_id = ? AND ot.simulation_id = ? and l.external_id = ? and ot.external_id = ?'''
 # there should never be spaces in the tree code, so can leave the internal name check out
-for row in objects:
-    cursorINP.execute(sqlO, (tID, sID, row.asset, row.name, row.name, row.name, row.poEid, row.oEid, cUser, tID, sID, row.lEid, row.otEid))
+#for row in objects:
+#   cursorINP.execute(sqlOIns, (tID, sID, row.asset, row.name, row.name, row.name, row.poEid, row.oEid, cUser, tID, sID, row.lEid, row.otEid))
+cursorINP.executemany(sqlOIns, objects)
 # update the parent objects
 sqlO = '''UPDATE object o JOIN object po ON o.stg_id = po.external_id AND o.simulation_id = po.simulation_id SET o.parent_object_id = po.id WHERE o.tenant_id = %s and o.simulation_id = %s''' % (tID, sID)
 cursorINP.execute(sqlO)
@@ -353,22 +362,30 @@ sqlFR = '''SELECT [*Unscheduled Removal rates].[LRU  type] AS otEid, [*Unschedul
 curSource.execute(sqlFR)
 failureRates = curSource.fetchall()
 # lcm.unit_of_measure is in a different database, so I'll have to query it separately
-sqlUOM = 'SELECT id from unit_of_measure where external_id = 1 and tenant_id = %s' % tID 
+if InsightOrDemand ==1:
+    sqlUOM = 'SELECT id from unit_of_measure where external_id = 1 and tenant_id = %s' % tID # calendar "hours"
+else:
+    sqlUOM = 'SELECT id from unit_of_measure where external_id = 3 and tenant_id = %s' % tID # "operating hours"
 cursorLCM.execute(sqlUOM)
 failureUOM = cursorLCM.fetchone() # this gives me a dictionary (can use string.encode to convert from bytestring to unicodestring)
 failureUOM = failureUOM.id # get the value
 exID = 1 # use as counter for inputting parameters later
-sqlFR = '''INSERT INTO distribution (tenant_id, simulation_id, external_id, name, distribution_class_id, distribution_type_id, unit_of_measure_id, create_user, create_timestamp) SELECT ?, ?, ?, ?, dc.id, dt.id, ?, ?, CURRENT_TIMESTAMP FROM distribution_class dc join distribution_type dt on dt.simulation_id = dc.simulation_id WHERE dc.tenant_id = ? and dc.simulation_id = ? and dt.external_id = ?'''
 for row in failureRates:
-    tempName = 'Failure exTID: ' + str(row.otEid) + ' exPID' + str(row.PetId) + ' exLID: ' + str(row.lEid) + ' CR: ' + str(row.cr) # concat a name, can include spaces
-    cursorINP.execute(sqlFR, (tID, sID, exID, tempName, failureUOM, cUser, tID, sID, weibullExID))
-    exID += 1
-# now repair distributions ############# TBD TBD TBD ##########################
+    if row.cr != 0:  # only load the zeroth completed repair now
+        continue
+    else:
+        if LocalOrWeb == 1: # if it'll be put on the web, set the event distribution to something cleaner, like 'Failure'
+            tempName = 'Failure exTID: ' + str(row.otEid) + ' exPID' + str(row.PetId) + ' exLID: ' + str(row.lEid) + ' CR: ' + str(row.cr) # concat a name, can include spaces
+        else:
+            tempName = 'Failure'
+        cursorINP.execute(sqlFR, (tID, sID, exID, tempName, failureUOM, cUser, tID, sID, weibullExID))
+        exID += 1
+# now repair distributions ############# TBD TBD TBD ##########################  - I SKIPPED REPAIRS AND THEIR DISTRIBUTION_PARAMETERS FOR ONLINE DEMO MODEL
 #################################
 # REPAR DISTRIBUTION SOURCE QUERY ISN'T WORKING NOW ##################################
 #################################
 
-# lcm.unit_of_measure is in a different database, so I'll have to query it separately
+# lcm.unit_of_measure is in a different database, so I'll have to query it separately -- THIS IS NOT TRUE - YOU CAN QUERY ANY SCHEMA
 cursorLCM.execute('SELECT id from lcm.unit_of_measure where external_id = 2 and tenant_id = %s' % tID ) # hard coded
 repairUOM = cursorLCM.fetchone()
 repairUOM = repairUOM.id
@@ -437,13 +454,21 @@ for row in repairDists:
 
 ###################################### / END DISTRIBUTION PARAMETER
 ###################################### / BEGIN EVENT DISTRIBUTION
-sqlFED = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and d.name like "Failure%" and e.name like "Failure"''' # can also include location and parent object type for failure rates, but haven't yet
+if LocalOrWeb == 1: # if it'll be put on the web, set the event distribution to something cleaner, like 'Failure'
+    sqlFED = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and d.name like "Failure%" and e.name like "Failure"''' # can also include location and parent object type for failure rates, but haven't yet
+else:
+    sqlFED = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, "Failure", d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and d.name like "Failure%" and e.name like "Failure"''' # can also include location and parent object type for failure rates, but haven't yet
 ## Failure distributions
 # use that same failure rate pyodbc list
 exID = 1 # for external event_distribution id
 for row in failureRates:
     cursorINP.execute(sqlFED, (tID, sID, exID, cUser, tID, sID, exID, row.otEid ))
     exID += 1
+if LocalOrWeb == 2: # add class info to show up in failure distribution
+    sqlFED2 = '''UPDATE input.event_distribution ed JOIN input.object_type ot ON ot.id = ed.object_type_id
+        JOIN input.object_class oc ON oc.id = ot.object_class_id SET ed.object_class_id = oc.id
+        WHERE ed.tenant_id = %s AND ed.simulation_id = %s''' % (tID, sID)
+cursorINP.execute(sqlFED2)
 
 ## Repair distributions
 sqlRED = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and d.name like "Repair%" and e.name like "Repair"''' # can also include location and parent object type for failure rates, but haven't yet
@@ -568,7 +593,7 @@ select ?, ?, l.name, l.internal_name, l.id, l.external_id, st.id, 0, ?, current_
 cursorINP.execute(sqlS, (tID, sID, cUser, 1, tID, sID))
 print "Done with Storage"
 # Add spares to storages
-sqlS = '''UPDATE input.object o join input.storage s on s.location_id = o.location_id set o.storage_id = s.id where o.parent_object_id is null and asset = 0 and s.tenant_id = ? and s.simulation_id = ?'''
+sqlS = '''UPDATE input.object o join input.storage s on s.location_id = o.location_id set o.storage_id = s.id where  asset = 0 and s.tenant_id = ? and s.simulation_id = ?''' # o.parent_object_id is null and DO I NEED THIS?
 cursorINP.execute(sqlS, (tID, sID))
 ###################################### / END STORAGE
  
@@ -602,6 +627,8 @@ cursorINP.execute(sqlExID)
 sqlFIE = '''INSERT INTO input.event (tenant_id, simulation_id, external_id, name, event_type_id, create_user, create_timestamp) VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)'''
 sqlES = '''INSERT INTO input.event_schedule (tenant_id, simulation_id, external_id, name, timestamp_value, event_id, create_user, create_timestamp)
     SELECT ?, ?, ?, e.name, ?, e.id, ?, CURRENT_TIMESTAMP FROM input.event e WHERE e.event_type_id = ? AND e.external_id = ? AND e.tenant_id = ? AND e.simulation_id = ?'''
+sqlSES = '''INSERT INTO input.storage_event_schedule (tenant_id, simulation_id, external_id, event_schedule_id, storage_id, location_id, create_user, create_timestamp)
+SELECT ?, ?, ?, es.id, s.id, l.id, ?, CURRENT_TIMESTAMP FROM input.event_schedule es JOIN input.storage s on s.simulation_id = es.simulation_id JOIN input.location l on l.id = s.location_id WHERE l.external_id = ? AND es.external_id = ?'''
 sqlEP1 = '''INSERT INTO input.event_property (tenant_id, simulation_id, external_id, event_id, property_id, property_value, create_user, create_timestamp)
     SELECT ?, ?, ?, e.id, p.id, ot.internal_name, ?, CURRENT_TIMESTAMP FROM input.event e JOIN input.property p on e.simulation_id = p.simulation_id JOIN input.object_type ot on ot.simulation_id = e.simulation_id WHERE e.event_type_id = ? AND e.external_id = ? AND e.tenant_id = ? AND e.simulation_id = ? AND p.external_id = ? AND ot.external_id = ?'''
 sqlEP2 = '''INSERT INTO input.event_property (tenant_id, simulation_id, external_id, event_id, property_id, property_value, create_user, create_timestamp)
@@ -612,6 +639,7 @@ for row in futureInventory:
     Qtr = (startingFiscalQtr + (row.ArrivalYear % 1) ) % 4
     cursorINP.execute(sqlFIE, (tID, sID, exID, str('Acquisition OT:' + str(row.otEid) + ' Loc:' + str(row.lEid) + ' Date:' + str(int(Year)) + "Q" + str(int(Qtr))),acquisitionEtId, cUser))
     cursorINP.execute(sqlES, (tID, sID, exID, str(str(int(Year))+'-'+str(1+((int(Qtr)-1)*3)).zfill(2)+'-01'), cUser, acquisitionEtId, exID, tID, sID)) 
+    cursorINP.execute(sqlSES, (tID, sID, exID ,cUser, row.lEid, exID))
     cursorINP.execute(sqlEP1, (tID, sID, exID, cUser, acquisitionEtId, exID, tID, sID, 1, row.otEid))
     cursorINP.execute(sqlEP2, (tID, sID, exID, int(row.num2acq), cUser, acquisitionEtId, exID, tID, sID, 2, row.otEid))
     exID += 1
@@ -635,56 +663,109 @@ sqlOS = '''INSERT INTO simulation (tenant_id, simulation_id, simulation_name, si
 cursorOUT.execute(sqlOS)
 ###################################### / END SIMULATION
 ###################################### / BEGIN AVAILABILITY
-sqlDOAquarter = '''SELECT [*Weeks and Dates].Date, Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed]) AS avail, [out Availability].SRAN, [out Availability].Type
-FROM [out Availability] INNER JOIN [*Weeks and Dates] ON ([out Availability].Year = [*Weeks and Dates].Year) AND ([out Availability].Qtr = [*Weeks and Dates].Quarter)
-WHERE ((([*Weeks and Dates].Week)=1))
-GROUP BY [*Weeks and Dates].Date, [out Availability].Year, [out Availability].Qtr, [out Availability].SRAN, [out Availability].Type'''
+# outputs will use a different method  - just get all the output
+qtr = ''' 'CALENDAR_QUARTER' '''
+wky = ''' 'CALENDAR_WEEK' '''
 sqlDOAquarter = '''SELECT %s, %s, %s, %s, [*Weeks and Dates].Date, Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed])*100 AS avail, %s, %s, %s, [out Availability].SRAN, 
 [out Availability].Type FROM [out Availability] INNER JOIN [*Weeks and Dates] ON ([out Availability].Year = [*Weeks and Dates].Year) AND ([out Availability].Qtr = [*Weeks and Dates].Quarter) WHERE ((([*Weeks and Dates].Week)=1)) 
 GROUP BY [*Weeks and Dates].Date, [out Availability].Year, [out Availability].Qtr, [out Availability].SRAN, [out Availability].Type''' % (tID, sID, pID, qtr, pID, tID, qtr)
-sqlDOAweek = '''SELECT [*Weeks and Dates].Date, 
-Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed]) AS avail, [out Availability].SRAN, [out Availability].Type
+sqlDOAweek = '''SELECT %s, %s, %s, %s, [*Weeks and Dates].Date, 
+Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed]) AS avail, %s, %s, %s, [out Availability].SRAN, [out Availability].Type
 FROM [out Availability] INNER JOIN [*Weeks and Dates] ON ([*Weeks and Dates].Week = [out Availability].Week) AND ([out Availability].Qtr = [*Weeks and Dates].Quarter) AND ([out Availability].Year = [*Weeks and Dates].Year)
-GROUP BY [*Weeks and Dates].Date, [out Availability].SRAN, [out Availability].Type, [out Availability].Year, [out Availability].Qtr'''
+GROUP BY [*Weeks and Dates].Date, [out Availability].SRAN, [out Availability].Type, [out Availability].Year, [out Availability].Qtr''' % (tID, sID, pID, wky, pID, tID, wky)
 sqlFOA = '''INSERT INTO output.availability (tenant_id, simulation_id, project_name, project_id, asset, spare, interval_unit_id, interval_unit_name, timestamp, value, location_id, location_name, object_type_id, object_type_name)
     SELECT ?, ?, pr.name, ?, 1, 0, iu.id, ?, ?, ?, l.id, l.name, ot.id, ot.name FROM lcm.project pr JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu WHERE pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND l.external_id = ? AND ot.external_id = ?'''
+sqlFOAselect = '''SELECT ?, ?, pr.name, ?, 1, 0, iu.id, ?, ?, ?, l.id, l.name, ot.id, ot.name FROM lcm.project pr JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu WHERE pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND l.external_id = ? AND ot.external_id = ?'''
+
+# sqlDOAquarter = '''SELECT [*Weeks and Dates].Date, Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed]) AS avail, [out Availability].SRAN, [out Availability].Type
+# FROM [out Availability] INNER JOIN [*Weeks and Dates] ON ([out Availability].Year = [*Weeks and Dates].Year) AND ([out Availability].Qtr = [*Weeks and Dates].Quarter)
+# WHERE ((([*Weeks and Dates].Week)=1))
+# GROUP BY [*Weeks and Dates].Date, [out Availability].Year, [out Availability].Qtr, [out Availability].SRAN, [out Availability].Type'''
+# sqlDOAquarter = '''SELECT %s, %s, %s, %s, [*Weeks and Dates].Date, Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed])*100 AS avail, %s, %s, %s, [out Availability].SRAN, 
+# [out Availability].Type FROM [out Availability] INNER JOIN [*Weeks and Dates] ON ([out Availability].Year = [*Weeks and Dates].Year) AND ([out Availability].Qtr = [*Weeks and Dates].Quarter) WHERE ((([*Weeks and Dates].Week)=1)) 
+# GROUP BY [*Weeks and Dates].Date, [out Availability].Year, [out Availability].Qtr, [out Availability].SRAN, [out Availability].Type''' % (tID, sID, pID, qtr, pID, tID, qtr)
+# sqlDOAweek = '''SELECT [*Weeks and Dates].Date, 
+# Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed]) AS avail, [out Availability].SRAN, [out Availability].Type
+# FROM [out Availability] INNER JOIN [*Weeks and Dates] ON ([*Weeks and Dates].Week = [out Availability].Week) AND ([out Availability].Qtr = [*Weeks and Dates].Quarter) AND ([out Availability].Year = [*Weeks and Dates].Year)
+# GROUP BY [*Weeks and Dates].Date, [out Availability].SRAN, [out Availability].Type, [out Availability].Year, [out Availability].Qtr'''
+# sqlFOA = '''INSERT INTO output.availability (tenant_id, simulation_id, project_name, project_id, asset, spare, interval_unit_id, interval_unit_name, timestamp, value, location_id, location_name, object_type_id, object_type_name)
+#     SELECT ?, ?, pr.name, ?, 1, 0, iu.id, ?, ?, ?, l.id, l.name, ot.id, ot.name FROM lcm.project pr JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu WHERE pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND l.external_id = ? AND ot.external_id = ?'''
+# MAXID = 15715214
+
 curSource.execute(sqlDOAquarter)
 qtrAvail = curSource.fetchall()
-qtr = ''' 'CALENDAR_QUARTER' '''
 curSource.execute(sqlDOAweek)
 wkyAvail = curSource.fetchall()
-wky = "CALENDAR_WEEK"
 # now load data
-# create temp list (of lists)
-qtrAvailAll = [[]]
-rownum = 0
-for row in qtrAvail:
-    for col in [tID, sID, pID, qtr, row.Date.isoformat(), row.avail*100, pID, tID, qtr, row.SRAN, row.Type]: # avail in Insight expects a value between 0 and 100
-        qtrAvailAll[rownum].append(col)
-    qtrAvailAll.append([])
-    rownum += 1
-qtrAvailAll.pop()
-cursorOUT.executemany(sqlFOA, qtrAvailAll)
+cursorOUT.executemany(sqlFOA, qtrAvail) 
+cursorOUT.executemany(sqlFOA, wkyAvail)
+# else: # otherwise must output as csv and load
+#     with open('outAvailQtr.csv', 'wb') as csvfile:
+#         aWriter = csv.writer(csvfile)
+#         for row in qtrAvail:
+#             cursorINP.execute(sqlFOAselect, row)
+#             qtrAvailCSV = cursorINP.fetchone()
+#             aWriter.writerow(qtrAvailCSV)
+sqlMoreAvInfo = '''UPDATE output.availability a
+        JOIN
+    input.object_type ot ON ot.id = a.object_type_id
+        JOIN
+    input.object_class oc ON oc.id = ot.object_class_id
+        JOIN
+    input.object_group og ON og.id = oc.object_group_id
+        JOIN
+    input.location l ON l.id = a.location_id
+        JOIN
+    input.location_region lr ON lr.id = l.location_region_id
+SET 
+    a.object_class_id = oc.id,
+    a.object_class_name = oc.name,
+    a.object_group_id = og.id,
+    a.object_group_name = og.name,
+    a.region_id = lr.id,
+    a.region_name = lr.name
+WHERE
+    a.tenant_id = %s AND a.simulation_id = %s ''' % (tID, sID)
+cursorOUT.execute(sqlMoreAvInfo)
 
-
-
-for row in wkyAvail:
-    cursorOUT.execute(sqlFOA, (tID, sID, pID, wky, row.Date.isoformat(), row.avail*100, pID, tID, wky, row.SRAN, row.Type))
+# for row in wkyAvail:
+#     cursorOUT.execute(sqlFOA, (tID, sID, pID, wky, row.Date.isoformat(), row.avail*100, pID, tID, wky, row.SRAN, row.Type))
 print 'Done with Output Availability'
 ###################################### / END AVAILABILITY
 ###################################### / BEGIN COMPONENT EVENTS
 # first do LRU events (ASSUMES ONLY ONE EVENT OF TYPE FAILURE CALLED FAILURE - SINGLE FAILURE MODE)
-eventNameMatch = 'Failure'
-sqlDOLruEv = '''SELECT [out LRU events].[SRAN ID] as SRAN, [out LRU events].[Engine type] as Type, [*Weeks and Dates].Date, [out LRU events].UER, [out LRU events].[Life limits] as LL
+eventNameMatch = ''' 'Failure' '''
+sqlDOLruEv = '''SELECT %s, %s, %s, %s, [*Weeks and Dates].Date, [out LRU events].UER, %s, %s, %s, %s, %s, [out LRU events].[SRAN ID] as SRAN, [out LRU events].[Engine type] as Type, %s
 FROM [out LRU events] INNER JOIN [*Weeks and Dates] ON ([out LRU events].Year = [*Weeks and Dates].Year) AND ([out LRU events].Qtr = [*Weeks and Dates].Quarter)
-WHERE ((([*Weeks and Dates].Week)=1))'''
+WHERE ((([*Weeks and Dates].Week)=1))''' % (tID, sID, pID, qtr, tID, sID, pID, tID, qtr, eventNameMatch)
 curSource.execute(sqlDOLruEv)
 failures = curSource.fetchall()
 sqlFOLruEv = '''INSERT INTO output.component_events (tenant_id, simulation_id, project_name, project_id, event_id, event_name, event_type_id, event_type_name, interval_unit_id, interval_unit_name, timestamp, value, location_id, location_name, object_type_id, object_type_name)
     SELECT ?, ?, pr.name, ?, e.id, e.name, et.id, et.name, iu.id, ?, ?, ?, l.id, l.name, ot.id, ot.name FROM input.event e JOIN input.event_type et on et.id = e.event_type_id JOIN lcm.project pr ON e.tenant_id = pr.tenant_id JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu WHERE et.tenant_id = ? and et.simulation_id = ? AND pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND l.external_id = ? AND ot.external_id = ? AND e.name = ?'''
-for row in failures:
-    cursorOUT.execute(sqlFOLruEv, (tID, sID, pID, qtr, row.Date.isoformat(), row.UER, tID, sID, pID, tID, qtr, row.SRAN, row.Type, eventNameMatch)) # avail in Insight expects a value between 0 and 100
+cursorOUT.executemany(sqlFOLruEv, failures)
+# for row in failures:
+#     cursorOUT.execute(sqlFOLruEv, (tID, sID, pID, qtr, row.Date.isoformat(), row.UER, tID, sID, pID, tID, qtr, row.SRAN, row.Type, eventNameMatch)) # avail in Insight expects a value between 0 and 100
 
+sqlMoreCEInfo = '''UPDATE output.component_events a
+        JOIN
+    input.object_type ot ON ot.id = a.object_type_id
+        JOIN
+    input.object_class oc ON oc.id = ot.object_class_id
+        JOIN
+    input.object_group og ON og.id = oc.object_group_id
+        JOIN
+    input.location l ON l.id = a.location_id
+        JOIN
+    input.location_region lr ON lr.id = l.location_region_id
+SET 
+    a.object_class_id = oc.id,
+    a.object_class_name = oc.name,
+    a.object_group_id = og.id,
+    a.object_group_name = og.name,
+    a.region_id = lr.id,
+    a.region_name = lr.name
+WHERE
+    a.tenant_id = %s AND a.simulation_id = %s ''' (tID, sID)
 ###################################### / END COMPONENT EVENTS
 
 ###################################### / BEGIN SPARE QUANTITY
