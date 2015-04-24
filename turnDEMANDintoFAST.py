@@ -132,7 +132,7 @@ else:
 sqlUoM = '''INSERT INTO unit_of_measure (tenant_id, name, interval_unit_id, external_id, create_user, create_timestamp) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'''
 sqlUoMnoIU = '''INSERT INTO unit_of_measure (tenant_id, name, external_id, create_user, create_timestamp) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)'''
 cursorLCM.execute(sqlUoM, (tID, 'Hours', 10, 1, cUser)) # for failures
-cursorLCM.execute(sqlUoM, (tID, 'Days', 9, 2, cUser)) # for repairs
+cursorLCM.execute(sqlUoM, (tID, 'Days', 9, 2, cUser)) # for repairs and shipping times
 cursorLCM.execute(sqlUoM, (tID, 'Operating Hours', 10, 3, cUser)) # for operating hours (viewing failures in scenario editor)
 cursorLCM.execute(sqlUoMnoIU, (tID, 'Each', 4, cUser)) # for Future Inventory
 cursorLCM.execute(sqlUoMnoIU, (tID, 'Integer', 5, cUser)) # for Future Inventory
@@ -613,8 +613,8 @@ FP = curSource.fetchone()
 ###################################### / END OPTEMPO
 
 ###################################### / BEGIN SHIPEMENT TIME DISTRIBUTION
-# this method for shipping times, and base structure (route) handles defaults for Locations but not Object Groups
-# some bases will match twice, but this is okay - finding one distribution is the template's responsibility
+# this method for shipping times, and base structure (route) handles defaults for Locations (location type)
+# some bases will match twice, but this is okay - finding one distribution handled next, when matching routes to distributions (via resupply table)
 sqlDshiptimeERROR = '''SELECT [*Shipment times].[Tsf Dist] as DistType, [*Shipment times].[From SRAN] as Fsran, [*Shipment times].[To SRAN] as Tsran, [*Shipment times].[Tsf P1] as p1, [*Shipment times].[Tsf P2] as p2
 FROM [*Shipment times] WHERE ((([*Shipment times].[Tsf Dist]) like 'lognormal'))'''
 sqlDshiptimeSpecSpec = '''SELECT [*Shipment times].[Tsf Dist] as DistType, [*Shipment times].[From SRAN] as Fsran, [*Shipment times].[To SRAN] as Tsran, [*Shipment times].[Tsf P1] as p1, [*Shipment times].[Tsf P2] as p2, Left([From SRAN],1) AS fltEid, Left([To SRAN],1) AS tltEid
@@ -627,7 +627,7 @@ sqlDshiptimeGenGen ='''SELECT [*Shipment times].[Tsf Dist] as DistType, [*Shipme
 FROM [*Shipment times] WHERE ((([*Shipment times].[Tsf Dist]) Not Like 'lognormal') AND ((Right([From SRAN],3))=0) AND ((Right([To SRAN],3))=0))'''
 
 sqlFshipDist = '''INSERT INTO distribution (tenant_id, simulation_id, external_id, name, distribution_class_id, distribution_type_id, unit_of_measure_id, create_user, create_timestamp) 
-    SELECT ?, ?, ?, ?, dc.id, dt.id, uom.id, ?, CURRENT_TIMESTAMP FROM distribution_class dc join distribution_type dt on dt.simulation_id = dc.simulation_id WHERE dc.tenant_id = ? and dc.simulation_id = ? and dt.name = ? AND dc.name like "Shipment Time" '''
+    SELECT ?, ?, ?, ?, dc.id, dt.id, uom.id, ?, CURRENT_TIMESTAMP FROM lcm.unit_of_measure uom, distribution_class dc join distribution_type dt on dt.simulation_id = dc.simulation_id WHERE dc.tenant_id = ? and dc.simulation_id = ? and dt.name = ? AND dc.name like "Shipment Time" AND uom.name like "Days" AND uom.tenant_id = ?'''
 sqlFshipDistParam = '''INSERT INTO distribution_parameter (tenant_id, simulation_id, external_id, parameter_value, distribution_id, distribution_type_parameter_id, create_user, create_timestamp) SELECT ?, ?, ?, ?, d.id, dtp.id, ?, CURRENT_TIMESTAMP FROM distribution_type dt JOIN distribution d on dt.simulation_id = d.simulation_id AND dt.id = d.distribution_type_id JOIN distribution_type_parameter dtp on dtp.simulation_id = d.simulation_id AND dtp.distribution_type_id = dt.id WHERE d.tenant_id = ? AND d.simulation_id = ? AND d.external_id = ? AND d.name like 'Shipment%' AND dtp.parameter_number = ?'''
 
 sqlFshipSpecSpec = '''INSERT INTO shipment_time_distribution (tenant_id, simulation_id, external_id, distribution_id, from_location_id, to_location_id, create_user, create_timestamp) 
@@ -642,8 +642,8 @@ sqlFshipGenGen = '''INSERT INTO shipment_time_distribution (tenant_id, simulatio
 curSource.execute(sqlDshiptimeERROR)
 if curSource.rowcount > 0:
     lognormalShips = curSource.fetchall()
-    Print 'Lognormal distributions are not allowed.  These shipping times will be ignored.  This may lead to routes without shipping times, and thus that cannot exist.'
-    Print 'These shipping time distributions are ignored'
+    print 'Lognormal distributions are not allowed.  These shipping times will be ignored.  This may lead to routes without shipping times, and thus that cannot exist.'
+    print 'These shipping time distributions are ignored'
     for row in lognormalShips:
         print 'From Base: ' + row.FRbase + ' To Base: ' + row.TObase
 # Loop through four sets of distributions based on the specificity of the SRAN - either a specific location or a level (like depot) that equals a location_type in lcm
@@ -652,42 +652,47 @@ exID = 1
 curSource.execute(sqlDshiptimeSpecSpec)
 shipDs = curSource.fetchall()
 for row in shipDs:
-    cursorINP.execute(sqlFshipDist, (tID, sID, exID, ''' "Shipment" ''', cUser, tID, sID, row.DistType)) # distribution
+    cursorINP.execute(sqlFshipDist, (tID, sID, exID, "Shipment", cUser, tID, sID, row.DistType, tID)) # distribution
     cursorINP.execute(sqlFshipDistParam, (tID, sID, exID, row.p1, cUser, tID, sID, exID, 1)) # distribution parameter
     if row.DistType in ("Weibull","Normal", "Uniform"): # require two parameters
         cursorINP.execute(sqlFshipDistParam, (tID, sID, exID, row.p2, cUser, tID, sID, exID, 2)) # distribution parameter
     cursorINP.execute(sqlFshipSpecSpec, (tID, sID, exID, cUser, row.Fsran, row.Tsran, tID, sID, exID)) # shipment time distribution
+    exID += 1
 # Next do specific & general
 curSource.execute(sqlDshiptimeSpecGen)
 shipDs = curSource.fetchall()
 for row in shipDs:
-    cursorINP.execute(sqlFshipDist, (tID, sID, exID, ''' "Shipment" ''', cUser, tID, sID, row.DistType)) # distribution
+    cursorINP.execute(sqlFshipDist, (tID, sID, exID, "Shipment", cUser, tID, sID, row.DistType, tID)) # distribution
     cursorINP.execute(sqlFshipDistParam, (tID, sID, exID, row.p1, cUser, tID, sID, exID, 1)) # distribution parameter
     if row.DistType in ("Weibull","Normal", "Uniform"): # require two parameters
         cursorINP.execute(sqlFshipDistParam, (tID, sID, exID, row.p2, cUser, tID, sID, exID, 2)) # distribution parameter
     cursorINP.execute(sqlFshipSpecGen, (tID, sID, exID, cUser, row.Fsran, row.tltEid, tID, sID, exID)) # shipment time distribution - note location type id as leftmost digit in SRAN
+    exID += 1
 # Next do general & specific
 curSource.execute(sqlDshiptimeGenSpec)
 shipDs = curSource.fetchall()
 for row in shipDs:
-    cursorINP.execute(sqlFshipDist, (tID, sID, exID, ''' "Shipment" ''', cUser, tID, sID, row.DistType)) # distribution
+    cursorINP.execute(sqlFshipDist, (tID, sID, exID, "Shipment", cUser, tID, sID, row.DistType, tID)) # distribution
     cursorINP.execute(sqlFshipDistParam, (tID, sID, exID, row.p1, cUser, tID, sID, exID, 1)) # distribution parameter
     if row.DistType in ("Weibull","Normal", "Uniform"): # require two parameters
         cursorINP.execute(sqlFshipDistParam, (tID, sID, exID, row.p2, cUser, tID, sID, exID, 2)) # distribution parameter
     cursorINP.execute(sqlFshipGenSpec, (tID, sID, exID, cUser, row.fltEid, row.Tsran, tID, sID, exID)) # shipment time distribution
+    exID += 1
 # Last do general & general
 curSource.execute(sqlDshiptimeGenGen)
 shipDs = curSource.fetchall()
 for row in shipDs:
-    cursorINP.execute(sqlFshipDist, (tID, sID, exID, ''' "Shipment" ''', cUser, tID, sID, row.DistType)) # distribution
+    cursorINP.execute(sqlFshipDist, (tID, sID, exID, "Shipment", cUser, tID, sID, row.DistType, tID)) # distribution
     cursorINP.execute(sqlFshipDistParam, (tID, sID, exID, row.p1, cUser, tID, sID, exID, 1)) # distribution parameter
     if row.DistType in ("Weibull","Normal", "Uniform"): # require two parameters
         cursorINP.execute(sqlFshipDistParam, (tID, sID, exID, row.p2, cUser, tID, sID, exID, 2)) # distribution parameter
     cursorINP.execute(sqlFshipGenGen, (tID, sID, exID, cUser, row.fltEid, row.tltEid, tID, sID, exID)) # shipment time distribution
+    exID += 1
 
 ###################################### / END SHIPEMENT TIME DISTRIBUTION
 
-###################################### / BEGIN ROUTE AND RESUPPLY
+###################################### / BEGIN ROUTE AND ROUTE MAP AND RESUPPLY
+# these tables can be Defaulted to all groups, or specific to only one group
 #sqlDRoute = '''SELECT %s, %s, '%s', [*Base Structure].[From Base], [*Base Structure].[To Base], %s, %s FROM [*Base Structure]''' % (tID, sID, cUser, tID, sID)
 # SQLFRoute = '''INSERT INTO input.route (tenant_id, simulation_id, from_location_id, to_location_id, create_user, create_timestamp) 
 # SELECT ?, ?, l1.id, l2.id, ?, CURRENT_TIMESTAMP FROM location l1 JOIN l2 on l1.simulation_id = l2.simulation_id WHERE l1.external_id = ? AND l2.external_id = ? AND l1.tenant_id = ? AND l1.simulation_id = ?'''
@@ -708,10 +713,20 @@ for row in routes:
         cursorINP.execute(sqlFRouteMapGen, (tID, sID, exID, row.Probability, cUser, tID, sID, exID))
     else: # applies to only specific objects - match to classes (group is required for model implementation)
         cursorINP.execute(sqlFRouteMapSpec, (tID, sID, exID, row.Probability, cUser, row.Group, tID, sID, exID))
+#cursorINP.executemany(SQLFRoute, routes)
+print 'Done with Route and Route Map'
+###################################### / END ROUTE AND ROUTE MAP
 
-cursorINP.executemany(SQLFRoute, routes)
-print 'Done with Route and Resupply'
-###################################### / END ROUTE AND RESUPPLY
+###################################### / BEGIN RESUPPLY
+# Need one resupply table for each route - object information seems to be duplicated - in both resupply and route_map tables
+SQLFResupplySpecSpec = '''INSERT INTO input.resupply (tenant_id, simulation_id, external_id, route_id, distribution_id, create_user, create_timestamp) 
+    SELECT ?, ?, ?, r.id, d.id, ?, CURRENT_TIMESTAMP FROM input.route r JOIN input.shipment_time_distribution st ON st.from_location_id = r.from_location_id AND st.to_location_id = r.to_location_id WHERE r.tenant_id = ? AND r.simulation_id = ?'''
+SQLFResupplySpecSpec = '''INSERT INTO input.resupply (tenant_id, simulation_id, external_id, route_id, distribution_id, create_user, create_timestamp) 
+    SELECT ?, ?, ?, r.id, d.id, ?, CURRENT_TIMESTAMP FROM input.route r JOIN input.location rl ON r.location_id = rl.id JOIN input.location_type rlt ON ltr.id = lr.location_type_id JOIN input.shipment_time_distribution tst ON ltr.id = st.to_location_type_id JOIN input.location_type_id tlt ON tlt.id = st.to_location_type_id'''
+# print out the routes that don't have resupply values
+
+print 'Done with Resupply'
+###################################### / END RESUPPLY
 
 ############################################################################ / BEGIN OUTPUT DATA ############################################################################ / BEGIN OUTPUT DATA
 ############################################################################ / BEGIN OUTPUT DATA ############################################################################ / BEGIN OUTPUT DATA
