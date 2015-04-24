@@ -340,8 +340,9 @@ for aName in enumerate(('Constant','Exponential','Normal','Uniform','Weibull'),s
 print "Done with Distribution Type"
 ###################################### / END DISTRIBUTION TYPE
 ###################################### / BEGIN DISTRIBUTION CLASS
-sqlDC = '''INSERT INTO distribution_class (tenant_id, simulation_id, name, create_user, create_timestamp) values (?, ?, ?, ?, ?)''' # just one class right now
-cursorINP.execute(sqlDC, (tID, sID, 'Distribution','user', datetime.datetime.now().isoformat()))
+sqlDC = '''INSERT INTO distribution_class (tenant_id, simulation_id, external_id, name, create_user, create_timestamp) values (?, ?, ?, ?, ?, ?)''' # just one class right now
+for aName in enumerate(('Unscheduled Removal', 'Shipment Time', 'Server Time', 'Operation Profile')):
+    cursorINP.execute(sqlDC, (tID, sID, aName[0], aName[1],'user', datetime.datetime.now().isoformat()))
 print "Done with Distribution Class"
 ###################################### / END DISTRIBUTION CLASS
 ###################################### / BEGIN DISTRIBUTION TYPE PARAMETER
@@ -370,6 +371,7 @@ cursorLCM.execute(sqlUOM)
 failureUOM = cursorLCM.fetchone() # this gives me a dictionary (can use string.encode to convert from bytestring to unicodestring)
 failureUOM = failureUOM.id # get the value
 exID = 1 # use as counter for inputting parameters later
+sqlFR = '''INSERT INTO distribution (tenant_id, simulation_id, external_id, name, distribution_class_id, distribution_type_id, unit_of_measure_id, create_user, create_timestamp) SELECT %s, %s, %s, %s, dc.id, dt.id, %s, %s, CURRENT_TIMESTAMP FROM distribution_class dc join distribution_type dt on dt.simulation_id = dc.simulation_id WHERE dc.tenant_id = %s and dc.simulation_id = %s and dt.external_id = %s AND dc.name like "Unscheduled Removal" '''
 for row in failureRates:
     if row.cr != 0:  # only load the zeroth completed repair now
         continue
@@ -412,7 +414,7 @@ for row in maintDists:
         repairDists.append(row)
 # now deposit
 exID = 1
-sqlRep = '''INSERT INTO distribution (tenant_id, simulation_id, external_id, name, distribution_class_id, distribution_type_id, unit_of_measure_id, create_user, create_timestamp) SELECT ?, ?, ?, ?, dc.id, dt.id, ?, ?, CURRENT_TIMESTAMP FROM distribution_class dc join distribution_type dt on dt.simulation_id = dc.simulation_id WHERE dc.tenant_id = ? and dc.simulation_id = ? and dt.external_id = ?'''
+sqlRep = '''INSERT INTO distribution (tenant_id, simulation_id, external_id, name, distribution_class_id, distribution_type_id, unit_of_measure_id, create_user, create_timestamp) SELECT ?, ?, ?, ?, dc.id, dt.id, ?, ?, CURRENT_TIMESTAMP FROM distribution_class dc join distribution_type dt on dt.simulation_id = dc.simulation_id WHERE dc.tenant_id = ? and dc.simulation_id = ? and dt.external_id = ? AND dc.name like "Server Time" '''
 for row in repairDists:
     tempName = 'Repair exTID: ' + str(row.otEid) + ' exLID: ' + str(row.lEid) # concat a name, can include spaces
     cursorINP.execute(sqlRep, (tID, sID, exID, tempName, repairUOM, cUser, tID, sID, constantExID))
@@ -581,7 +583,7 @@ cursorINP.execute(sqlExID)
 oldAcqExID = cursorINP.fetchone()[0]
 sqlExID = '''UPDATE input.event SET external_id = 0 WHERE tenant_id = %s AND simulation_id = %s AND event_type_id = %s''' % (tID, sID, acquisitionEtId)
 cursorINP.execute(sqlExID)
-# can't do an executemany (yet) because the many tables have to reference eachother by external_id - probably a way to simplify it (create the integer steps first and then update python rows?)
+# can't do an executemany (yet) because the many tables have to reference eachother by external_id - probably a way to simplify it (create the integer steps first and then update python rows? might require looping through anyway)
 sqlFIE = '''INSERT INTO input.event (tenant_id, simulation_id, external_id, name, event_type_id, create_user, create_timestamp) VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)'''
 sqlES = '''INSERT INTO input.event_schedule (tenant_id, simulation_id, external_id, name, timestamp_value, event_id, create_user, create_timestamp)
     SELECT ?, ?, ?, e.name, ?, e.id, ?, CURRENT_TIMESTAMP FROM input.event e WHERE e.event_type_id = ? AND e.external_id = ? AND e.tenant_id = ? AND e.simulation_id = ?'''
@@ -610,15 +612,106 @@ curSource.execute(sqlFP)
 FP = curSource.fetchone()
 ###################################### / END OPTEMPO
 
-###################################### / BEGIN ROUTE
-sqlDRoute = '''SELECT %s, %s, '%s', [*Base Structure].[From Base], [*Base Structure].[To Base], %s, %s FROM [*Base Structure]''' % (tID, sID, cUser, tID, sID)
+###################################### / BEGIN SHIPEMENT TIME DISTRIBUTION
+# this method for shipping times, and base structure (route) handles defaults for Locations but not Object Groups
+# some bases will match twice, but this is okay - finding one distribution is the template's responsibility
+sqlDshiptimeERROR = '''SELECT [*Shipment times].[Tsf Dist] as DistType, [*Shipment times].[From SRAN] as Fsran, [*Shipment times].[To SRAN] as Tsran, [*Shipment times].[Tsf P1] as p1, [*Shipment times].[Tsf P2] as p2
+FROM [*Shipment times] WHERE ((([*Shipment times].[Tsf Dist]) like 'lognormal'))'''
+sqlDshiptimeSpecSpec = '''SELECT [*Shipment times].[Tsf Dist] as DistType, [*Shipment times].[From SRAN] as Fsran, [*Shipment times].[To SRAN] as Tsran, [*Shipment times].[Tsf P1] as p1, [*Shipment times].[Tsf P2] as p2, Left([From SRAN],1) AS fltEid, Left([To SRAN],1) AS tltEid
+FROM [*Shipment times] WHERE ((([*Shipment times].[Tsf Dist]) Not Like 'lognormal') AND ((Right([From SRAN],3))<>0) AND ((Right([To SRAN],3))<>0))'''
+sqlDshiptimeSpecGen ='''SELECT [*Shipment times].[Tsf Dist] as DistType, [*Shipment times].[From SRAN] as Fsran, [*Shipment times].[To SRAN] as Tsran, [*Shipment times].[Tsf P1] as p1, [*Shipment times].[Tsf P2] as p2, Left([From SRAN],1) AS fltEid, Left([To SRAN],1) AS tltEid
+FROM [*Shipment times] WHERE ((([*Shipment times].[Tsf Dist]) Not Like 'lognormal') AND ((Right([From SRAN],3))<>0) AND ((Right([To SRAN],3))=0))'''
+sqlDshiptimeGenSpec ='''SELECT [*Shipment times].[Tsf Dist] as DistType, [*Shipment times].[From SRAN] as Fsran, [*Shipment times].[To SRAN] as Tsran, [*Shipment times].[Tsf P1] as p1, [*Shipment times].[Tsf P2] as p2, Left([From SRAN],1) AS fltEid, Left([To SRAN],1) AS tltEid
+FROM [*Shipment times] WHERE ((([*Shipment times].[Tsf Dist]) Not Like 'lognormal') AND ((Right([From SRAN],3))=0) AND ((Right([To SRAN],3))<>0))'''
+sqlDshiptimeGenGen ='''SELECT [*Shipment times].[Tsf Dist] as DistType, [*Shipment times].[From SRAN] as Fsran, [*Shipment times].[To SRAN] as Tsran, [*Shipment times].[Tsf P1] as p1, [*Shipment times].[Tsf P2] as p2, Left([From SRAN],1) AS fltEid, Left([To SRAN],1) AS tltEid
+FROM [*Shipment times] WHERE ((([*Shipment times].[Tsf Dist]) Not Like 'lognormal') AND ((Right([From SRAN],3))=0) AND ((Right([To SRAN],3))=0))'''
+
+sqlFshipDist = '''INSERT INTO distribution (tenant_id, simulation_id, external_id, name, distribution_class_id, distribution_type_id, unit_of_measure_id, create_user, create_timestamp) 
+    SELECT ?, ?, ?, ?, dc.id, dt.id, uom.id, ?, CURRENT_TIMESTAMP FROM distribution_class dc join distribution_type dt on dt.simulation_id = dc.simulation_id WHERE dc.tenant_id = ? and dc.simulation_id = ? and dt.name = ? AND dc.name like "Shipment Time" '''
+sqlFshipDistParam = '''INSERT INTO distribution_parameter (tenant_id, simulation_id, external_id, parameter_value, distribution_id, distribution_type_parameter_id, create_user, create_timestamp) SELECT ?, ?, ?, ?, d.id, dtp.id, ?, CURRENT_TIMESTAMP FROM distribution_type dt JOIN distribution d on dt.simulation_id = d.simulation_id AND dt.id = d.distribution_type_id JOIN distribution_type_parameter dtp on dtp.simulation_id = d.simulation_id AND dtp.distribution_type_id = dt.id WHERE d.tenant_id = ? AND d.simulation_id = ? AND d.external_id = ? AND d.name like 'Shipment%' AND dtp.parameter_number = ?'''
+
+sqlFshipSpecSpec = '''INSERT INTO shipment_time_distribution (tenant_id, simulation_id, external_id, distribution_id, from_location_id, to_location_id, create_user, create_timestamp) 
+    SELECT ?, ?, ?, d.id, fl.id, tl.id, ?, CURRENT_TIMESTAMP FROM input.distribution d JOIN input.location fl ON d.simulation_id = fl.simulation_id JOIN input.location tl on fl.simulation_id = tl.simulation_id WHERE fl.external_id = ? AND tl.external_id = ? AND fl.tenant_id = ? AND fl.simulation_id = ? AND d.external_id = ? AND d.name like "Shipment%"'''
+sqlFshipSpecGen = '''INSERT INTO shipment_time_distribution (tenant_id, simulation_id, external_id, from_location_id, to_location_id, create_user, create_timestamp) 
+    SELECT ?, ?, ?, fl.id, tlt.id, ?, CURRENT_TIMESTAMP FROM input.location fl JOIN input.location_type tlt on fl.simulation_id = tlt.simulation_id WHERE fl.external_id = ? AND tlt.external_id = ? AND fl.tenant_id = ? AND fl.simulation_id = ?'''
+sqlFshipGenSpec = '''INSERT INTO shipment_time_distribution (tenant_id, simulation_id, external_id, from_location_id, to_location_id, create_user, create_timestamp) 
+    SELECT ?, ?, ?, flt.id, tl.id, ?, CURRENT_TIMESTAMP FROM input.location_type flt JOIN input.location tl on flt.simulation_id = tl.simulation_id WHERE flt.external_id = ? AND tl.external_id AND flt.tenant_id = ? AND flt.simulation_id = ?'''
+sqlFshipGenGen = '''INSERT INTO shipment_time_distribution (tenant_id, simulation_id, external_id, from_location_id, to_location_id, create_user, create_timestamp) 
+    SELECT ?, ?, ?, flt.id, tlt.id, ?, CURRENT_TIMESTAMP FROM input.location_type flt JOIN input.location tlt on flt.simulation_id = tlt.simulation_id WHERE flt.external_id = ? AND tlt.external_id AND flt.tenant_id = ? AND flt.simulation_id = ?'''
+
+curSource.execute(sqlDshiptimeERROR)
+if curSource.rowcount > 0:
+    lognormalShips = curSource.fetchall()
+    Print 'Lognormal distributions are not allowed.  These shipping times will be ignored.  This may lead to routes without shipping times, and thus that cannot exist.'
+    Print 'These shipping time distributions are ignored'
+    for row in lognormalShips:
+        print 'From Base: ' + row.FRbase + ' To Base: ' + row.TObase
+# Loop through four sets of distributions based on the specificity of the SRAN - either a specific location or a level (like depot) that equals a location_type in lcm
+exID = 1
+# Start with specific & specific
+curSource.execute(sqlDshiptimeSpecSpec)
+shipDs = curSource.fetchall()
+for row in shipDs:
+    cursorINP.execute(sqlFshipDist, (tID, sID, exID, ''' "Shipment" ''', cUser, tID, sID, row.DistType)) # distribution
+    cursorINP.execute(sqlFshipDistParam, (tID, sID, exID, row.p1, cUser, tID, sID, exID, 1)) # distribution parameter
+    if row.DistType in ("Weibull","Normal", "Uniform"): # require two parameters
+        cursorINP.execute(sqlFshipDistParam, (tID, sID, exID, row.p2, cUser, tID, sID, exID, 2)) # distribution parameter
+    cursorINP.execute(sqlFshipSpecSpec, (tID, sID, exID, cUser, row.Fsran, row.Tsran, tID, sID, exID)) # shipment time distribution
+# Next do specific & general
+curSource.execute(sqlDshiptimeSpecGen)
+shipDs = curSource.fetchall()
+for row in shipDs:
+    cursorINP.execute(sqlFshipDist, (tID, sID, exID, ''' "Shipment" ''', cUser, tID, sID, row.DistType)) # distribution
+    cursorINP.execute(sqlFshipDistParam, (tID, sID, exID, row.p1, cUser, tID, sID, exID, 1)) # distribution parameter
+    if row.DistType in ("Weibull","Normal", "Uniform"): # require two parameters
+        cursorINP.execute(sqlFshipDistParam, (tID, sID, exID, row.p2, cUser, tID, sID, exID, 2)) # distribution parameter
+    cursorINP.execute(sqlFshipSpecGen, (tID, sID, exID, cUser, row.Fsran, row.tltEid, tID, sID, exID)) # shipment time distribution - note location type id as leftmost digit in SRAN
+# Next do general & specific
+curSource.execute(sqlDshiptimeGenSpec)
+shipDs = curSource.fetchall()
+for row in shipDs:
+    cursorINP.execute(sqlFshipDist, (tID, sID, exID, ''' "Shipment" ''', cUser, tID, sID, row.DistType)) # distribution
+    cursorINP.execute(sqlFshipDistParam, (tID, sID, exID, row.p1, cUser, tID, sID, exID, 1)) # distribution parameter
+    if row.DistType in ("Weibull","Normal", "Uniform"): # require two parameters
+        cursorINP.execute(sqlFshipDistParam, (tID, sID, exID, row.p2, cUser, tID, sID, exID, 2)) # distribution parameter
+    cursorINP.execute(sqlFshipGenSpec, (tID, sID, exID, cUser, row.fltEid, row.Tsran, tID, sID, exID)) # shipment time distribution
+# Last do general & general
+curSource.execute(sqlDshiptimeGenGen)
+shipDs = curSource.fetchall()
+for row in shipDs:
+    cursorINP.execute(sqlFshipDist, (tID, sID, exID, ''' "Shipment" ''', cUser, tID, sID, row.DistType)) # distribution
+    cursorINP.execute(sqlFshipDistParam, (tID, sID, exID, row.p1, cUser, tID, sID, exID, 1)) # distribution parameter
+    if row.DistType in ("Weibull","Normal", "Uniform"): # require two parameters
+        cursorINP.execute(sqlFshipDistParam, (tID, sID, exID, row.p2, cUser, tID, sID, exID, 2)) # distribution parameter
+    cursorINP.execute(sqlFshipGenGen, (tID, sID, exID, cUser, row.fltEid, row.tltEid, tID, sID, exID)) # shipment time distribution
+
+###################################### / END SHIPEMENT TIME DISTRIBUTION
+
+###################################### / BEGIN ROUTE AND RESUPPLY
+#sqlDRoute = '''SELECT %s, %s, '%s', [*Base Structure].[From Base], [*Base Structure].[To Base], %s, %s FROM [*Base Structure]''' % (tID, sID, cUser, tID, sID)
+# SQLFRoute = '''INSERT INTO input.route (tenant_id, simulation_id, from_location_id, to_location_id, create_user, create_timestamp) 
+# SELECT ?, ?, l1.id, l2.id, ?, CURRENT_TIMESTAMP FROM location l1 JOIN l2 on l1.simulation_id = l2.simulation_id WHERE l1.external_id = ? AND l2.external_id = ? AND l1.tenant_id = ? AND l1.simulation_id = ?'''
+sqlDRoute = '''SELECT [*Base Structure].[From Base] AS FRbase, [*Base Structure].[To Base] as TObase, Group, Probability FROM [*Base Structure]''' 
 curSource.execute(sqlDRoute)
 routes = curSource.fetchall()
-SQLFRoute = '''INSERT INTO input.route (tenant_id, simulation_id, from_location_id, to_location_id, create_user, create_timestamp) 
-SELECT ?, ?, l1.id, l2.id, ?, CURRENT_TIMESTAMP FROM location l1 JOIN l2 on l1.simulation_id = l2.simulation_id WHERE l1.external_id = ? AND l2.external_id = ? AND l1.tenant_id = ? AND l1.simulation_id = ?'''
+# load into route, route_map
+SQLFRoute = '''INSERT INTO input.route (tenant_id, simulation_id, external_id, from_location_id, to_location_id, create_user, create_timestamp) 
+    SELECT ?, ?, ?, lf.id, lt.id, ?, CURRENT_TIMESTAMP FROM location lf JOIN location lt on lf.simulation_id = lt.simulation_id WHERE lf.external_id = ? AND lt.external_id = ? AND lf.tenant_id = ? AND lf.simulation_id = ?'''
+sqlFRouteMapSpec = '''INSERT INTO input.route_map (tenant_id, simulation_id, external_id, object_class_id, probability, route_id, create_user, create_timestamp)
+    SELECT ?, ?, ?, oc.id, ?, r.id, ?, CURRENT_TIMESTAMP FROM input.object_class oc JOIN input.route r ON r.simulation_id = oc.simulation_id WHERE left(oc.external_id,3) = ? AND oc.tenant_id = ? and oc.simulation_id = ? AND r.external_id = ?'''
+sqlFRouteMapGen = '''INSERT INTO input.route_map (tenant_id, simulation_id, external_id, probability, route_id, create_user, create_timestamp)
+    SELECT ?, ?, ?, ?, r.id, ?, CURRENT_TIMESTAMP FROM input.object_class oc JOIN input.route r ON r.simulation_id = oc.simulation_id WHERE r.tenant_id = ? and r.simulation_id = ? AND r.external_id = ?'''
+exID = 1
+for row in routes:
+    cursorINP.execute(SQLFRoute, (tID, sID, exID, cUser, row.FRbase, row.TObase, tID, sID))
+    if row.Group == -1: # applies to all objects, leave the object info blank
+        cursorINP.execute(sqlFRouteMapGen, (tID, sID, exID, row.Probability, cUser, tID, sID, exID))
+    else: # applies to only specific objects - match to classes (group is required for model implementation)
+        cursorINP.execute(sqlFRouteMapSpec, (tID, sID, exID, row.Probability, cUser, row.Group, tID, sID, exID))
+
 cursorINP.executemany(SQLFRoute, routes)
-print 'Done with Route'
-###################################### / END ROUTE
+print 'Done with Route and Resupply'
+###################################### / END ROUTE AND RESUPPLY
 
 ############################################################################ / BEGIN OUTPUT DATA ############################################################################ / BEGIN OUTPUT DATA
 ############################################################################ / BEGIN OUTPUT DATA ############################################################################ / BEGIN OUTPUT DATA
@@ -720,8 +813,8 @@ sqlMoreCEInfo = '''UPDATE output.component_events a
         JOIN    input.location_region lr ON lr.id = l.location_region_id
     SET     a.object_class_id = oc.id, a.object_class_name = oc.name, a.object_group_id = og.id,
             a.object_group_name = og.name, a.region_id = lr.id, a.region_name = lr.name
-    WHERE   a.tenant_id = %s AND a.simulation_id = %s ''' (tID, sID)
-cursorOUT.execute(sqlMoreAvInfo)    
+    WHERE   a.tenant_id = %s AND a.simulation_id = %s ''' % (tID, sID)
+cursorOUT.execute(sqlMoreCEInfo)    
 print 'Done with Output: Component Events'
 ###################################### / END COMPONENT EVENTS
 
@@ -736,9 +829,9 @@ sqlFOspares = '''INSERT INTO output.spare_quantity (tenant_id, simulation_id, pr
 curSource.execute(sqlDSpQtr)
 spares = curSource.fetchall()
 cursorOUT.executemany(sqlFOspares, spares)
-curSource.execute(sqlDSpWeek)
-spares = curSource.fetchall()
-cursorOUT.executemany(sqlFOspares, spares)
+# curSource.execute(sqlDSpWeek)  - there's too much data here - it takes forever to load
+# spares = curSource.fetchall()
+# cursorOUT.executemany(sqlFOspares, spares)
 sqlMoreSPInfo = '''UPDATE output.spare_quantity a
         JOIN    input.object_type ot ON ot.id = a.object_type_id
         JOIN    input.object_class oc ON oc.id = ot.object_class_id
