@@ -29,12 +29,12 @@ import pyodbc
 #import pymysql.cursors
 
 # Define a few variables
-sID = 100 # simulation id
-tID = 100 # tenant id
+sID = 1002 # simulation id
+tID = 1000 # tenant id
 pID = 2 # project id
 cUser = 'user' # default create_user
-SimOrDemo = 1 # Simulation, 1 (with failure rates defined in calendar time) or demo, 2 (with failure rates defined in operating hours)
-LocalOrWeb = 1 # local, 1 (localhost) or web, 2 (out on insight)
+SimOrDemo = 2 # Simulation, 1 (with failure rates defined in calendar time) or demo, 2 (with failure rates defined in operating hours)
+LocalOrWeb = 2 # local, 1 (localhost) or web, 2 (out on insight)
 numberOfReps = 2000
 newTenant = 1
 
@@ -43,10 +43,10 @@ workDir = 'C:/Users/tbaer/Desktop/demo/data/'
 os.chdir(workDir)
 ### Define the database connections
 # First the Source database (DEMAND Pro)
-db_path = 'P:/Internal Projects/Data Scientist Team/InsightLCM/Testing/FAST/DEMAND Pro Basic Training/BasicCourseModelsDEMAND/PreEx1/'
-model = "Model 1-1_TS1.mdb"
-#db_path = "P:/Internal Projects/Data Scientist Team/InsightLCM/Demo/Aviation/Early2015/"
-#model = "1-Baseline.mdb"
+#db_path = 'P:/Internal Projects/Data Scientist Team/InsightLCM/Testing/FAST/DEMAND Pro Basic Training/BasicCourseModelsDEMAND/PreEx1/'
+#model = "Model 1-1_TS1.mdb"
+db_path = "P:/Internal Projects/Data Scientist Team/InsightLCM/Demo/Aviation/Early2015/"
+model = "1-Baseline.mdb"
 full_filename = db_path+model
 constr = 'Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=%s;'  % full_filename
 connSource = pyodbc.connect(constr)
@@ -60,7 +60,7 @@ if LocalOrWeb == 1:
     aUser = 'root'
     aPW = 'password'
 else:
-    aServer = '52.12.7.51'  ### SET THIS TO YOUR FAVORITE WEB DB
+    aServer = '10.100.2.116'  ### SET THIS TO YOUR FAVORITE WEB DB
     aPort = 3306
     aUser = 'csiuser'
     aPW = 'LCMW!llMakeS0me'
@@ -148,8 +148,8 @@ connSinkLCM.commit()
 
 
 ###################################### / BEGIN LCM 
-# only insert LCM data if this is a demo
-if SimOrDemo == 2:
+# only insert LCM data if this is a demo and a new tenant
+if SimOrDemo == 2 and newTenant == 1:
     # Location info
     ###################################### / BEGIN LOCATION REGION
     # idealy this would come from the command table, but there's no guarentee that'll be filled in.  so just use one region
@@ -220,7 +220,131 @@ if SimOrDemo == 2:
     sql = '''INSERT INTO `object_group` (`tenant_id`, `name`, `internal_name`, `external_id`, `create_user`, `create_timestamp`) VALUES (?, ?, ?, ?, ?, ?)'''
     cursorLCM.execute(sql, (tID, 'Asset', 'Asset', 1, cUser, datetime.datetime.now().isoformat()))
     cursorLCM.execute(sql, (tID, 'Component', 'Component', 2, cUser, datetime.datetime.now().isoformat()))
-    print "Done with Object Group"
+    print "Done with LCM Object Group"
+
+    ###################################### / BEGIN OBJECT CLASS
+    # Class comes from the class data table
+    # insert both assets and components
+    sqlA = '''SELECT DISTINCT %s AS ten, [*Class data].[object class] AS ocEid, 1 as ogEid, [*Class data].Name, [*Class data].Name AS intname FROM [*Class data] INNER JOIN [*Object type] ON [*Class data].[Object Class] = [*Object type].[Object class] WHERE ((([*Object type].[Ind level])=1))''' % (tID) 
+    sqlC = '''SELECT DISTINCT %s AS ten, [*Class data].[object class] AS ocEid, 2 as ogEid, [*Class data].Name, [*Class data].Name AS intname FROM [*Class data] INNER JOIN [*Object type] ON [*Class data].[Object Class] = [*Object type].[Object class] WHERE ((([*Object type].[Ind level])<>1))'''  % (tID)
+    # first insert the assets, then the components
+    curSource.execute(sqlA) # get the data
+    classes=curSource.fetchall()
+    sqlAput = '''INSERT INTO object_class (tenant_id, external_id, object_group_id, name, internal_name, create_user, create_timestamp) SELECT ?, ?, og.id, ?, ?, ?, CURRENT_TIMESTAMP FROM object_group og where og.tenant_id = ? and og.external_id = ?''' ## pymysql takes %s, wheras pyodbc takes ?
+    # now loop through data
+    for row in classes:
+        # convert internal name so it doesn't have spaces
+        row.intname = row.intname.replace(' ','')
+        # deposit the data
+        cursorLCM.execute(sqlAput, (tID,row.ocEid, row.Name, row.intname, cUser, tID, row.ogEid))
+    ## and repeat for components
+    # get the pyodbc table
+    curSource.execute(sqlC) 
+    classes=curSource.fetchall()
+    sqlCput = '''INSERT INTO object_class (tenant_id, external_id, object_group_id, name, internal_name, create_user, create_timestamp) SELECT ?, ?, og.id, ?, ?, ?, CURRENT_TIMESTAMP FROM object_group og where og.tenant_id = ? and og.external_id = ?''' ## pymysql takes %s, wheras pyodbc takes ?
+    # take out spaces
+    for row in classes:
+        row.intname = row.intname.replace(' ','')
+        cursorLCM.execute(sqlCput, (tID,row.ocEid, row.Name, row.intname, cUser, tID, row.ogEid))
+    print "Done with Object Class"
+    ###################################### / END OBJECT CLASS
+
+    ###################################### / BEGIN OBJECT TYPE
+    # query the data, input all the data in the temp table, move all the data over - this type with no temporary table
+    # object class Insight ID will come from link through temp table to class external id
+    # get source data
+    sqlT = '''SELECT name, name as intname, [part number] as pn, [object type] as otEid, [object class] as ocEid FROM [*object type]'''
+    curSource.execute(sqlT)
+    types = curSource.fetchall()
+    # remove spaces from internal name and check for duplictates, then add
+    typedict = {}
+    dupes = 1
+    # query to paste into source input
+    sqlT = '''INSERT INTO object_type (tenant_id, object_class_id, name, internal_name, part_number, external_id, create_user, create_timestamp) SELECT ?, oc.id, ?, ?, ?, ?, 'user', CURRENT_TIMESTAMP FROM object_class oc where oc.tenant_id = ? and oc.external_id = ?'''
+    for row in types:
+        if typedict.has_key(row.name): # if it's a duplicate, add a number to it
+            row.name = row.name + str(dupes)
+            row.intname = row.name
+            dupes += 1
+        typedict.update({row.name:1})   # add to dictionary after checking for duplicate
+        row.intname = row.intname.replace(' ','') # do this check regardless
+        cursorLCM.execute(sqlT, (tID, row.name, row.intname, row.pn, row.otEid, tID, row.ocEid))
+    print "Done with Object Type"
+    ###################################### / END OBJECT TYPE
+
+    ###################################### / BEGIN OBJECT AGING UNIT
+    sqlAging = '''INSERT INTO object_aging_unit_type (tenant_id, name, create_user, create_timestamp) VALUES (?, "Flying Hours", ?, CURRENT_TIMESTAMP) '''
+    cursorLCM.execute(sqlAging, (tID, cUser))
+    ###################################### / END OBJECT AGING UNIT
+    ###################################### / BEGIN OBJECT AVAILABILITY AND UTILIZATION AND STATE TYPE
+    sqlInsert = '''INSERT INTO object_availability_type (tenant_id, name, create_user, create_timestamp) VALUES (?, "AVAILABLE", ?, CURRENT_TIMESTAMP) '''
+    cursorLCM.execute(sqlInsert, (tID, cUser))
+    sqlInsert = '''INSERT INTO object_availability_type (tenant_id, name, create_user, create_timestamp) VALUES (?, "NOT AVAILABLE", ?, CURRENT_TIMESTAMP) '''
+    cursorLCM.execute(sqlInsert, (tID, cUser))
+    sqlInsert = '''INSERT INTO object_utilization_type (tenant_id, name, create_user, create_timestamp) VALUES (?, "UTILIZED", ?, CURRENT_TIMESTAMP) '''
+    cursorLCM.execute(sqlInsert, (tID, cUser))
+    sqlInsert = '''INSERT INTO object_utilization_type (tenant_id, name, create_user, create_timestamp) VALUES (?, "NOT UTILIZED", ?, CURRENT_TIMESTAMP) '''
+    cursorLCM.execute(sqlInsert, (tID, cUser))
+    sqlInsert = '''INSERT INTO object_state_type (tenant_id, name, create_user, create_timestamp) VALUES (?, "PLATFORM", ?, CURRENT_TIMESTAMP) '''
+    cursorLCM.execute(sqlInsert, (tID, cUser))
+    sqlInsert = '''INSERT INTO object_state_type (tenant_id, name, create_user, create_timestamp) VALUES (?, "PART", ?, CURRENT_TIMESTAMP) '''
+    cursorLCM.execute(sqlInsert, (tID, cUser))
+    sqlInsert = '''INSERT INTO object_state_type (tenant_id, name, create_user, create_timestamp) VALUES (?, "SPARE", ?, CURRENT_TIMESTAMP) '''
+    cursorLCM.execute(sqlInsert, (tID, cUser))
+    ###################################### / END OBJECT AVAILABILITY AND UTILIZATION AND STATE TYPE
+
+    ###################################### / BEGIN OBJECT & METRICS
+    # only select the objects that are originally in the simulation (with arrival time = 0)
+    # sqlO = '''SELECT id as oEid, TreeCode as name, [object type] as otEid, sran as lEid, [parent pp] as poEid, iif(mid([object type],4,1)=1,1,0) as asset FROM [*object attributes initial] WHERE [Arrival time ta] = 0'''
+    # curSource.execute(sqlO)
+    # objects = curSource.fetchall()
+    sqlOAll = '''SELECT %s as tenantID, TreeCode as name, TreeCode as intname, TreeCode as sernum, [parent pp] as poEid, id as oEid, '%s' as username, %s as tenant_id2, sran as lEid, [object type] as otEid FROM [*object attributes initial] WHERE [Arrival time ta] = 0''' % (tID, cUser, tID)
+    sqlOIns = '''INSERT INTO object (tenant_id, object_type_id, location_id, name, internal_name, serial_number, object_state_type_id, primary_aging_unit_id, update_user, external_id, create_user, create_timestamp) SELECT ?, ot.id, l.id, ?, ?, ?, ost.id, oau.id, ?, ?, ?, CURRENT_TIMESTAMP FROM object_type ot JOIN location l on l.tenant_id = ot.tenant_id JOIN object_state_type ost on ost.tenant_id = l.tenant_id JOIN object_aging_unit_type oau on oau.tenant_id = l.tenant_id WHERE ot.tenant_id = ? and l.external_id = ? and ot.external_id = ? and ost.name like "Part"'''
+    curSource.execute(sqlOAll)
+    objects = curSource.fetchall()
+    # there should never be spaces in the tree code, so can leave the internal name check out
+    #for row in objects:
+    #   cursorINP.execute(sqlOIns, (tID, sID, row.asset, row.name, row.name, row.name, row.poEid, row.oEid, cUser, tID, sID, row.lEid, row.otEid))
+    cursorLCM.executemany(sqlOIns, objects)
+    # update the parent objects
+    sqlO = '''UPDATE object o JOIN object po ON o.update_user = po.external_id and o.tenant_id = po.tenant_id SET o.parent_object_id = po.id WHERE o.tenant_id = %s''' % (tID)
+    cursorLCM.execute(sqlO)
+    # update object state types for platforms and spares
+    sqlUpd = '''UPDATE object o JOIN object_state_type ost on ost.tenant_id = o.tenant_id SET o.object_state_type_id = ost.id WHERE ost.name = "Platform" and o.parent_object_id is null and o.name like "P%" and o.tenant_id = ?'''
+    cursorLCM.execute(sqlUpd, (tID))
+    sqlUpd = '''UPDATE object o JOIN object_state_type ost on ost.tenant_id = o.tenant_id SET o.object_state_type_id = ost.id WHERE ost.name = "Spare" and o.name not like "P%" AND o.tenant_id = ?'''
+    cursorLCM.execute(sqlUpd, (tID))
+    # create object status record for platforms
+    sqlInsert = '''INSERT INTO object_status (tenant_id, external_id, object_availability_type_id, object_utilization_type_id, create_user, create_timestamp) SELECT ?, o.id, oat.id, obut.id, ?, CURRENT_TIMESTAMP FROM object o JOIN object_utilization_type obut on obut.tenant_id = o.tenant_id JOIN object_availability_type oat on oat.tenant_id = o.tenant_id JOIN object_state_type ost on ost.tenant_id = o.tenant_id WHERE o.tenant_id = ? AND oat.name like "AVAILABLE" AND obut.name like "UTILIZED" AND ost.id = o.object_state_type_id AND ost.name like "Platform"'''
+    cursorLCM.execute(sqlInsert, (tID, cUser, tID))
+    # link this status record back to object
+    sqlUpd = '''UPDATE object o JOIN object_status os on os.tenant_id = o.tenant_id SET o.object_status_id = os.id WHERE os.external_id = o.id AND o.tenant_id = ?'''
+    cursorLCM.execute(sqlUpd, (tID))
+    # update status location
+    sqlUpd = '''UPDATE object o JOIN object_status os on os.tenant_id = o.tenant_id and o.object_status_id = os.id join location l on l.id = o.location_id SET os.location = l.name WHERE os.tenant_id = ?'''
+    cursorLCM.execute(sqlUpd, (tID))
+    # update status operations status
+    sqlUpd = '''UPDATE object_utilization_type obut JOIN object_status os on os.tenant_id = obut.tenant_id and obut.id = os.object_utilization_type_id SET os.operations_status = obut.name WHERE os.tenant_id = ?'''
+    cursorLCM.execute(sqlUpd, (tID))
+
+    # create object metrics record for platforms
+    sqlInsert = '''INSERT INTO object_metrics (tenant_id, external_id, create_user, create_timestamp) SELECT ?, o.id, ?, CURRENT_TIMESTAMP FROM object o WHERE o.tenant_id = ? AND o.update_user = 0 and o.name like "P%"'''
+    cursorLCM.execute(sqlInsert, (tID, cUser, tID))
+    # link this metrics record back to object
+    sqlUpd = '''UPDATE object o JOIN object_metrics om on om.tenant_id = o.tenant_id SET o.object_metrics_id = om.id WHERE om.external_id = o.id AND o.tenant_id = ?'''
+    cursorLCM.execute(sqlUpd, (tID))
+
+    # create object specifications record for platforms
+    sqlInsert = '''INSERT INTO object_specification (tenant_id, external_id, create_user, create_timestamp) SELECT ?, o.id, ?, CURRENT_TIMESTAMP FROM object o WHERE o.tenant_id = ? AND o.update_user = 0 and o.name like "P%"'''
+    cursorLCM.execute(sqlInsert, (tID, cUser, tID))
+    # link this metrics record back to object
+    sqlUpd = '''UPDATE object o JOIN object_specification os on os.tenant_id = o.tenant_id SET o.object_specification_id = os.id WHERE os.external_id = o.id AND o.tenant_id = ?'''
+    cursorLCM.execute(sqlUpd, (tID))
+
+    print "Done with LCM Object and Metrics"
+    ###################################### / END OBJECT & METRICS
+    # Relevant object information to update:
+    #   Age since last install 
 
 ######################################
 
@@ -779,7 +903,7 @@ print "Done with Storage"
 # Add spares to storages
 sqlS = '''UPDATE input.object o join input.storage s on s.location_id = o.location_id set o.storage_id = s.id where  asset = 0 and s.tenant_id = ? and s.simulation_id = ?''' # o.parent_object_id is null and DO I NEED THIS?
 cursorINP.execute(sqlS, (tID, sID))
-print "Done with Storage"
+print "Done with Current Inventory"
 ###################################### / END STORAGE
  
 ###################################### / BEGIN FUTURE INVENTORY 
@@ -956,6 +1080,9 @@ SQLFResupplySpecSpec = '''INSERT INTO input.resupply (tenant_id, simulation_id, 
 # print out the routes that don't have resupply values
 print 'Done with Resupply'
 ###################################### / END RESUPPLY
+
+connSinkLCM.commit()
+connSinkInput.commit()
 
 ############################################################################ / BEGIN OUTPUT DATA ############################################################################ / BEGIN OUTPUT DATA
 ############################################################################ / BEGIN OUTPUT DATA ############################################################################ / BEGIN OUTPUT DATA
