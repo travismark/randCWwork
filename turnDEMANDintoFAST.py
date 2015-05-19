@@ -24,7 +24,7 @@ import os
 import math
 import csv # output data
 import timeit # debug
-import datetime
+import datetime # for time
 import pyodbc
 #import pymysql.cursors
 
@@ -37,6 +37,7 @@ SimOrDemo = 2 # Simulation, 1 (with failure rates defined in calendar time) or d
 LocalOrWeb = 2 # local, 1 (localhost) or web, 2 (out on insight)
 numberOfReps = 2000
 newTenant = 1
+prevTime = datetime.datetime.now().time().isoformat()
 
 ### Define working directory
 workDir = 'C:/Users/tbaer/Desktop/demo/data/'
@@ -139,7 +140,7 @@ if newTenant == 1:
     cursorLCM.execute(sqlUoM, (tID, 'Operating Hours', 10, 3, cUser)) # for operating hours (viewing failures in scenario editor)
     cursorLCM.execute(sqlUoMnoIU, (tID, 'Each', 4, cUser)) # for Future Inventory
     cursorLCM.execute(sqlUoMnoIU, (tID, 'Integer', 5, cUser)) # for Future Inventory
-    print "Done with Unit of Measure"
+    print "Done with Unit of Measure" , datetime.datetime.now().time().isoformat()
 ###################################### / END UNIT OF MEASURE
 
 # DONE WITH THE LCM STUFF - COMMIT This
@@ -165,7 +166,7 @@ if SimOrDemo == 2 and newTenant == 1:
             row.intname = row.intname.replace(' ','')
             cursorLCM.execute(sqlLR, (tID, row.name, row.intname, exID, cUser, datetime.datetime.now().isoformat()))
             exID += 1
-    print "Done with LCM Location Region"
+    print "Done with LCM Location Region" , datetime.datetime.now().time().isoformat()
     ###################################### / END LOCATION REGION
     ###################################### / BEGIN LOCATION TYPE
     # Types are hardcoded to the three Maintenance Levels
@@ -173,7 +174,7 @@ if SimOrDemo == 2 and newTenant == 1:
     cursorLCM.execute(sqlLT, (tID, 'Organizational', 1, cUser, datetime.datetime.now().isoformat()))
     cursorLCM.execute(sqlLT, (tID, 'Intermediate', 2, cUser, datetime.datetime.now().isoformat()))
     cursorLCM.execute(sqlLT, (tID, 'Depot', 3, cUser, datetime.datetime.now().isoformat()))
-    print "Done with LCM Location Type"
+    print "Done with LCM Location Type" , datetime.datetime.now().time().isoformat()
     ###################################### / END LOCATION TYPE
     ###################################### / BEGIN LOCATION
     # get source data
@@ -212,7 +213,7 @@ if SimOrDemo == 2 and newTenant == 1:
             locationdict.update({row.name:1})   # add to dictionary after checking for duplicate
             row.intname = row.intname.replace(' ','') # do this check regardless
             cursorLCM.execute(sqlL, (tID, row.name, row.intname, row.lEid, tID, row.Mlevel, row.Cname))
-    print "Done with LCM Location"
+    print "Done with LCM Location" , datetime.datetime.now().time().isoformat()
     ###################################### / END LOCATION
     ###################################### / BEGIN OBJECT GROUP
     # group is hard coded as asset or component
@@ -220,7 +221,7 @@ if SimOrDemo == 2 and newTenant == 1:
     sql = '''INSERT INTO `object_group` (`tenant_id`, `name`, `internal_name`, `external_id`, `create_user`, `create_timestamp`) VALUES (?, ?, ?, ?, ?, ?)'''
     cursorLCM.execute(sql, (tID, 'Asset', 'Asset', 1, cUser, datetime.datetime.now().isoformat()))
     cursorLCM.execute(sql, (tID, 'Component', 'Component', 2, cUser, datetime.datetime.now().isoformat()))
-    print "Done with LCM Object Group"
+    print "Done with LCM Object Group" , datetime.datetime.now().time().isoformat()
 
     ###################################### / BEGIN OBJECT CLASS
     # Class comes from the class data table
@@ -246,7 +247,7 @@ if SimOrDemo == 2 and newTenant == 1:
     for row in classes:
         row.intname = row.intname.replace(' ','')
         cursorLCM.execute(sqlCput, (tID,row.ocEid, row.Name, row.intname, cUser, tID, row.ogEid))
-    print "Done with Object Class"
+    print "Done with LCM Object Class" , datetime.datetime.now().time().isoformat()
     ###################################### / END OBJECT CLASS
 
     ###################################### / BEGIN OBJECT TYPE
@@ -269,7 +270,7 @@ if SimOrDemo == 2 and newTenant == 1:
         typedict.update({row.name:1})   # add to dictionary after checking for duplicate
         row.intname = row.intname.replace(' ','') # do this check regardless
         cursorLCM.execute(sqlT, (tID, row.name, row.intname, row.pn, row.otEid, tID, row.ocEid))
-    print "Done with Object Type"
+    print "Done with LCM Object Type" , datetime.datetime.now().time().isoformat()
     ###################################### / END OBJECT TYPE
 
     ###################################### / BEGIN OBJECT AGING UNIT
@@ -341,12 +342,13 @@ if SimOrDemo == 2 and newTenant == 1:
     sqlUpd = '''UPDATE object o JOIN object_specification os on os.tenant_id = o.tenant_id SET o.object_specification_id = os.id WHERE os.external_id = o.id AND o.tenant_id = ?'''
     cursorLCM.execute(sqlUpd, (tID))
 
-    print "Done with LCM Object and Metrics"
+    print "Done with LCM Object and Metrics" , datetime.datetime.now().time().isoformat()
     ###################################### / END OBJECT & METRICS
     # Relevant object information to update:
     #   Age since last install 
 
 ######################################
+# INPUT DATA
 
 
 ###################################### / BEGIN EVENT TYPE
@@ -362,7 +364,7 @@ for aName in enumerate(('Failure','Repair','Repair Complete','PM','PM Complete',
     cursorINP.execute(sqlE, (tID, sID, aName[1], aName[0], cUser, tID, sID, aName[0]))
 # now add a few more
 cursorINP.execute(sqlE, (tID, sID, 'Spare Unavailable', 25, cUser, tID, sID, 19))  ### THIS IS BAD - HARDCODED !!! TODO: GET RID OF 
-print "Done with Event"
+print "Done with Event" , datetime.datetime.now().time().isoformat()
 ###################################### / END EVENT
 
 # Location info
@@ -380,7 +382,7 @@ else:
         row.intname = row.intname.replace(' ','')
         cursorINP.execute(sqlLR, (tID, sID, row.name, row.intname, exID, cUser, datetime.datetime.now().isoformat()))
         exID += 1
-print "Done with Location Region"
+print "Done with Location Region" , datetime.datetime.now().time().isoformat()
 ###################################### / END LOCATION REGION
 ###################################### / BEGIN LOCATION TYPE
 # Types are hardcoded to the three Maintenance Levels
@@ -388,7 +390,7 @@ sqlLT = '''INSERT INTO location_type (tenant_id, simulation_id, name, external_i
 cursorINP.execute(sqlLT, (tID, sID, 'Organizational', 1, cUser, datetime.datetime.now().isoformat()))
 cursorINP.execute(sqlLT, (tID, sID, 'Intermediate', 2, cUser, datetime.datetime.now().isoformat()))
 cursorINP.execute(sqlLT, (tID, sID, 'Depot', 3, cUser, datetime.datetime.now().isoformat()))
-print "Done with Location Type"
+print "Done with Location Type" , datetime.datetime.now().time().isoformat()
 ###################################### / END LOCATION TYPE
 ###################################### / BEGIN LOCATION
 # get source data
@@ -427,7 +429,7 @@ else: # commands match
         locationdict.update({row.name:1})   # add to dictionary after checking for duplicate
         row.intname = row.intname.replace(' ','') # do this check regardless
         cursorINP.execute(sqlL, (tID, sID, row.name, row.intname, row.lEid, tID, sID, row.Mlevel, row.Cname))
-print "Done with Location"
+print "Done with Location" , datetime.datetime.now().time().isoformat()
 ###################################### / END LOCATION
 
 # Insert the object information: state_type, group, class, type, name
@@ -436,7 +438,8 @@ print "Done with Location"
 sql = '''INSERT INTO `object_state_type` (`tenant_id`, `simulation_id`, `name`, `internal_name`, `external_id`, `create_user`, `create_timestamp`) VALUES (?, ?, ?, ?, ?, ?, ?)'''
 cursorINP.execute(sql, (tID, sID, 'Serviceable', 'Serviceable', 1, cUser, datetime.datetime.now().isoformat()))
 cursorINP.execute(sql, (tID, sID, 'Unserviceable', 'Unserviceable', 2, cUser, datetime.datetime.now().isoformat()))
-print "Done with Object State Type"
+cursorINP.execute(sql, (tID, sID, 'Unserviceable and Awaiting Parts', 'UnserviceableAndAwaitingParts', 3, cUser, datetime.datetime.now().isoformat()))
+print "Done with Object State Type", datetime.datetime.now().time().isoformat()
 ###################################### / END OBJECT STATE TYPE
 ###################################### / BEGIN OBJECT GROUP
 # group is hard coded as asset or component
@@ -444,7 +447,7 @@ print "Done with Object State Type"
 sql = '''INSERT INTO `object_group` (`tenant_id`, `simulation_id`, `name`, `internal_name`, `external_id`, `create_user`, `create_timestamp`) VALUES (?, ?, ?, ?, ?, ?, ?)'''
 cursorINP.execute(sql, (tID, sID, 'Asset', 'Asset', 1, cUser, datetime.datetime.now().isoformat()))
 cursorINP.execute(sql, (tID, sID, 'Component', 'Component', 2, cUser, datetime.datetime.now().isoformat()))
-print "Done with Object Group"
+print "Done with Object Group" , datetime.datetime.now().time().isoformat()
 ###################################### / END OBJECT GROUP
 
 ###################################### / BEGIN OBJECT CLASS
@@ -471,7 +474,7 @@ sqlCput = '''INSERT INTO object_class (tenant_id, simulation_id, external_id, ob
 for row in classes:
     row.intname = row.intname.replace(' ','')
     cursorINP.execute(sqlCput, (tID,sID,row.ocEid, row.Name, row.intname, cUser, tID, sID, row.ogEid))
-print "Done with Object Class"
+print "Done with Object Class" , datetime.datetime.now().time().isoformat()
 ###################################### / END OBJECT CLASS
 
 ###################################### / BEGIN OBJECT TYPE
@@ -494,7 +497,7 @@ for row in types:
     typedict.update({row.name:1})   # add to dictionary after checking for duplicate
     row.intname = row.intname.replace(' ','') # do this check regardless
     cursorINP.execute(sqlT, (tID, sID, row.name, row.intname, row.pn, row.otEid, tID, sID, row.ocEid))
-print "Done with Object Type"
+print "Done with Object Type" , datetime.datetime.now().time().isoformat()
 ###################################### / END OBJECT TYPE
 
 ###################################### / BEGIN OBJECT
@@ -513,7 +516,7 @@ cursorINP.executemany(sqlOIns, objects)
 # update the parent objects
 sqlO = '''UPDATE object o JOIN object po ON o.stg_id = po.external_id AND o.simulation_id = po.simulation_id SET o.parent_object_id = po.id WHERE o.tenant_id = %s and o.simulation_id = %s''' % (tID, sID)
 cursorINP.execute(sqlO)
-print "Done with Object"
+print "Done with Object" , datetime.datetime.now().time().isoformat()
 ###################################### / END OBJECT
 
 # Probability - nrts and conseq_uer
@@ -522,7 +525,7 @@ print "Done with Object"
 sqlPC = '''INSERT INTO probability_class (tenant_id, simulation_id, name, sum_of_one_flag, external_id, create_user, create_timestamp) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'''
 cursorINP.execute(sqlPC, (tID, sID, 'Maintenance_Unscheduled', True, 1, cUser))
 cursorINP.execute(sqlPC, (tID, sID, 'Evacuation_Probability', False, 2, cUser))
-print "Done with Probabilty Class"
+print "Done with Probabilty Class" , datetime.datetime.now().time().isoformat()
 ###################################### / END PROBABILITY CLASS
 ###################################### / BEGIN PROBABILITY TYPE
 # five of these
@@ -532,7 +535,7 @@ for aName in enumerate(('No_Action','No_Fault_Found','Condemn','Repair'),start=1
     cursorINP.execute(sqlPT, (tID, sID, aName[1], aName[0], 1, cUser))
 # NRTS
 cursorINP.execute(sqlPT, (tID, sID, 'Evacuation_Probability', 5, 2, cUser))
-print "Done with Probability Type"
+print "Done with Probability Type" , datetime.datetime.now().time().isoformat()
 ###################################### / END PROBABILITY TYPE
 ###################################### / BEGIN Probability  ----- TODO: NEED TO HANDLE DEFAULTS TO CLASS !!!!!!!!!!! #################### - not working yet
 # # first do conseq_uer
@@ -560,13 +563,13 @@ print "Done with Probability Type"
 sqlDT = '''INSERT INTO distribution_type (tenant_id, simulation_id, external_id, name, create_user, create_timestamp) values (?, ?, ?, ?, ?, ?)''' # standard hard-coded types
 for aName in enumerate(('Constant','Exponential','Normal','Uniform','Weibull'),start=1): # distributions in alphabetical order
     cursorINP.execute(sqlDT, (tID, sID, aName[0], aName[1],'user', datetime.datetime.now().isoformat()))
-print "Done with Distribution Type"
+print "Done with Distribution Type" , datetime.datetime.now().time().isoformat()
 ###################################### / END DISTRIBUTION TYPE
 ###################################### / BEGIN DISTRIBUTION CLASS
 sqlDC = '''INSERT INTO distribution_class (tenant_id, simulation_id, external_id, name, create_user, create_timestamp) values (?, ?, ?, ?, ?, ?)''' # just one class right now
 for aName in enumerate(('Unscheduled Removal', 'Shipment Time', 'Server Time', 'Operation Profile')):
     cursorINP.execute(sqlDC, (tID, sID, aName[0], aName[1],'user', datetime.datetime.now().isoformat()))
-print "Done with Distribution Class"
+print "Done with Distribution Class" , datetime.datetime.now().time().isoformat()
 ###################################### / END DISTRIBUTION CLASS
 ###################################### / BEGIN DISTRIBUTION TYPE PARAMETER
 # first the first parameter
@@ -577,7 +580,7 @@ for aName in enumerate(('Fixed','Mean','Mean','Lower','Scale'),start=1): # distr
 cursorINP.execute(sqlDTP, ('Standard Deviation', 2 , cUser, tID, sID, 3))
 cursorINP.execute(sqlDTP, ('Upper', 2 , cUser, tID, sID, 4))
 cursorINP.execute(sqlDTP, ('Shape', 2 , cUser, tID, sID, 5))
-print "Done with Distribution Type Parameter"
+print "Done with Distribution Type Parameter" , datetime.datetime.now().time().isoformat()
 ###################################### / END DISTRIBUTION TYPE PARAMETER
 ###################################### / BEGIN DISTRIBUTION PARAMETER
 # failure distributions first - DEMAND Pro always uses weibull failure rates
@@ -658,7 +661,7 @@ for row in buildDists:
     # build times are assigned to the parent - one time to install all children parts
     tempName = 'Build exTID: ' + str(row.otEid) + ' exLID: ' + str(row.lEid)
     cursorINP.execute(sqlMnt, (tID, sID, exID, tempName, maintUOM, cUser, tID, sID, constantExID))
-print "Done with Distribution"
+print "Done with Distribution" , datetime.datetime.now().time().isoformat()
 ###################################### / END DISTRIBUTION PARAMETER
 ###################################### / BEGIN DISTRIBUTION PARAMETER
 # Failure distributions
@@ -745,7 +748,7 @@ for row in buildDists:
         cursorINP.execute(sqlMnt, (tID, sID, exID, row.p2, cUser, tID, sID, dexID, 2))
         exID += 1
     dexID += 1
-print "Done with Distribution Parameter"
+print "Done with Distribution Parameter" , datetime.datetime.now().time().isoformat()
 ###################################### / END DISTRIBUTION PARAMETER
 ###################################### / BEGIN EVENT DISTRIBUTION
 if LocalOrWeb == 1: # if it'll be put on the web, set the event distribution to something cleaner, like 'Failure'
@@ -824,7 +827,7 @@ for row in buildDists:
     else:
         cursorINP.execute(sqlIED, (tID, sID, exID, cUser, tID, sID, exID, row.otEid ))
     exID += 1
-print "Done with Event Distribution"
+print "Done with Event Distribution" , datetime.datetime.now().time().isoformat()
 ###################################### / END EVENT DISTRIBUTION
 
 ###################################### / BEGIN STRUCTURE
@@ -884,14 +887,14 @@ sqlSO='''INSERT INTO input.structure_object
     AND right(s.name,5) = 'Child'
     AND s.tenant_id=%s and s.simulation_id=%s;''' % (tID, sID, cUser, tID, sID)
 cursorINP.execute(sqlSO)
-print 'Done with Structure and Structure_Object'
+print 'Done with Structure and Structure_Object' , datetime.datetime.now().time().isoformat()
 ###################################### / END STRUCTURE
 
 ###################################### / BEGIN STORAGE TYPE
 # Types are hardcoded to 'MaintenanceAndStorage'
 sqlST = '''INSERT INTO storage_type (tenant_id, simulation_id, name, internal_name, external_id, create_user, create_timestamp) values (?, ?, ?, ?, ?, ?, ?)''' # just one class right now
 cursorINP.execute(sqlST, (tID, sID, 'Maintenance and Storage', 'MaintenanceAndStorage', 1, cUser, datetime.datetime.now().isoformat()))
-print "Done with Storage Type"
+print "Done with Storage Type" , datetime.datetime.now().time().isoformat()
 ###################################### / END STORAGE TYPE
 ###################################### / BEGIN STORAGE
 # Each location has one storage
@@ -899,11 +902,11 @@ sqlS = '''INSERT INTO input.storage (tenant_id, simulation_id, name, internal_na
 select ?, ?, l.name, l.internal_name, l.id, l.external_id, st.id, 0, ?, current_timestamp() FROM location l join storage_type st on st.simulation_id=l.simulation_id where st.external_id = ? and l.tenant_id = ? and l.simulation_id = ?'''
 # query to paste into source input
 cursorINP.execute(sqlS, (tID, sID, cUser, 1, tID, sID))
-print "Done with Storage"
+print "Done with Storage" , datetime.datetime.now().time().isoformat()
 # Add spares to storages
 sqlS = '''UPDATE input.object o join input.storage s on s.location_id = o.location_id set o.storage_id = s.id where  asset = 0 and s.tenant_id = ? and s.simulation_id = ?''' # o.parent_object_id is null and DO I NEED THIS?
 cursorINP.execute(sqlS, (tID, sID))
-print "Done with Current Inventory"
+print "Done with Current Inventory" , datetime.datetime.now().time().isoformat()
 ###################################### / END STORAGE
  
 ###################################### / BEGIN FUTURE INVENTORY 
@@ -953,7 +956,7 @@ for row in futureInventory:
     cursorINP.execute(sqlEP1, (tID, sID, exID, cUser, acquisitionEtId, exID, tID, sID, 1, row.otEid))
     cursorINP.execute(sqlEP2, (tID, sID, exID, int(row.num2acq), cUser, acquisitionEtId, exID, tID, sID, 2, row.otEid))
     exID += 1
-print "Done with Future Inventory"
+print "Done with Future Inventory" , datetime.datetime.now().time().isoformat()
 ###################################### / END FUTURE INVENTORY
 
 ###################################### / BEGIN OPTEMPO
@@ -967,18 +970,19 @@ OpProfs = curSource.fetchall()
 ###################################### / END OPTEMPO
 
 ###################################### / BEGIN SHIPEMENT TIME DISTRIBUTION
-# this method for shipping times, and base structure (route) handles defaults for Locations (location type)
-# some bases will match twice, but this is okay - finding one distribution handled next, when matching routes to distributions (via resupply table)
+# This method for shipping times, and base structure (route) handles defaults for Maintenance Levels (Location Type)
+# Bases should not match twice, however they may match both to a default (location type) and a specific case - resupply table will sort this out for display in the scenario editor
+# This table is actually pretty useless because it isn't used in a scenario editor
 sqlDshiptimeERROR = '''SELECT [*Shipment times].[Tsf Dist] as DistType, [*Shipment times].[From SRAN] as Fsran, [*Shipment times].[To SRAN] as Tsran, [*Shipment times].[Tsf P1] as p1, [*Shipment times].[Tsf P2] as p2
 FROM [*Shipment times] WHERE ((([*Shipment times].[Tsf Dist]) like 'lognormal'))'''
 sqlDshiptimeSpecSpec = '''SELECT [*Shipment times].[Tsf Dist] as DistType, [*Shipment times].[From SRAN] as Fsran, [*Shipment times].[To SRAN] as Tsran, [*Shipment times].[Tsf P1] as p1, [*Shipment times].[Tsf P2] as p2, Left([From SRAN],1) AS fltEid, Left([To SRAN],1) AS tltEid
-FROM [*Shipment times] WHERE ((([*Shipment times].[Tsf Dist]) Not Like 'lognormal') AND ((Right([From SRAN],3))<>0) AND ((Right([To SRAN],3))<>0))'''
+FROM [*Shipment times] WHERE ((([*Shipment times].[Tsf Dist]) Not Like 'lognormal') AND ((Right([From SRAN],4))<>0) AND ((Right([To SRAN],4))<>0))'''
 sqlDshiptimeSpecGen ='''SELECT [*Shipment times].[Tsf Dist] as DistType, [*Shipment times].[From SRAN] as Fsran, [*Shipment times].[To SRAN] as Tsran, [*Shipment times].[Tsf P1] as p1, [*Shipment times].[Tsf P2] as p2, Left([From SRAN],1) AS fltEid, Left([To SRAN],1) AS tltEid
-FROM [*Shipment times] WHERE ((([*Shipment times].[Tsf Dist]) Not Like 'lognormal') AND ((Right([From SRAN],3))<>0) AND ((Right([To SRAN],3))=0))'''
+FROM [*Shipment times] WHERE ((([*Shipment times].[Tsf Dist]) Not Like 'lognormal') AND ((Right([From SRAN],4))<>0) AND ((Right([To SRAN],4))=0))'''
 sqlDshiptimeGenSpec ='''SELECT [*Shipment times].[Tsf Dist] as DistType, [*Shipment times].[From SRAN] as Fsran, [*Shipment times].[To SRAN] as Tsran, [*Shipment times].[Tsf P1] as p1, [*Shipment times].[Tsf P2] as p2, Left([From SRAN],1) AS fltEid, Left([To SRAN],1) AS tltEid
-FROM [*Shipment times] WHERE ((([*Shipment times].[Tsf Dist]) Not Like 'lognormal') AND ((Right([From SRAN],3))=0) AND ((Right([To SRAN],3))<>0))'''
+FROM [*Shipment times] WHERE ((([*Shipment times].[Tsf Dist]) Not Like 'lognormal') AND ((Right([From SRAN],4))=0) AND ((Right([To SRAN],4))<>0))'''
 sqlDshiptimeGenGen ='''SELECT [*Shipment times].[Tsf Dist] as DistType, [*Shipment times].[From SRAN] as Fsran, [*Shipment times].[To SRAN] as Tsran, [*Shipment times].[Tsf P1] as p1, [*Shipment times].[Tsf P2] as p2, Left([From SRAN],1) AS fltEid, Left([To SRAN],1) AS tltEid
-FROM [*Shipment times] WHERE ((([*Shipment times].[Tsf Dist]) Not Like 'lognormal') AND ((Right([From SRAN],3))=0) AND ((Right([To SRAN],3))=0))'''
+FROM [*Shipment times] WHERE ((([*Shipment times].[Tsf Dist]) Not Like 'lognormal') AND ((Right([From SRAN],4))=0) AND ((Right([To SRAN],4))=0))'''
 
 sqlFshipDist = '''INSERT INTO distribution (tenant_id, simulation_id, external_id, name, distribution_class_id, distribution_type_id, unit_of_measure_id, create_user, create_timestamp) 
     SELECT ?, ?, ?, ?, dc.id, dt.id, uom.id, ?, CURRENT_TIMESTAMP FROM lcm.unit_of_measure uom, distribution_class dc join distribution_type dt on dt.simulation_id = dc.simulation_id WHERE dc.tenant_id = ? and dc.simulation_id = ? and dt.name = ? AND dc.name like "Shipment Time" AND uom.name like "Days" AND uom.tenant_id = ?'''
@@ -986,11 +990,11 @@ sqlFshipDistParam = '''INSERT INTO distribution_parameter (tenant_id, simulation
 
 sqlFshipSpecSpec = '''INSERT INTO shipment_time_distribution (tenant_id, simulation_id, external_id, distribution_id, from_location_id, to_location_id, create_user, create_timestamp) 
     SELECT ?, ?, ?, d.id, fl.id, tl.id, ?, CURRENT_TIMESTAMP FROM input.distribution d JOIN input.location fl ON d.simulation_id = fl.simulation_id JOIN input.location tl on fl.simulation_id = tl.simulation_id WHERE fl.external_id = ? AND tl.external_id = ? AND fl.tenant_id = ? AND fl.simulation_id = ? AND d.external_id = ? AND d.name like "Shipment%"'''
-sqlFshipSpecGen = '''INSERT INTO shipment_time_distribution (tenant_id, simulation_id, external_id, distribution_id, from_location_id, to_location_id, create_user, create_timestamp) 
+sqlFshipSpecGen = '''INSERT INTO shipment_time_distribution (tenant_id, simulation_id, external_id, distribution_id, from_location_id, to_location_type_id, create_user, create_timestamp) 
     SELECT ?, ?, ?, d.id, fl.id, tlt.id, ?, CURRENT_TIMESTAMP FROM input.distribution d JOIN input.location fl ON d.simulation_id = fl.simulation_id JOIN input.location_type tlt on fl.simulation_id = tlt.simulation_id WHERE fl.external_id = ? AND tlt.external_id = ? AND fl.tenant_id = ? AND fl.simulation_id = ? AND d.external_id = ? AND d.name like "Shipment%"'''
-sqlFshipGenSpec = '''INSERT INTO shipment_time_distribution (tenant_id, simulation_id, external_id, distribution_id, from_location_id, to_location_id, create_user, create_timestamp) 
+sqlFshipGenSpec = '''INSERT INTO shipment_time_distribution (tenant_id, simulation_id, external_id, distribution_id, from_location_type_id, to_location_id, create_user, create_timestamp) 
     SELECT ?, ?, ?, d.id, flt.id, tl.id, ?, CURRENT_TIMESTAMP FROM input.distribution d JOIN input.location_type flt ON d.simulation_id = flt.simulation_id JOIN input.location tl on flt.simulation_id = tl.simulation_id WHERE flt.external_id = ? AND tl.external_id = ? AND flt.tenant_id = ? AND flt.simulation_id = ? AND d.external_id = ? AND d.name like "Shipment%"'''
-sqlFshipGenGen = '''INSERT INTO shipment_time_distribution (tenant_id, simulation_id, external_id, distribution_id, from_location_id, to_location_id, create_user, create_timestamp) 
+sqlFshipGenGen = '''INSERT INTO shipment_time_distribution (tenant_id, simulation_id, external_id, distribution_id, from_location_type_id, to_location_type_id, create_user, create_timestamp) 
     SELECT ?, ?, ?, d.id, flt.id, tlt.id, ?, CURRENT_TIMESTAMP FROM input.distribution d JOIN input.location_type flt ON d.simulation_id = flt.simulation_id JOIN input.location tlt on flt.simulation_id = tlt.simulation_id WHERE flt.external_id = ? AND tlt.external_id = ? AND flt.tenant_id = ? AND flt.simulation_id = ? AND d.external_id = ? AND d.name like "Shipment%"'''
 
 curSource.execute(sqlDshiptimeERROR)
@@ -1042,7 +1046,7 @@ for row in shipDs:
         cursorINP.execute(sqlFshipDistParam, (tID, sID, exID, row.p2, cUser, tID, sID, exID, 2)) # distribution parameter
     cursorINP.execute(sqlFshipGenGen, (tID, sID, exID, cUser, row.fltEid, row.tltEid, tID, sID, exID)) # shipment time distribution
     exID += 1
-
+print "Done with Shipment Times and Distributions" , datetime.datetime.now().time().isoformat()
 ###################################### / END SHIPEMENT TIME DISTRIBUTION
 
 ###################################### / BEGIN ROUTE AND ROUTE MAP AND RESUPPLY
@@ -1068,17 +1072,35 @@ for row in routes:
     else: # applies to only specific objects - match to classes (group is required for model implementation)
         cursorINP.execute(sqlFRouteMapSpec, (tID, sID, exID, row.Probability, cUser, row.Group, tID, sID, exID))
 #cursorINP.executemany(SQLFRoute, routes)
-print 'Done with Route and Route Map'
+print 'Done with Route and Route Map' , datetime.datetime.now().time().isoformat()
 ###################################### / END ROUTE AND ROUTE MAP
 
 ###################################### / BEGIN RESUPPLY
-# Need one resupply table for each route - object information seems to be duplicated - in both resupply and route_map tables
-SQLFResupplySpecSpec = '''INSERT INTO input.resupply (tenant_id, simulation_id, external_id, route_id, distribution_id, create_user, create_timestamp) 
-    SELECT ?, ?, ?, r.id, d.id, ?, CURRENT_TIMESTAMP FROM input.route r JOIN input.shipment_time_distribution st ON st.from_location_id = r.from_location_id AND st.to_location_id = r.to_location_id WHERE r.tenant_id = ? AND r.simulation_id = ?'''
-SQLFResupplySpecSpec = '''INSERT INTO input.resupply (tenant_id, simulation_id, external_id, route_id, distribution_id, create_user, create_timestamp) 
-    SELECT ?, ?, ?, r.id, d.id, ?, CURRENT_TIMESTAMP FROM input.route r JOIN input.location rl ON r.location_id = rl.id JOIN input.location_type rlt ON ltr.id = lr.location_type_id JOIN input.shipment_time_distribution tst ON ltr.id = st.to_location_type_id JOIN input.location_type_id tlt ON tlt.id = st.to_location_type_id'''
+# Need one (and only one) resupply row for each route - object information seems to be duplicated - in both resupply and route_map tables
+# I'll steal from shipment distribution
+# not sure what supply order or minimum wait are, so I'll give them values of one and zero
+SQLResupplySpecSpec = '''INSERT INTO input.resupply (tenant_id, simulation_id, external_id, route_id, distribution_id, supply_order, minimum_wait, create_user, create_timestamp) 
+    SELECT ?, ?, r.external_id, r.id, st.distribution_id, ?, ?, ?, CURRENT_TIMESTAMP FROM input.route r JOIN input.shipment_time_distribution st ON st.from_location_id = r.from_location_id AND st.to_location_id = r.to_location_id WHERE r.tenant_id = ? AND r.simulation_id = ?'''
+# only add further routes that aren't there yet - need to make general matches through location type external id matches to first digit of the location's external id
+SQLResupplyGenSpec = '''INSERT INTO input.resupply (tenant_id, simulation_id, external_id, route_id, distribution_id, supply_order, minimum_wait, create_user, create_timestamp) 
+    SELECT ?, ?, r.external_id, r.id, st.distribution_id, ?, ?, ?, CURRENT_TIMESTAMP FROM input.route r JOIN input.shipment_time_distribution st ON r.to_location_id = st.to_location_id JOIN input.location_type flt on flt.id = st.from_location_type_id JOIN input.location fl on fl.id = r.from_location_id AND flt.external_id = left(fl.external_id,1) WHERE r.tenant_id = ? AND r.simulation_id = ? AND r.id not in (SELECT route_id from input.resupply r WHERE simulation_id = ?)'''
+# specific destination is more important than specific source
+SQLResupplyGenSpec = '''INSERT INTO input.resupply (tenant_id, simulation_id, external_id, route_id, distribution_id, supply_order, minimum_wait, create_user, create_timestamp) 
+    SELECT ?, ?, r.external_id, r.id, st.distribution_id, ?, ?, ?, CURRENT_TIMESTAMP FROM input.route r JOIN input.shipment_time_distribution st ON r.from_location_id = st.from_location_id JOIN input.location_type tlt on tlt.id = st.to_location_type_id JOIN input.location tl on tl.id = r.to_location_id AND tlt.external_id = left(tl.external_id,1) WHERE r.tenant_id = ? AND r.simulation_id = ? AND r.id not in (SELECT route_id from input.resupply r WHERE simulation_id = ?)'''
+# both gens
+SQLResupplyGenGen = '''INSERT INTO input.resupply (tenant_id, simulation_id, external_id, route_id, distribution_id, supply_order, minimum_wait, create_user, create_timestamp) 
+    SELECT ?, ?, r.external_id, r.id, st.distribution_id, ?, ?, ?, CURRENT_TIMESTAMP FROM input.route r JOIN input.shipment_time_distribution st ON r.simulation_id = st.simulation_id JOIN input.location_type tlt on tlt.id = st.to_location_type_id JOIN input.location tl on tl.id = r.to_location_id AND tlt.external_id = left(tl.external_id,1) JOIN input.location_type flt on flt.id = st.from_location_type_id JOIN input.location fl on fl.id = r.from_location_id AND flt.external_id = left(fl.external_id,1) WHERE r.tenant_id = ? AND r.simulation_id = ? AND r.id not in (SELECT route_id from input.resupply r WHERE simulation_id = ?)'''
+
+
+cursorINP.execute(SQLResupplySpecSpec, (tID, sID, 1, 0, cUser, tID, sID))
+cursorINP.execute(SQLResupplyGenSpec, (tID, sID, 1, 0, cUser, tID, sID, tID, sID))
+cursorINP.execute(SQLResupplySpecGen, (tID, sID, 1, 0, cUser, tID, sID, tID, sID))
+cursorINP.execute(SQLResupplyGenGen, (tID, sID, 1, 0, cUser, tID, sID, tID, sID))
+
+
+
 # print out the routes that don't have resupply values
-print 'Done with Resupply'
+print 'Done with Resupply' , datetime.datetime.now().time().isoformat()
 ###################################### / END RESUPPLY
 
 connSinkLCM.commit()
@@ -1090,7 +1112,7 @@ connSinkInput.commit()
     # Output data requires some information from the LCM schema and some information from the INPUT schema.
     # First put data in the output.simulation table.
     ###################################### / BEGIN SIMULATION
-sqlOS = '''INSERT INTO simulation (tenant_id, simulation_id, simulation_name, simulation_type_name, number_of_replications) SELECT DISTINCT %s, %s, s.name, st.name, s.number_of_replications FROM lcm.simulation s, lcm.simulation_type st WHERE s.id = %s AND st.id = %s ''' % (tID, sID, sID, simTypeID)
+sqlOS = '''INSERT INTO simulation (tenant_id, simulation_id, simulation_name, simulation_type_name) SELECT DISTINCT %s, %s, s.name, st.name FROM lcm.simulation s, lcm.simulation_type st WHERE s.id = %s AND st.id = %s ''' % (tID, sID, sID, simTypeID)
 cursorOUT.execute(sqlOS)
     ###################################### / END SIMULATION
     # Only enter output data for Demos
@@ -1100,45 +1122,26 @@ if SimOrDemo == 2:
     qtr = ''' 'CALENDAR_QUARTER' '''
     wky = ''' 'CALENDAR_WEEK' '''
     sqlDOAquarter = '''SELECT %s, %s, %s, %s, [*Weeks and Dates].Date, Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed])*100 AS avail, %s, %s, %s, [out Availability].SRAN, 
-    [out Availability].Type FROM [out Availability] INNER JOIN [*Weeks and Dates] ON ([out Availability].Year = [*Weeks and Dates].Year) AND ([out Availability].Qtr = [*Weeks and Dates].Quarter) WHERE ((([*Weeks and Dates].Week)=1)) 
-    GROUP BY [*Weeks and Dates].Date, [out Availability].Year, [out Availability].Qtr, [out Availability].SRAN, [out Availability].Type''' % (tID, sID, pID, qtr, pID, tID, qtr)
+    [out Availability].Type, %s FROM [out Availability] INNER JOIN [*Weeks and Dates] ON ([out Availability].Year = [*Weeks and Dates].Year) AND ([out Availability].Qtr = [*Weeks and Dates].Quarter) WHERE ((([*Weeks and Dates].Week)=1)) 
+    GROUP BY [*Weeks and Dates].Date, [out Availability].Year, [out Availability].Qtr, [out Availability].SRAN, [out Availability].Type''' % (tID, sID, pID, qtr, pID, tID, qtr, sID)
     sqlDOAweek = '''SELECT %s, %s, %s, %s, [*Weeks and Dates].Date, 
-    Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed]) AS avail, %s, %s, %s, [out Availability].SRAN, [out Availability].Type
+    Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed]) AS avail, %s, %s, %s, [out Availability].SRAN, [out Availability].Type, %s
     FROM [out Availability] INNER JOIN [*Weeks and Dates] ON ([*Weeks and Dates].Week = [out Availability].Week) AND ([out Availability].Qtr = [*Weeks and Dates].Quarter) AND ([out Availability].Year = [*Weeks and Dates].Year)
-    GROUP BY [*Weeks and Dates].Date, [out Availability].SRAN, [out Availability].Type, [out Availability].Year, [out Availability].Qtr''' % (tID, sID, pID, wky, pID, tID, wky)
+    GROUP BY [*Weeks and Dates].Date, [out Availability].SRAN, [out Availability].Type, [out Availability].Year, [out Availability].Qtr''' % (tID, sID, pID, wky, pID, tID, wky, sID)
     sqlFOA = '''INSERT INTO output.availability (tenant_id, simulation_id, project_name, project_id, asset, spare, interval_unit_id, interval_unit_name, timestamp, value, location_id, location_name, object_type_id, object_type_name)
-        SELECT ?, ?, pr.name, ?, 1, 0, iu.id, ?, ?, ?, l.id, l.name, ot.id, ot.name FROM lcm.project pr JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu WHERE pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND l.external_id = ? AND ot.external_id = ?'''
+        SELECT ?, ?, pr.name, ?, 1, 0, iu.id, ?, ?, ?, l.id, l.name, ot.id, ot.name FROM lcm.project pr JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu WHERE pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND l.external_id = ? AND ot.external_id = ? and l.simulation_id = ?'''
     sqlFOAselect = '''SELECT ?, ?, pr.name, ?, 1, 0, iu.id, ?, ?, ?, l.id, l.name, ot.id, ot.name FROM lcm.project pr JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu WHERE pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND l.external_id = ? AND ot.external_id = ?'''
-
-    # sqlDOAquarter = '''SELECT [*Weeks and Dates].Date, Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed]) AS avail, [out Availability].SRAN, [out Availability].Type
-    # FROM [out Availability] INNER JOIN [*Weeks and Dates] ON ([out Availability].Year = [*Weeks and Dates].Year) AND ([out Availability].Qtr = [*Weeks and Dates].Quarter)
-    # WHERE ((([*Weeks and Dates].Week)=1))
-    # GROUP BY [*Weeks and Dates].Date, [out Availability].Year, [out Availability].Qtr, [out Availability].SRAN, [out Availability].Type'''
-    # sqlDOAquarter = '''SELECT %s, %s, %s, %s, [*Weeks and Dates].Date, Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed])*100 AS avail, %s, %s, %s, [out Availability].SRAN, 
-    # [out Availability].Type FROM [out Availability] INNER JOIN [*Weeks and Dates] ON ([out Availability].Year = [*Weeks and Dates].Year) AND ([out Availability].Qtr = [*Weeks and Dates].Quarter) WHERE ((([*Weeks and Dates].Week)=1)) 
-    # GROUP BY [*Weeks and Dates].Date, [out Availability].Year, [out Availability].Qtr, [out Availability].SRAN, [out Availability].Type''' % (tID, sID, pID, qtr, pID, tID, qtr)
-    # sqlDOAweek = '''SELECT [*Weeks and Dates].Date, 
-    # Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed]) AS avail, [out Availability].SRAN, [out Availability].Type
-    # FROM [out Availability] INNER JOIN [*Weeks and Dates] ON ([*Weeks and Dates].Week = [out Availability].Week) AND ([out Availability].Qtr = [*Weeks and Dates].Quarter) AND ([out Availability].Year = [*Weeks and Dates].Year)
-    # GROUP BY [*Weeks and Dates].Date, [out Availability].SRAN, [out Availability].Type, [out Availability].Year, [out Availability].Qtr'''
-    # sqlFOA = '''INSERT INTO output.availability (tenant_id, simulation_id, project_name, project_id, asset, spare, interval_unit_id, interval_unit_name, timestamp, value, location_id, location_name, object_type_id, object_type_name)
-    #     SELECT ?, ?, pr.name, ?, 1, 0, iu.id, ?, ?, ?, l.id, l.name, ot.id, ot.name FROM lcm.project pr JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu WHERE pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND l.external_id = ? AND ot.external_id = ?'''
-    # MAXID = 15715214
 
     curSource.execute(sqlDOAquarter)
     qtrAvail = curSource.fetchall()
     curSource.execute(sqlDOAweek)
     wkyAvail = curSource.fetchall()
     # now load data
-    cursorOUT.executemany(sqlFOA, qtrAvail) 
+    cursorOUT.executemany(sqlFOA, qtrAvail)
+    print "Done with Quarterly Availability Output" , datetime.datetime.now().time().isoformat()
     cursorOUT.executemany(sqlFOA, wkyAvail)
-    # else: # otherwise must output as csv and load
-    #     with open('outAvailQtr.csv', 'wb') as csvfile:
-    #         aWriter = csv.writer(csvfile)
-    #         for row in qtrAvail:
-    #             cursorINP.execute(sqlFOAselect, row)
-    #             qtrAvailCSV = cursorINP.fetchone()
-    #             aWriter.writerow(qtrAvailCSV)
+    print "Done with Weekly Availability Output" , datetime.datetime.now().time().isoformat()
+
     sqlMoreAvInfo = '''UPDATE output.availability a
             JOIN
         input.object_type ot ON ot.id = a.object_type_id
@@ -1156,25 +1159,24 @@ if SimOrDemo == 2:
         a.object_group_id = og.id,
         a.object_group_name = og.name,
         a.region_id = lr.id,
-        a.region_name = lr.name
+        a.region_name = lr.name,
+        a.object_name = ot.name
     WHERE
         a.tenant_id = %s AND a.simulation_id = %s ''' % (tID, sID)
     cursorOUT.execute(sqlMoreAvInfo)
-
-    # for row in wkyAvail:
-    #     cursorOUT.execute(sqlFOA, (tID, sID, pID, wky, row.Date.isoformat(), row.avail*100, pID, tID, wky, row.SRAN, row.Type))
-    print 'Done with Output Availability'
+    print 'Done with Output Availability' , datetime.datetime.now().time().isoformat()
     ###################################### / END AVAILABILITY
+
     ###################################### / BEGIN COMPONENT EVENTS
     # first do LRU events (ASSUMES ONLY ONE EVENT OF TYPE FAILURE CALLED FAILURE - SINGLE FAILURE MODE)
     eventNameMatch = ''' 'Failure' '''
-    sqlDOLruEv = '''SELECT %s, %s, %s, %s, [*Weeks and Dates].Date, [out LRU events].UER, %s, %s, %s, %s, %s, [out LRU events].[SRAN ID] as SRAN, [out LRU events].[Engine type] as Type, %s
+    sqlDOLruEv = '''SELECT %s, %s, %s, %s, [*Weeks and Dates].Date, [out LRU events].UER, %s, %s, %s, %s, %s, [out LRU events].[SRAN ID] as SRAN, [out LRU events].[Engine type] as Type, %s, %s
     FROM [out LRU events] INNER JOIN [*Weeks and Dates] ON ([out LRU events].Year = [*Weeks and Dates].Year) AND ([out LRU events].Qtr = [*Weeks and Dates].Quarter)
-    WHERE ((([*Weeks and Dates].Week)=1))''' % (tID, sID, pID, qtr, tID, sID, pID, tID, qtr, eventNameMatch)
+    WHERE ((([*Weeks and Dates].Week)=1))''' % (tID, sID, pID, qtr, tID, sID, pID, tID, qtr, eventNameMatch, sID)
     curSource.execute(sqlDOLruEv)
     failures = curSource.fetchall()
     sqlFOLruEv = '''INSERT INTO output.component_events (tenant_id, simulation_id, project_name, project_id, event_id, event_name, event_type_id, event_type_name, interval_unit_id, interval_unit_name, timestamp, value, location_id, location_name, object_type_id, object_type_name)
-        SELECT ?, ?, pr.name, ?, e.id, e.name, et.id, et.name, iu.id, ?, ?, ?, l.id, l.name, ot.id, ot.name FROM input.event e JOIN input.event_type et on et.id = e.event_type_id JOIN lcm.project pr ON e.tenant_id = pr.tenant_id JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu WHERE et.tenant_id = ? and et.simulation_id = ? AND pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND l.external_id = ? AND ot.external_id = ? AND e.name = ?'''
+        SELECT ?, ?, pr.name, ?, e.id, e.name, et.id, et.name, iu.id, ?, ?, ?, l.id, l.name, ot.id, ot.name FROM input.event e JOIN input.event_type et on et.id = e.event_type_id JOIN lcm.project pr ON e.tenant_id = pr.tenant_id JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu WHERE et.tenant_id = ? and et.simulation_id = ? AND pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND l.external_id = ? AND ot.external_id = ? AND e.name = ? and l.simulation_id = ?'''
     cursorOUT.executemany(sqlFOLruEv, failures)
 
     sqlMoreCEInfo = '''UPDATE output.component_events a
@@ -1184,10 +1186,10 @@ if SimOrDemo == 2:
             JOIN    input.location l ON l.id = a.location_id
             JOIN    input.location_region lr ON lr.id = l.location_region_id
         SET     a.object_class_id = oc.id, a.object_class_name = oc.name, a.object_group_id = og.id,
-                a.object_group_name = og.name, a.region_id = lr.id, a.region_name = lr.name
+                a.object_group_name = og.name, a.region_id = lr.id, a.region_name = lr.name, a.object_name = ot.name, a.object_internal_name = ot.internal_name
         WHERE   a.tenant_id = %s AND a.simulation_id = %s ''' % (tID, sID)
     cursorOUT.execute(sqlMoreCEInfo)    
-    print 'Done with Output: Component Events'
+    print 'Done with Output: Component Events' , datetime.datetime.now().time().isoformat()
     ###################################### / END COMPONENT EVENTS
 
     ###################################### / BEGIN SPARE QUANTITY
@@ -1216,30 +1218,34 @@ if SimOrDemo == 2:
             JOIN    input.object_group og ON og.id = oc.object_group_id
             JOIN    input.location l ON l.id = a.location_id
             JOIN    input.location_region lr ON lr.id = l.location_region_id
+            JOIN    input.storage s ON s.simulation_id = l.simulation_id AND  s.location_id = l.id
         SET     a.object_class_id = oc.id, a.object_class_name = oc.name, a.object_group_id = og.id,
-                a.object_group_name = og.name, a.region_id = lr.id, a.region_name = lr.name
+                a.object_group_name = og.name, a.region_id = lr.id, a.region_name = lr.name, 
+                a.storage_name = l.name, a.storage_internal_name = s.internal_name, a.storage_id = s.id
         WHERE   a.tenant_id = %s AND a.simulation_id = %s ''' % (tID, sID)
     cursorOUT.execute(sqlMoreSPInfo)
-    print 'Done with Output: Spare Quantity'
+    print 'Done with Output: Spare Quantity' , datetime.datetime.now().time().isoformat()
     ###################################### / END SPARE QUANTITY
 
     ###################################### / BEGIN DOWN ASSETS
-    sqlDSpQtr = '''SELECT %s, %s, %s, %s, Format([date],"yyyy-mm-dd") AS [timestamp], [out AWP items].[in awp status] AS [value], %s, %s, %s, [out AWP items].[Object type] AS Type, [out AWP items].[SRAN ID] AS Sran
+    sqlDSpQtr = '''SELECT %s, %s, %s, %s, [*Weeks and Dates].Date AS [timestamp], [out AWP items].[in awp status] AS [value], %s, %s, %s, [out AWP items].[Object type] AS Type, [out AWP items].[SRAN ID] AS Sran, %s, %s
     FROM [*Weeks and Dates] INNER JOIN [out AWP items] ON ([*Weeks and Dates].Week = [out AWP items].Week) 
     AND ([*Weeks and Dates].Quarter = [out AWP items].Qtr) AND ([*Weeks and Dates].Year = [out AWP items].Year)
     WHERE ((([*Weeks and Dates].Week)=1))''' % (tID, sID, pID, qtr, pID, tID, qtr, tID, sID)
-    sqlDDAwk = '''SELECT %s, %s, %s, %s, Format([date],"yyyy-mm-dd") AS [timestamp], [out AWP items].[in awp status] AS [value], %s, %s, %s, [out AWP items].[Object type] AS Type, [out AWP items].[SRAN ID] AS Sran
+    sqlDDAwk = '''SELECT %s, %s, %s, %s, [*Weeks and Dates].Date AS [timestamp], [out AWP items].[in awp status] AS [value], %s, %s, %s, [out AWP items].[Object type] AS Type, [out AWP items].[SRAN ID] AS Sran, %s, %s
     FROM [*Weeks and Dates] INNER JOIN [out AWP items] ON ([*Weeks and Dates].Week = [out AWP items].Week) 
     AND ([*Weeks and Dates].Quarter = [out AWP items].Qtr) AND ([*Weeks and Dates].Year = [out AWP items].Year)''' % (tID, sID, pID, wky, pID, tID, wky, tID, sID)
 
     sqlFOdownassets = '''INSERT INTO output.down_assets_parts_delay (tenant_id, simulation_id, project_name, project_id, interval_unit_id, interval_unit_name, timestamp, value, location_id, location_name, object_type_id, object_type_name)
-        SELECT ?, ?, pr.name, ?, iu.id, ?, ?, ?, l.id, l.name, ot.id, ot.name FROM lcm.project pr JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu WHERE pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND l.external_id = ? AND ot.external_id = ? AND ot.tenant_id = ? and ot.simulation_id = ?'''
+        SELECT ?, ?, pr.name, ?, iu.id, ?, ?, ?, l.id, l.name, ot.id, ot.name FROM lcm.project pr JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu WHERE pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND ot.external_id = ? AND l.external_id = ? AND ot.tenant_id = ? and ot.simulation_id = ?'''
     curSource.execute(sqlDSpQtr)
     downAssets = curSource.fetchall()
     cursorOUT.executemany(sqlFOdownassets, downAssets)
+    print "Done with Quarterly Down Assets Parts Output" , datetime.datetime.now().time().isoformat()
     curSource.execute(sqlDDAwk)
     downAssets = curSource.fetchall()
     cursorOUT.executemany(sqlFOdownassets, downAssets)
+    print "Done with Weekly Down Assets Parts Output" , datetime.datetime.now().time().isoformat()
     sqlMoreDAInfo = '''UPDATE output.down_assets_parts_delay a
             JOIN    input.object_type ot ON ot.id = a.object_type_id
             JOIN    input.object_class oc ON oc.id = ot.object_class_id
@@ -1250,7 +1256,7 @@ if SimOrDemo == 2:
                 a.object_group_name = og.name, a.region_id = lr.id, a.region_name = lr.name
         WHERE   a.tenant_id = %s AND a.simulation_id = %s ''' (tID, sID)
     cursorOUT.execute(sqlMoreDAInfo)
-    print 'Done with Output: Down Assets Part Delay'
+    print 'Done with Output: Down Assets Part Delay' , datetime.datetime.now().time().isoformat()
     ###################################### / END DOWN ASSETS
 
 
