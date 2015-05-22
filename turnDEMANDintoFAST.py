@@ -134,12 +134,14 @@ else:
 # only enter these units of measure if it's a new tenant
 if newTenant == 1:
     sqlUoM = '''INSERT INTO unit_of_measure (tenant_id, name, interval_unit_id, external_id, create_user, create_timestamp) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'''
+    sqlUoMcurrNoIU = '''INSERT INTO unit_of_measure (tenant_id, name, currency_id, external_id, create_user, create_timestamp) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'''
     sqlUoMnoIU = '''INSERT INTO unit_of_measure (tenant_id, name, external_id, create_user, create_timestamp) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)'''
     cursorLCM.execute(sqlUoM, (tID, 'Hours', 10, 1, cUser)) # for failures
     cursorLCM.execute(sqlUoM, (tID, 'Days', 9, 2, cUser)) # for repairs and shipping times
     cursorLCM.execute(sqlUoM, (tID, 'Operating Hours', 10, 3, cUser)) # for operating hours (viewing failures in scenario editor)
     cursorLCM.execute(sqlUoMnoIU, (tID, 'Each', 4, cUser)) # for Future Inventory
     cursorLCM.execute(sqlUoMnoIU, (tID, 'Integer', 5, cUser)) # for Future Inventory
+    cursorLCM.execute(sqlUoMcurrNoIU, (tID, 'Dollars', 5, 6, cUser)) # for Operations and revenue
     print "Done with Unit of Measure" , datetime.datetime.now().time().isoformat()
 ###################################### / END UNIT OF MEASURE
 
@@ -571,24 +573,34 @@ FROM [*Consequences of UER] WHERE Right([object type],1)<>0 AND Right([SRAN],1)<
 # find all these matches except the ones that previously matched (find exact sran from table's default sran by connecting to base names via first digit)
 sqlPUER2 = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Base Names].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
 FROM [*Consequences of UER] INNER JOIN [*Base Names] ON left([*Consequences of UER].SRAN,1) = left([*Base Names].SRAN,1)
-WHERE Right([object type],1)<>0 AND Right([*Consequences of UER].[SRAN],1)=0 AND [*Base Names].sran NOT IN (SELECT [*Consequences of UER].sran FROM [*Consequences of UER] WHERE Right([object type],1)<>0 AND RIGHT([sran],1) > 0 AND sran <> -1)'''
+WHERE Right([object type],1)<>0 AND Right([*Consequences of UER].[SRAN],1)=0 AND [*Base Names].sran NOT IN (SELECT CUERsub.sran
+FROM [*Consequences of UER] AS CUERsub WHERE Right([sran],1)>0 AND CUERsub.[sran]<>-1 AND CUERsub.[Object type]=[*Consequences of UER].[Object type])'''
+# specific object types but all srans that leave out srans that match exactly and those that match on maintenance level (as well as exact object type)
+sqlPUER2 = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Base Names].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
+FROM [*Consequences of UER] INNER JOIN [*Base Names] ON left([*Consequences of UER].SRAN,1) = left([*Base Names].SRAN,1)
+WHERE Right([object type],1)<>0 AND [*Consequences of UER].[SRAN]=-1 AND [*Base Names].sran NOT IN (SELECT CUERsub.sran
+FROM [*Consequences of UER] AS CUERsub WHERE Right([sran],1)>0 AND CUERsub.[sran]<>-1 AND CUERsub.[Object type]=[*Consequences of UER].[Object type]) AND left([*Base Names].SRAN,1) NOT IN (SELECT left(CUERsub.sran,1)
+FROM [*Consequences of UER] AS CUERsub WHERE Right([sran],1)=0 AND CUERsub.[Object type]=[*Consequences of UER].[Object type])'''
 
-# sqlPUERclassDefBaseClass = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
-# FROM [*Consequences of UER] WHERE Right([object type],1)=0 AND Right([SRAN],1)=0'''
-# sqlPUERclassDefBaseType = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
-# FROM [*Consequences of UER] WHERE Right([object type],1)=0 AND Right([SRAN],1)<>0'''
-# sqlPUERclassDefBaseDef = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
-# FROM [*Consequences of UER] WHERE Right([object type],1)=0 AND [SRAN]=-1'''
+
+
+
+sqlPUERclassDefBaseClass = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
+FROM [*Consequences of UER] WHERE Right([object type],1)=0 AND Right([SRAN],1)=0'''
+sqlPUERclassDefBaseType = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
+FROM [*Consequences of UER] WHERE Right([object type],1)=0 AND Right([SRAN],1)<>0'''
+sqlPUERclassDefBaseDef = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
+FROM [*Consequences of UER] WHERE Right([object type],1)=0 AND [SRAN]=-1'''
 
 # sqlPUERtypeBaseType = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
 # FROM [*Consequences of UER] WHERE Right([object type],1)<>0 AND Right([SRAN],1)<>0'''
 # sqlPUERtypeBaseDef = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
 # FROM [*Consequences of UER] WHERE Right([object type],1)<>0 AND [SRAN]=-1'''
-curSource.execute(sqlPUERclass)
-probsClass = curSource.fetchall()
-curSource.execute(sqlPUERtype)
-probsType = curSource.fetchall()
-sqlPUERinsert = '''INSERT INTO probability (tenant_id, simulation_id, object_type_id, location_id, active, available, asset, cloned_flag, template_flag, name, internal_name, serial_number, stg_id, external_id, create_user, create_timestamp) SELECT %s, %s, ot.id, l.id, 1, 1, %s, 0, 0, %s, %s, %s, %s, %s, 'user', CURRENT_TIMESTAMP FROM object_type ot join location l on l.tenant_id = ot.tenant_id and l.simulation_id = ot.simulation_id WHERE ot.tenant_id = %s AND ot.simulation_id = %s and l.external_id = %s and ot.external_id = %s'''
+#curSource.execute(sqlPUERclass)
+#probsClass = curSource.fetchall()
+#curSource.execute(sqlPUERtype)
+#probsType = curSource.fetchall()
+#sqlPUERinsert = '''INSERT INTO probability (tenant_id, simulation_id, object_type_id, location_id, active, available, asset, cloned_flag, template_flag, name, internal_name, serial_number, stg_id, external_id, create_user, create_timestamp) SELECT %s, %s, ot.id, l.id, 1, 1, %s, 0, 0, %s, %s, %s, %s, %s, 'user', CURRENT_TIMESTAMP FROM object_type ot join location l on l.tenant_id = ot.tenant_id and l.simulation_id = ot.simulation_id WHERE ot.tenant_id = %s AND ot.simulation_id = %s and l.external_id = %s and ot.external_id = %s'''
 # # there should never be spaces in the tree code, so can leave the internal name check out
 # for row in objects:
 #     cursorINP.execute(sqlP, (tID, sID, row.asset, row.name, row.name, row.name, row.poEid, row.oEid, tID, sID, row.lEid, row.otEid))
@@ -1031,69 +1043,82 @@ OpProfsYrQtr = curSource.fetchall()
 # need to be concerned about General optempo overwriting Specific optempo for simulation
 # TODO: handle the other optempos (tac, eot, wow)
 
-if SimOrDemo ==2: # insert optempo information if it's a demo so it shows up in the Vary Operations Scenario Editor
-    sqlInOpProfES = '''INSERT INTO input.event_schedule (tenant_id, simulation_id, external_id, name, timestamp_value, event_id, distribution_id, create_user, create_timestamp) SELECT ?, ?, ?, 'Operations', ?, e.id, d.id, ?, CURRENT_TIMESTAMP FROM input.event e JOIN input.distribution d ON d.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? and e.name like "Operations" and d.name like "Operations" and d.external_id = ?''' 
-    sqlInOpProfOESGenTypeGenBase = '''INSERT INTO input.object_event_schedule (tenant_id, simulation_id, external_id, event_schedule_id, object_group_id, create_user, create_timestamp) SELECT ?, ?, ?, es.id, og.id, ?, CURRENT_TIMESTAMP FROM input.event_schedule es JOIN input.object_group og on og.simulation_id = es.simulation_id WHERE og.tenant_id = ? AND og.simulation_id = ? AND es.external_id = ? AND og.name = "Asset" AND es.name like "Operations"'''
-    sqlInOpProfOESSpecTypeGenBase = '''INSERT INTO input.object_event_schedule (tenant_id, simulation_id, external_id, event_schedule_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, es.id, ot.id, ?, CURRENT_TIMESTAMP FROM input.event_schedule es JOIN input.object_type ot on ot.simulation_id = es.simulation_id WHERE ot.tenant_id = ? AND ot.simulation_id = ? AND es.external_id = ? AND ot.external_id = ? AND es.name like "Operations"'''
-    sqlInOpProfOESGenTypeSpecBase = '''INSERT INTO input.object_event_schedule (tenant_id, simulation_id, external_id, event_schedule_id, object_group_id, location_id, create_user, create_timestamp) SELECT ?, ?, ?, es.id, og.id, l.id, ?, CURRENT_TIMESTAMP FROM input.event_schedule es JOIN input.object_group og on og.simulation_id = es.simulation_id JOIN input.location l ON l.simulation_id = es.simulation_id WHERE og.tenant_id = ? AND og.simulation_id = ? AND es.external_id = ? AND og.name = "Asset" AND l.external_id = ? AND es.name like "Operations"'''
-    sqlInOpProfOESSpecTypeSpecBase = '''INSERT INTO input.object_event_schedule (tenant_id, simulation_id, external_id, event_schedule_id, object_type_id, location_id, create_user, create_timestamp) SELECT ?, ?, ?, es.id, ot.id, l.id, ?, CURRENT_TIMESTAMP FROM input.event_schedule es JOIN input.object_type ot on ot.simulation_id = es.simulation_id JOIN input.location l ON l.simulation_id = es.simulation_id WHERE ot.tenant_id = ? AND ot.simulation_id = ? AND es.external_id = ? AND ot.external_id = ? AND l.external_id = ? AND es.name like "Operations"'''
+################################################# THE OPTEMPO CONSISTENCY CHECKS ARE A TOTAL BEAR SO I'M LEAVING THIS OUT #############################################################################
+################################################# # # # I WILL CREATE THE ENTRIES MANUALLY WITH THE SCENARIO EDITOR # # # #############################################################################
 
-    sqlOperationsDist = '''INSERT INTO distribution (tenant_id, simulation_id, external_id, name, distribution_class_id, distribution_type_id, unit_of_measure_id, create_user, create_timestamp) 
-        SELECT ?, ?, ?, ?, dc.id, dt.id, uom.id, ?, CURRENT_TIMESTAMP FROM lcm.unit_of_measure uom, distribution_class dc join distribution_type dt on dt.simulation_id = dc.simulation_id WHERE dc.tenant_id = ? and dc.simulation_id = ? and dt.name = ? AND dc.name like "Operation Profile" AND uom.name like "Operating Hours" AND uom.tenant_id = ?'''
-    sqlOperationsDistParam = '''INSERT INTO distribution_parameter (tenant_id, simulation_id, external_id, parameter_value, distribution_id, distribution_type_parameter_id, create_user, create_timestamp) SELECT ?, ?, ?, ?, d.id, dtp.id, ?, CURRENT_TIMESTAMP FROM distribution_type dt JOIN distribution d on dt.simulation_id = d.simulation_id AND dt.id = d.distribution_type_id JOIN distribution_type_parameter dtp on dtp.simulation_id = d.simulation_id AND dtp.distribution_type_id = dt.id WHERE d.tenant_id = ? AND d.simulation_id = ? AND d.external_id = ? AND d.name like "Operations%" AND dtp.parameter_number = ?'''
+# if SimOrDemo ==2: # insert optempo information if it's a demo so it shows up in the Vary Operations Scenario Editor
+#     sqlInOpProfES = '''INSERT INTO input.event_schedule (tenant_id, simulation_id, external_id, name, timestamp_value, event_id, distribution_id, create_user, create_timestamp) SELECT ?, ?, ?, 'Operations', ?, e.id, d.id, ?, CURRENT_TIMESTAMP FROM input.event e JOIN input.distribution d ON d.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? and e.name like "Operations" and d.name like "Operations" and d.external_id = ?''' 
+#     sqlInOpProfOESGenTypeGenBase = '''INSERT INTO input.object_event_schedule (tenant_id, simulation_id, external_id, event_schedule_id, object_group_id, create_user, create_timestamp) SELECT ?, ?, ?, es.id, og.id, ?, CURRENT_TIMESTAMP FROM input.event_schedule es JOIN input.object_group og on og.simulation_id = es.simulation_id WHERE og.tenant_id = ? AND og.simulation_id = ? AND es.external_id = ? AND og.name = "Asset" AND es.name like "Operations"'''
+#     sqlInOpProfOESSpecTypeGenBase = '''INSERT INTO input.object_event_schedule (tenant_id, simulation_id, external_id, event_schedule_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, es.id, ot.id, ?, CURRENT_TIMESTAMP FROM input.event_schedule es JOIN input.object_type ot on ot.simulation_id = es.simulation_id WHERE ot.tenant_id = ? AND ot.simulation_id = ? AND es.external_id = ? AND ot.external_id = ? AND es.name like "Operations"'''
+#     sqlInOpProfOESGenTypeSpecBase = '''INSERT INTO input.object_event_schedule (tenant_id, simulation_id, external_id, event_schedule_id, object_group_id, location_id, create_user, create_timestamp) SELECT ?, ?, ?, es.id, og.id, l.id, ?, CURRENT_TIMESTAMP FROM input.event_schedule es JOIN input.object_group og on og.simulation_id = es.simulation_id JOIN input.location l ON l.simulation_id = es.simulation_id WHERE og.tenant_id = ? AND og.simulation_id = ? AND es.external_id = ? AND og.name = "Asset" AND l.external_id = ? AND es.name like "Operations"'''
+#     sqlInOpProfOESSpecTypeSpecBase = '''INSERT INTO input.object_event_schedule (tenant_id, simulation_id, external_id, event_schedule_id, object_type_id, location_id, create_user, create_timestamp) SELECT ?, ?, ?, es.id, ot.id, l.id, ?, CURRENT_TIMESTAMP FROM input.event_schedule es JOIN input.object_type ot on ot.simulation_id = es.simulation_id JOIN input.location l ON l.simulation_id = es.simulation_id WHERE ot.tenant_id = ? AND ot.simulation_id = ? AND es.external_id = ? AND ot.external_id = ? AND l.external_id = ? AND es.name like "Operations"'''
 
-    exID = 1
-    for row in OpProfsYrQtr:
-        cursorINP.execute(sqlOperationsDist, (tID, sID, exID, "Operations", cUser, tID, sID, row.FHRdist, tID)) # distribution
-        cursorINP.execute(sqlOperationsDistParam, (tID, sID, exID, row.FHRp1, cUser, tID, sID, exID, 1)) # distribution parameter
-        if row.FHRdist in ("Weibull","Normal", "Uniform"): # require two parameters
-            cursorINP.execute(sqlOperationsDistParam, (tID, sID, exID, row.FHRp2, cUser, tID, sID, exID, 2)) # distribution parameter
-        cursorINP.execute(sqlInOpProfES, (tID, sID, exID, row.Date, cUser, tID, sID, exID))
-        # include the object_event_schedule
-        if row.Base == -1 and row.pType == -1: # general general
-            cursorINP.execute(sqlInOpProfOESGenTypeGenBase, (tID, sID, exID, cUser, tID, sID, exID))
-        elif row.Base == -1 and row.pType != -1: # general specific
-            cursorINP.execute(sqlInOpProfOESSpecTypeGenBase, (tID, sID, exID, cUser, tID, sID, exID, row.pType))
-        elif row.Base != -1 and row.pType == -1: # specific general
-            cursorINP.execute(sqlInOpProfOESGenTypeSpecBase, (tID, sID, exID, cUser, tID, sID, exID, row.Base))
-        else:
-            cursorINP.execute(sqlInOpProfOESSpecTypeSpecBase, (tID, sID, exID, cUser, tID, sID, exID, row.pType, row.Base))
-        exID += 1
-    for row in OpProfsYrOnly: # need to enter a row for each quarter - the op tempo rows are duplicated four times in this object to iterate through
-        cursorINP.execute(sqlOperationsDist, (tID, sID, exID, "Operations", cUser, tID, sID, row.FHRdist, tID)) # distribution
-        cursorINP.execute(sqlOperationsDistParam, (tID, sID, exID, row.FHRp1, cUser, tID, sID, exID, 1)) # distribution parameter
-        if row.FHRdist in ("Weibull","Normal", "Uniform"): # require two parameters
-            cursorINP.execute(sqlOperationsDistParam, (tID, sID, exID, row.FHRp2, cUser, tID, sID, exID, 2)) # distribution parameter
-        cursorINP.execute(sqlInOpProfES, (tID, sID, exID, row.Date, cUser, tID, sID, exID))
-        # include the object_event_schedule
-        if row.Base == -1 and row.pType == -1: # general general
-            cursorINP.execute(sqlInOpProfOESGenTypeGenBase, (tID, sID, exID, cUser, tID, sID, exID))
-        elif row.Base == -1 and row.pType != -1: # general specific
-            cursorINP.execute(sqlInOpProfOESSpecTypeGenBase, (tID, sID, exID, cUser, tID, sID, exID, row.pType))
-        elif row.Base != -1 and row.pType == -1: # specific general
-            cursorINP.execute(sqlInOpProfOESGenTypeSpecBase, (tID, sID, exID, cUser, tID, sID, exID, row.Base))
-        else:
-            cursorINP.execute(sqlInOpProfOESSpecTypeSpecBase, (tID, sID, exID, cUser, tID, sID, exID, row.pType, row.Base))
-        exID += 1
-    for row in OpProfsNoTime:
-        # this one should b 1) at the start of the simulation if there's no match in a specific year/qtr and 2) after each specific year/qtr match that isn't followed by another specific year/qtr match.
-        # for now I'm just adding all these to the start of the simulation
-        # there also may be duplicates between platform type and sran due to defaulting mechanisms 
-        cursorINP.execute(sqlOperationsDist, (tID, sID, exID, "Operations", cUser, tID, sID, row.FHRdist, tID)) # distribution
-        cursorINP.execute(sqlOperationsDistParam, (tID, sID, exID, row.FHRp1, cUser, tID, sID, exID, 1)) # distribution parameter
-        if row.FHRdist in ("Weibull","Normal", "Uniform"): # require two parameters
-            cursorINP.execute(sqlOperationsDistParam, (tID, sID, exID, row.FHRp2, cUser, tID, sID, exID, 2)) # distribution parameter
-        cursorINP.execute(sqlInOpProfES, (tID, sID, exID, dateInfo.Date.isoformat(), cUser, tID, sID, exID)) # use start date because these op profiles have no date information
-        # include the object_event_schedule
-        if row.Base == -1 and row.pType == -1: # general general
-            cursorINP.execute(sqlInOpProfOESGenTypeGenBase, (tID, sID, exID, cUser, tID, sID, exID))
-        elif row.Base == -1 and row.pType != -1: # general specific
-            cursorINP.execute(sqlInOpProfOESSpecTypeGenBase, (tID, sID, exID, cUser, tID, sID, exID, row.pType))
-        elif row.Base != -1 and row.pType == -1: # specific general
-            cursorINP.execute(sqlInOpProfOESGenTypeSpecBase, (tID, sID, exID, cUser, tID, sID, exID, row.Base))
-        else:
-            cursorINP.execute(sqlInOpProfOESSpecTypeSpecBase, (tID, sID, exID, cUser, tID, sID, exID, row.pType, row.Base))
-        exID += 1
+#     sqlOperationsDist = '''INSERT INTO distribution (tenant_id, simulation_id, external_id, name, distribution_class_id, distribution_type_id, unit_of_measure_id, create_user, create_timestamp) 
+#         SELECT ?, ?, ?, ?, dc.id, dt.id, uom.id, ?, CURRENT_TIMESTAMP FROM lcm.unit_of_measure uom, distribution_class dc join distribution_type dt on dt.simulation_id = dc.simulation_id WHERE dc.tenant_id = ? and dc.simulation_id = ? and dt.name = ? AND dc.name like "Operation Profile" AND uom.name like "Operating Hours" AND uom.tenant_id = ?'''
+#     sqlOperationsDistParam = '''INSERT INTO distribution_parameter (tenant_id, simulation_id, external_id, parameter_value, distribution_id, distribution_type_parameter_id, create_user, create_timestamp) SELECT ?, ?, ?, ?, d.id, dtp.id, ?, CURRENT_TIMESTAMP FROM distribution_type dt JOIN distribution d on dt.simulation_id = d.simulation_id AND dt.id = d.distribution_type_id JOIN distribution_type_parameter dtp on dtp.simulation_id = d.simulation_id AND dtp.distribution_type_id = dt.id WHERE d.tenant_id = ? AND d.simulation_id = ? AND d.external_id = ? AND d.name like "Operations%" AND dtp.parameter_number = ?'''
+
+#     exID = 1
+#     for row in OpProfsYrQtr:
+#         cursorINP.execute(sqlOperationsDist, (tID, sID, exID, "Operations", cUser, tID, sID, row.FHRdist, tID)) # distribution
+#         cursorINP.execute(sqlOperationsDistParam, (tID, sID, exID, row.FHRp1, cUser, tID, sID, exID, 1)) # distribution parameter
+#         if row.FHRdist in ("Weibull","Normal", "Uniform"): # require two parameters
+#             cursorINP.execute(sqlOperationsDistParam, (tID, sID, exID, row.FHRp2, cUser, tID, sID, exID, 2)) # distribution parameter
+#         cursorINP.execute(sqlInOpProfES, (tID, sID, exID, row.Date, cUser, tID, sID, exID))
+#         # include the object_event_schedule
+#         if row.Base == -1 and row.pType == -1: # general general
+#             cursorINP.execute(sqlInOpProfOESGenTypeGenBase, (tID, sID, exID, cUser, tID, sID, exID))
+#         elif row.Base == -1 and row.pType != -1: # general specific
+#             cursorINP.execute(sqlInOpProfOESSpecTypeGenBase, (tID, sID, exID, cUser, tID, sID, exID, row.pType))
+#         elif row.Base != -1 and row.pType == -1: # specific general
+#             cursorINP.execute(sqlInOpProfOESGenTypeSpecBase, (tID, sID, exID, cUser, tID, sID, exID, row.Base))
+#         else:
+#             cursorINP.execute(sqlInOpProfOESSpecTypeSpecBase, (tID, sID, exID, cUser, tID, sID, exID, row.pType, row.Base))
+#         exID += 1
+#     for row in OpProfsYrOnly: # need to enter a row for each quarter - the op tempo rows are duplicated four times in this object to iterate through
+#         cursorINP.execute(sqlOperationsDist, (tID, sID, exID, "Operations", cUser, tID, sID, row.FHRdist, tID)) # distribution
+#         cursorINP.execute(sqlOperationsDistParam, (tID, sID, exID, row.FHRp1, cUser, tID, sID, exID, 1)) # distribution parameter
+#         if row.FHRdist in ("Weibull","Normal", "Uniform"): # require two parameters
+#             cursorINP.execute(sqlOperationsDistParam, (tID, sID, exID, row.FHRp2, cUser, tID, sID, exID, 2)) # distribution parameter
+#         cursorINP.execute(sqlInOpProfES, (tID, sID, exID, row.Date, cUser, tID, sID, exID))
+#         # include the object_event_schedule
+#         if row.Base == -1 and row.pType == -1: # general general
+#             cursorINP.execute(sqlInOpProfOESGenTypeGenBase, (tID, sID, exID, cUser, tID, sID, exID))
+#         elif row.Base == -1 and row.pType != -1: # general specific
+#             cursorINP.execute(sqlInOpProfOESSpecTypeGenBase, (tID, sID, exID, cUser, tID, sID, exID, row.pType))
+#         elif row.Base != -1 and row.pType == -1: # specific general
+#             cursorINP.execute(sqlInOpProfOESGenTypeSpecBase, (tID, sID, exID, cUser, tID, sID, exID, row.Base))
+#         else:
+#             cursorINP.execute(sqlInOpProfOESSpecTypeSpecBase, (tID, sID, exID, cUser, tID, sID, exID, row.pType, row.Base))
+#         exID += 1
+#     for row in OpProfsNoTime:
+#         # this one should b 1) at the start of the simulation if there's no match in a specific year/qtr and 2) after each specific year/qtr match that isn't followed by another specific year/qtr match.
+#         # for now I'm just adding all these to the start of the simulation
+#         # there also may be duplicates between platform type and sran due to defaulting mechanisms 
+#         cursorINP.execute(sqlOperationsDist, (tID, sID, exID, "Operations", cUser, tID, sID, row.FHRdist, tID)) # distribution
+#         cursorINP.execute(sqlOperationsDistParam, (tID, sID, exID, row.FHRp1, cUser, tID, sID, exID, 1)) # distribution parameter
+#         if row.FHRdist in ("Weibull","Normal", "Uniform"): # require two parameters
+#             cursorINP.execute(sqlOperationsDistParam, (tID, sID, exID, row.FHRp2, cUser, tID, sID, exID, 2)) # distribution parameter
+#         cursorINP.execute(sqlInOpProfES, (tID, sID, exID, dateInfo.Date.isoformat(), cUser, tID, sID, exID)) # use start date because these op profiles have no date information
+#         # include the object_event_schedule
+#         if row.Base == -1 and row.pType == -1: # general general
+#             cursorINP.execute(sqlInOpProfOESGenTypeGenBase, (tID, sID, exID, cUser, tID, sID, exID))
+#         elif row.Base == -1 and row.pType != -1: # general specific
+#             cursorINP.execute(sqlInOpProfOESSpecTypeGenBase, (tID, sID, exID, cUser, tID, sID, exID, row.pType))
+#         elif row.Base != -1 and row.pType == -1: # specific general
+#             cursorINP.execute(sqlInOpProfOESGenTypeSpecBase, (tID, sID, exID, cUser, tID, sID, exID, row.Base))
+#         else:
+#             cursorINP.execute(sqlInOpProfOESSpecTypeSpecBase, (tID, sID, exID, cUser, tID, sID, exID, row.pType, row.Base))
+#         exID += 1
+
+#     # there is a consistency check to test whether the object event schedule connects to a revenue.  this will prevent cloning and re-baselining, so I need to enter values of zero
+#     SQLcurclass1 = '''INSERT INTO currency_value_class (tenant_id, simulation_id, name, create_user, create_timestamp) VALUES (%s, %s, "Revenue", "%s", CURRENT_TIMESTAMP)''' % (tID, sID, cUser)
+#     SQLcurclass2 = '''INSERT INTO currency_value_class (tenant_id, simulation_id, name, create_user, create_timestamp) VALUES (%s, %s, "Cost", "%s", CURRENT_TIMESTAMP)''' % (tID, sID, cUser)
+#     SQLcurtype = '''INSERT INTO currency_value_type (tenant_id, simulation_id, name, create_user, create_timestamp) VALUES (%s, %s, "Operations Default", "%s", CURRENT_TIMESTAMP)''' % (tID, sID, cUser)
+#     SQLcur = '''INSERT INTO currency_value (tenant_id, simulation_id, name, currency_value, unit_of_measure_id, start_timestamp, object_id, object_type_id, object_class_id, object_group_id, location_id, location_type_id, currency_value_type_id, currency_value_class_id, create_user, create_timestamp) SELECT %s, %s, concat("Operations Default ",oes.id), 0, uom.id, es.timestamp_value, oes.object_id, oes.object_type_id, oes.object_class_id, oes.object_group_id, oes.location_id, oes.location_type_id, rt.id, rc.id, "%s", CURRENT_TIMESTAMP FROM object_event_schedule oes JOIN event_schedule es on es.id = oes.event_schedule_id AND es.simulation_id = oes.simulation_id JOIN currency_value_class rc on rc.simulation_id = oes.simulation_id JOIN currency_value_type rt on rt.simulation_id = oes.simulation_id JOIN lcm.unit_of_measure uom ON uom.tenant_id = oes.tenant_id WHERE uom.name like "Dollars" AND oes.tenant_id = %s AND oes.simulation_id = %s AND uom.external_id = 6 AND rv.name = "Operations Default" AND rc.name = "Revenue"''' % (tID, sID, cUser, tID, sID)
+#     cursorINP.execute(SQLcurclass1) # currency value class - revenue
+#     cursorINP.execute(SQLcurclass2) # currency value class - cost
+#     cursorINP.execute(SQLcurtype) # currency value type
+#     cursorINP.execute(SQLcur) # currencies
 # TODO: make optempo better - needs to assign maximum one optempo per object
 ###################################### / END OPTEMPO
 
@@ -1254,7 +1279,7 @@ if SimOrDemo == 2:
     [out Availability].Type, %s FROM [out Availability] INNER JOIN [*Weeks and Dates] ON ([out Availability].Year = [*Weeks and Dates].Year) AND ([out Availability].Qtr = [*Weeks and Dates].Quarter) WHERE ((([*Weeks and Dates].Week)=1)) 
     GROUP BY [*Weeks and Dates].Date, [out Availability].Year, [out Availability].Qtr, [out Availability].SRAN, [out Availability].Type''' % (tID, sID, pID, qtr, pID, tID, qtr, sID)
     sqlDOAweek = '''SELECT %s, %s, %s, %s, [*Weeks and Dates].Date, 
-    Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed]) AS avail, %s, %s, %s, [out Availability].SRAN, [out Availability].Type, %s
+    Sum([out Availability].Availability*[out Availability].[#Deployed])/Sum([out Availability].[#Deployed])*100 AS avail, %s, %s, %s, [out Availability].SRAN, [out Availability].Type, %s
     FROM [out Availability] INNER JOIN [*Weeks and Dates] ON ([*Weeks and Dates].Week = [out Availability].Week) AND ([out Availability].Qtr = [*Weeks and Dates].Quarter) AND ([out Availability].Year = [*Weeks and Dates].Year)
     GROUP BY [*Weeks and Dates].Date, [out Availability].SRAN, [out Availability].Type, [out Availability].Year, [out Availability].Qtr''' % (tID, sID, pID, wky, pID, tID, wky, sID)
     sqlFOA = '''INSERT INTO output.availability (tenant_id, simulation_id, project_name, project_id, asset, spare, interval_unit_id, interval_unit_name, timestamp, value, location_id, location_name, object_type_id, object_type_name)
@@ -1297,6 +1322,7 @@ if SimOrDemo == 2:
     WHERE
         a.tenant_id = %s AND a.simulation_id = %s ''' % (tID, sID)
     cursorOUT.execute(sqlMoreAvInfo)
+    connSinkOut.commit()
     print 'Done with Output Availability' , datetime.datetime.now().time().isoformat()
     ###################################### / END AVAILABILITY
 
@@ -1322,6 +1348,7 @@ if SimOrDemo == 2:
                 a.object_group_name = og.name, a.region_id = lr.id, a.region_name = lr.name, a.object_name = ot.name, a.object_internal_name = ot.internal_name
         WHERE   a.tenant_id = %s AND a.simulation_id = %s ''' % (tID, sID)
     cursorOUT.execute(sqlMoreCEInfo)    
+    connSinkOut.commit()
     print 'Done with Output: Component Events' , datetime.datetime.now().time().isoformat()
     ###################################### / END COMPONENT EVENTS
 
@@ -1357,6 +1384,7 @@ if SimOrDemo == 2:
                 a.storage_name = l.name, a.storage_internal_name = s.internal_name, a.storage_id = s.id
         WHERE   a.tenant_id = %s AND a.simulation_id = %s ''' % (tID, sID)
     cursorOUT.execute(sqlMoreSPInfo)
+    connSinkOut.commit()
     print 'Done with Output: Spare Quantity' , datetime.datetime.now().time().isoformat()
     ###################################### / END SPARE QUANTITY
 
@@ -1389,6 +1417,7 @@ if SimOrDemo == 2:
                 a.object_group_name = og.name, a.region_id = lr.id, a.region_name = lr.name
         WHERE   a.tenant_id = %s AND a.simulation_id = %s ''' % (tID, sID)
     cursorOUT.execute(sqlMoreDAInfo)
+    connSinkOut.commit()
     print 'Done with Output: Down Assets Part Delay' , datetime.datetime.now().time().isoformat()
     ###################################### / END DOWN ASSETS
 
@@ -1425,9 +1454,33 @@ if SimOrDemo == 2:
                 a.culprit_group_id = cog.id, a.culprit_group_name = cog.name, a.event_id = e.id, a.event_name = e.name
         WHERE   a.tenant_id = %s AND a.simulation_id = %s ''' % (tID, sID)
     cursorOUT.execute(sqlMoreEQInfo)
-     print 'Done with Output: Equipment Criticality' , datetime.datetime.now().time().isoformat()
-    ###################################### / END DOWN ASSETS
+    connSinkOut.commit()
+    print 'Done with Output: Equipment Criticality' , datetime.datetime.now().time().isoformat()
+    ###################################### / END EQUIPMENT CRITICALITY
 
+    ###################################### / BEGIN TOTAL CRITICALITY
+    sqlInsertTotCritOvl = '''INSERT INTO output.total_criticality_pareto (tenant_id, simulation_id, project_name, project_id, interval_unit_id, interval_unit_name, timestamp, availability, unavailability, location_id, location_name, object_type_id, object_type_name, culprit_type_id, culprit_object_type_name, cause, event_type_id, event_type_name)
+        SELECT ?, ?, pr.name, ?, iu.id, ?, ?, ?, ?, l.id, l.name, ot.id, ot.name, cot.id, cot.name, "CM", et.id, et.name FROM lcm.project pr JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id JOIN input.object_type cot on cot.simulation_id = ot.simulation_id JOIN input.event_type et on et.simulation_id = ot.simulation_id, lcm.interval_unit iu WHERE pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND ot.tenant_id = ? and ot.simulation_id = ? AND ot.external_id = ? AND cot.external_id = ? AND l.external_id = ? AND et.name like "Failure"'''
+    cursorOUT.executemany(sqlInsertTotCritOvl, equipCRIT)
+    print "Done with Overall Total Criticality Output" , datetime.datetime.now().time().isoformat()
+    sqlMoreTCInfo = '''UPDATE output.total_criticality_pareto a
+        JOIN    input.object_type ot ON ot.id = a.object_type_id
+        JOIN    input.object_class oc ON oc.id = ot.object_class_id
+        JOIN    input.object_group og ON og.id = oc.object_group_id
+        JOIN    input.location l ON l.id = a.location_id
+        JOIN    input.location_region lr ON lr.id = l.location_region_id
+        JOIN    input.object_type cot ON cot.id = a.culprit_type_id
+        JOIN    input.object_class coc ON coc.id = cot.object_class_id
+        JOIN    input.object_group cog ON cog.id = coc.object_group_id
+        JOIN    input.event e ON a.event_type_id = e.event_type_id
+    SET     a.object_class_id = oc.id, a.object_class_name = oc.name, a.object_group_id = og.id, a.object_id = ot.id, a.object_name = ot.name,
+            a.object_group_name = og.name, a.region_id = lr.id, a.region_name = lr.name,
+            a.culprit_class_id = coc.id, a.culprit_class_name = coc.name,
+            a.culprit_group_id = cog.id, a.culprit_group_name = cog.name, a.event_id = e.id, a.event_name = e.name
+    WHERE   a.tenant_id = %s AND a.simulation_id = %s ''' % (tID, sID)
+    cursorOUT.execute(sqlMoreTCInfo)
+    print 'Done with Output: Total Criticality' , datetime.datetime.now().time().isoformat()
+    ###################################### / END TOTAL CRITICALITY
 
 connSinkLCM.commit()
 connSinkInput.commit()
