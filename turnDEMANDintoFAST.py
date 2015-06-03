@@ -29,7 +29,7 @@ import pyodbc
 #import pymysql.cursors
 
 # Define a few variables
-sID = 1002 # simulation id
+sID = 1006 # simulation id
 tID = 1000 # tenant id
 pID = 2 # project id
 cUser = 'user' # default create_user
@@ -47,7 +47,7 @@ simTypeID = 1 if SimOrDemo == 1 else 1 # set simulation_type_id to 1 (Insight) f
 # First the Source database (DEMAND Pro)
 #db_path = 'P:/Internal Projects/Data Scientist Team/InsightLCM/Testing/FAST/DEMAND Pro Basic Training/BasicCourseModelsDEMAND/PreEx1/'
 #model = "Model 1-1_TS1.mdb"
-db_path = "P:/Internal Projects/Data Scientist Team/InsightLCM/Demo/Aviation/Early2015/"
+db_path = "P:/Internal Projects/Data Scientist Team/InsightLCM/Demo/Aviation/Early2015/1June/"
 model = "1-Baseline.mdb"
 full_filename = db_path+model
 constr = 'Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=%s;'  % full_filename
@@ -297,6 +297,12 @@ if SimOrDemo == 2 and newTenant == 1:
     cursorLCM.execute(sqlInsert, (tID, cUser))
     sqlInsert = '''INSERT INTO object_state_type (tenant_id, name, create_user, create_timestamp) VALUES (?, "SPARE", ?, CURRENT_TIMESTAMP) '''
     cursorLCM.execute(sqlInsert, (tID, cUser))
+    sqlInsert = '''INSERT INTO object_state_type (tenant_id, name, create_user, create_timestamp) VALUES (?, "Available_Spare", ?, CURRENT_TIMESTAMP) '''
+    cursorLCM.execute(sqlInsert, (tID, cUser))
+    sqlInsert = '''INSERT INTO object_state_type (tenant_id, name, create_user, create_timestamp) VALUES (?, "In-overhaul_Spare", ?, CURRENT_TIMESTAMP) '''
+    cursorLCM.execute(sqlInsert, (tID, cUser))
+    sqlInsert = '''INSERT INTO object_state_type (tenant_id, name, create_user, create_timestamp) VALUES (?, "On-order_Spare", ?, CURRENT_TIMESTAMP) '''
+    cursorLCM.execute(sqlInsert, (tID, cUser))
     ###################################### / END OBJECT AVAILABILITY AND UTILIZATION AND STATE TYPE
 
     ###################################### / BEGIN OBJECT & METRICS
@@ -318,7 +324,7 @@ if SimOrDemo == 2 and newTenant == 1:
     # update object state types for platforms and spares
     sqlUpd = '''UPDATE object o JOIN object_state_type ost on ost.tenant_id = o.tenant_id SET o.object_state_type_id = ost.id WHERE ost.name = "Platform" and o.parent_object_id is null and o.name like "P%" and o.tenant_id = ?'''
     cursorLCM.execute(sqlUpd, (tID))
-    sqlUpd = '''UPDATE object o JOIN object_state_type ost on ost.tenant_id = o.tenant_id SET o.object_state_type_id = ost.id WHERE ost.name = "Spare" and o.name not like "P%" AND o.tenant_id = ?'''
+    sqlUpd = '''UPDATE object o JOIN object_state_type ost on ost.tenant_id = o.tenant_id SET o.object_state_type_id = ost.id WHERE ost.name = "Available_Spare" and o.name not like "P%" AND o.tenant_id = ?'''
     cursorLCM.execute(sqlUpd, (tID))
     # create object status record for platforms
     sqlInsert = '''INSERT INTO object_status (tenant_id, external_id, object_availability_type_id, object_utilization_type_id, create_user, create_timestamp) SELECT ?, o.id, oat.id, obut.id, ?, CURRENT_TIMESTAMP FROM object o JOIN object_utilization_type obut on obut.tenant_id = o.tenant_id JOIN object_availability_type oat on oat.tenant_id = o.tenant_id JOIN object_state_type ost on ost.tenant_id = o.tenant_id WHERE o.tenant_id = ? AND oat.name like "AVAILABLE" AND obut.name like "UTILIZED" AND ost.id = o.object_state_type_id AND ost.name like "Platform"'''
@@ -347,10 +353,21 @@ if SimOrDemo == 2 and newTenant == 1:
     sqlUpd = '''UPDATE object o JOIN object_specification os on os.tenant_id = o.tenant_id SET o.object_specification_id = os.id WHERE os.external_id = o.id AND o.tenant_id = ?'''
     cursorLCM.execute(sqlUpd, (tID))
 
+    # create future inventory - any part that arrives by the first year (inclusive)
+    sqlOFutureSpares = '''SELECT %s as tenantID, TreeCode as name, TreeCode as intname, TreeCode as sernum, [parent pp] as poEid, id as oEid, '%s' as username, %s as tenant_id2, sran as lEid, [object type] as otEid FROM [*object attributes initial] WHERE [Parent Pp]=0 AND [Arrival time ta] Between 0.25 and 1''' % (tID, cUser, tID)
+    sqlOIns = '''INSERT INTO object (tenant_id, object_type_id, location_id, name, internal_name, serial_number, object_state_type_id, primary_aging_unit_id, update_user, external_id, create_user, create_timestamp) SELECT ?, ot.id, l.id, ?, ?, ?, ost.id, oau.id, ?, ?, ?, CURRENT_TIMESTAMP FROM object_type ot JOIN location l on l.tenant_id = ot.tenant_id JOIN object_state_type ost on ost.tenant_id = l.tenant_id JOIN object_aging_unit_type oau on oau.tenant_id = l.tenant_id WHERE ot.tenant_id = ? and l.external_id = ? and ot.external_id = ? and ost.name like "On-order_Spare"'''
+    curSource.execute(sqlOFutureSpares)
+    futureInventory = curSource.fetchall()
+    cursorLCM.executemany(sqlOIns, futureInventory)
+    # update object state types for future spares
+    sqlUpd = '''UPDATE object o JOIN object_state_type ost on ost.tenant_id = o.tenant_id SET o.object_state_type_id = ost.id WHERE ost.name = "On-order_Spare" and o.parent_object_id is null and o.object_state_type_id is null and o.tenant_id = ?'''
+    cursorLCM.execute(sqlUpd, (tID))
+
     print "Done with LCM Object and Metrics" , datetime.datetime.now().time().isoformat()
     ###################################### / END OBJECT & METRICS
     # Relevant object information to update:
-    #   Age since last install 
+    #   Age since last install
+    connSinkLCM.commit()
 
 ######################################
 # INPUT DATA
