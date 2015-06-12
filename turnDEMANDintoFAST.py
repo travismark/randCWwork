@@ -29,12 +29,12 @@ import pyodbc
 #import pymysql.cursors
 
 # Define a few variables
-sID = 1006 # simulation id
-tID = 1000 # tenant id
+sID = 103 # simulation id
+tID = 100 # tenant id
 pID = 2 # project id
 cUser = 'user' # default create_user
-SimOrDemo = 2 # Simulation, 1 (with failure rates defined in calendar time) or demo, 2 (with failure rates defined in operating hours)
-LocalOrWeb = 2 # local, 1 (localhost) or web, 2 (out on insight)
+SimOrDemo = 1 # Simulation, 1 (with failure rates defined in calendar time) or demo, 2 (with failure rates defined in operating hours)
+LocalOrWeb = 1 # local, 1 (localhost) or web, 2 (out on insight)
 numberOfReps = 2000
 newTenant = 1
 prevTime = datetime.datetime.now().time().isoformat()
@@ -45,10 +45,12 @@ simTypeID = 1 if SimOrDemo == 1 else 1 # set simulation_type_id to 1 (Insight) f
 #os.chdir(workDir)
 ### Define the database connections
 # First the Source database (DEMAND Pro)
-#db_path = 'P:/Internal Projects/Data Scientist Team/InsightLCM/Testing/FAST/DEMAND Pro Basic Training/BasicCourseModelsDEMAND/PreEx1/'
-#model = "Model 1-1_TS1.mdb"
-db_path = "P:/Internal Projects/Data Scientist Team/InsightLCM/Demo/Aviation/Early2015/1June/"
-model = "1-Baseline.mdb"
+#db_path = 'C:/Users/tbaer/Desktop/demo/data/'
+#model = 'test.mdb'
+db_path = 'P:/Internal Projects/Data Scientist Team/InsightLCM/Testing/FAST/DEMAND Pro Basic Training/BasicCourseModelsDEMAND/PreEx1/'
+model = "Model 1-1_TS2.mdb"
+#db_path = "P:/Internal Projects/Data Scientist Team/InsightLCM/Demo/Aviation/Early2015/1June/"
+#model = "1-Baseline.mdb"
 full_filename = db_path+model
 constr = 'Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=%s;'  % full_filename
 connSource = pyodbc.connect(constr)
@@ -509,7 +511,8 @@ for row in classes:
 print "Done with Object Class" , datetime.datetime.now().time().isoformat()
 ###################################### / END OBJECT CLASS
 
-###################################### / BEGIN OBJECT TYPE
+###################################### / BEGIN OBJECT TYPE  
+# TODO: add template objects during this table
 # query the data, input all the data in the temp table, move all the data over - this type with no temporary table
 # object class Insight ID will come from link through temp table to class external id
 # get source data
@@ -569,7 +572,11 @@ for aName in enumerate(('No_Action','No_Fault_Found','Condemn','Repair'),start=1
 cursorINP.execute(sqlPT, (tID, sID, 'Evacuation_Probability', 5, 2, cUser))
 print "Done with Probability Type" , datetime.datetime.now().time().isoformat()
 ###################################### / END PROBABILITY TYPE
-###################################### / BEGIN Probability  ----- TODO: NEED TO HANDLE DEFAULTS !!!!!!!!!!! #################### - not working yet - probably should figure out defaults in the DEMAND queries
+###################################### / BEGIN Probability  
+# the templates are set up to handle defaulting mechanism.  it chooses the most specific matching option
+# TODO: need to check whether it deems object information or location information more specific. I would suggest object information is more important
+
+# these are the default types in case I need them
 # First do conseq_uer
 # what are all the possibilities?  
     # object type: default to group + indenture, class, or specific to type
@@ -577,52 +584,79 @@ print "Done with Probability Type" , datetime.datetime.now().time().isoformat()
 # 1) specific type + specific sran
 # 2) specific type + level
 # 3) specific type + all default
-# 4) class + specific sran
-# 5) class + level
+# 4) class + specific sran NOT ALLOWED IN DEMAND
+# 5) class + level NOT ALLOWED IN DEMAND
 # 6) class + all default
-# 7) group + specific sran
-# 8) group + level
-# 9) group + all default
+# 7) group/ind + specific sran NOT ALLOWED IN DEMAND
+# 8) group/ind + level NOT ALLOWED IN DEMAND
+# 9) group/ind + all default
 
-# find all the matches
+# find all the specific matches
 sqlPUER1 = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
-FROM [*Consequences of UER] WHERE Right([object type],1)<>0 AND Right([SRAN],1)<>0'''
-# find all these matches except the ones that previously matched (find exact sran from table's default sran by connecting to base names via first digit)
+FROM [*Consequences of UER] WHERE (((Right([SRAN],2))<>-1) AND ((Right([object type],1))<>0) AND ((Right([SRAN],1))<>0))'''
+# category 2 leave out the ones that previously matched (find exact sran from table's default sran by connecting to base names via first digit)
 sqlPUER2 = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Base Names].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
 FROM [*Consequences of UER] INNER JOIN [*Base Names] ON left([*Consequences of UER].SRAN,1) = left([*Base Names].SRAN,1)
 WHERE Right([object type],1)<>0 AND Right([*Consequences of UER].[SRAN],1)=0 AND [*Base Names].sran NOT IN (SELECT CUERsub.sran
 FROM [*Consequences of UER] AS CUERsub WHERE Right([sran],1)>0 AND CUERsub.[sran]<>-1 AND CUERsub.[Object type]=[*Consequences of UER].[Object type])'''
-# specific object types but all srans that leave out srans that match exactly and those that match on maintenance level (as well as exact object type)
-sqlPUER2 = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Base Names].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
-FROM [*Consequences of UER] INNER JOIN [*Base Names] ON left([*Consequences of UER].SRAN,1) = left([*Base Names].SRAN,1)
+# category 3 leave out the ones that previously matched (leave out those that match exactly and those that match on maintenance level (as well as exact object type))
+sqlPUER3 = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Base Names].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
+FROM [*Consequences of UER], [*Base Names]
 WHERE Right([object type],1)<>0 AND [*Consequences of UER].[SRAN]=-1 AND [*Base Names].sran NOT IN (SELECT CUERsub.sran
 FROM [*Consequences of UER] AS CUERsub WHERE Right([sran],1)>0 AND CUERsub.[sran]<>-1 AND CUERsub.[Object type]=[*Consequences of UER].[Object type]) AND left([*Base Names].SRAN,1) NOT IN (SELECT left(CUERsub.sran,1)
 FROM [*Consequences of UER] AS CUERsub WHERE Right([sran],1)=0 AND CUERsub.[Object type]=[*Consequences of UER].[Object type])'''
+# category 4 leave out the ones that previously matched
+# something like this but it doesn't work now 
+sqlPUER4 = '''SELECT [*Object type].[Object type] AS otype, [*Base Names].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep, doNotWants.sran as doTheyMatch
+FROM [*Base Names], [*Object type] INNER JOIN [*Consequences of UER] ON [*Object type].[Object class] = int(left([*Consequences of UER].[Object type],6)) 
 
+ RIGHT OUTER JOIN (SELECT exactOTmatches.otype, exactOTmatches.sran FROM
+(SELECT [*Consequences of UER].[Object type] AS otype, [*Base Names].SRAN
+FROM [*Base Names] INNER JOIN ([*Object type] INNER JOIN [*Consequences of UER] ON [*Object type].[Object type] = [*Consequences of UER].[Object type]) ON [*Base Names].SRAN = [*Consequences of UER].SRAN
+WHERE (((Right([*Consequences of UER].[object type],1))<>0))
+UNION
+SELECT [*Consequences of UER].[Object type] AS otype, [*Base Names].SRAN
+FROM [*Consequences of UER] INNER JOIN [*Base Names] ON left([*Consequences of UER].SRAN,1) = left([*Base Names].SRAN,1)
+WHERE Right([object type],1)<>0 AND Right([*Consequences of UER].[SRAN],1)=0 AND [*Base Names].sran 
+UNION
+SELECT [*Consequences of UER].[Object type] AS otype, [*Base Names].SRAN
+FROM [*Consequences of UER], [*Base Names]
+WHERE Right([object type],1)<>0 AND [*Consequences of UER].[SRAN]=-1 AND [*Base Names].sran NOT IN (SELECT CUERsub.sran
+FROM [*Consequences of UER] AS CUERsub WHERE Right([sran],1)>0 AND CUERsub.[sran]<>-1 AND CUERsub.[Object type]=[*Consequences of UER].[Object type]) AND left([*Base Names].SRAN,1) NOT IN (SELECT left(CUERsub.sran,1)
+FROM [*Consequences of UER] AS CUERsub WHERE Right([sran],1)=0 AND CUERsub.[Object type]=[*Consequences of UER].[Object type])) as doNotWants ON doNotWants.sran = [*Base Names].SRAN AND doNotWants.otype = [*Object type].[Object type]
 
+WHERE (((Right([*Consequences of UER].[Object type],3))=0) AND (([*Consequences of UER].SRAN)=-1)) AND doTheyMatch is NULL'''
 
+sqlPUER1 = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
+FROM [*Consequences of UER] WHERE Right([object type],1)>0 AND Right([SRAN],2)>0'''
+sqlPUER2 = '''SELECT [*Consequences of UER].[Object type] AS otype, left([*Consequences of UER].SRAN,1) as locTypeExId, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
+FROM [*Consequences of UER] WHERE Right([object type],1)>0 AND Right([SRAN],2)=0'''
+sqlPUER3 = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
+FROM [*Consequences of UER] WHERE Right([object type],1)>0 AND Right([SRAN],2)<0'''
+sqlPUER4 = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
+FROM [*Consequences of UER] WHERE Right([object type],1)=0 AND Right([object type],5)>0 AND [SRAN]=-1'''
+sqlPUER5 = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
+FROM [*Consequences of UER] WHERE Right([object type],1)=0 AND Right([object type],5)=0 AND [SRAN]=-1'''
 
-sqlPUERclassDefBaseClass = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
-FROM [*Consequences of UER] WHERE Right([object type],1)=0 AND Right([SRAN],1)=0'''
-sqlPUERclassDefBaseType = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
-FROM [*Consequences of UER] WHERE Right([object type],1)=0 AND Right([SRAN],1)<>0'''
-sqlPUERclassDefBaseDef = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
-FROM [*Consequences of UER] WHERE Right([object type],1)=0 AND [SRAN]=-1'''
-
-# sqlPUERtypeBaseType = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
-# FROM [*Consequences of UER] WHERE Right([object type],1)<>0 AND Right([SRAN],1)<>0'''
-# sqlPUERtypeBaseDef = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
-# FROM [*Consequences of UER] WHERE Right([object type],1)<>0 AND [SRAN]=-1'''
 #curSource.execute(sqlPUERclass)
 #probsClass = curSource.fetchall()
 #curSource.execute(sqlPUERtype)
 #probsType = curSource.fetchall()
-#sqlPUERinsert = '''INSERT INTO probability (tenant_id, simulation_id, object_type_id, location_id, active, available, asset, cloned_flag, template_flag, name, internal_name, serial_number, stg_id, external_id, create_user, create_timestamp) SELECT %s, %s, ot.id, l.id, 1, 1, %s, 0, 0, %s, %s, %s, %s, %s, 'user', CURRENT_TIMESTAMP FROM object_type ot join location l on l.tenant_id = ot.tenant_id and l.simulation_id = ot.simulation_id WHERE ot.tenant_id = %s AND ot.simulation_id = %s and l.external_id = %s and ot.external_id = %s'''
-# # there should never be spaces in the tree code, so can leave the internal name check out
-# for row in objects:
-#     cursorINP.execute(sqlP, (tID, sID, row.asset, row.name, row.name, row.name, row.poEid, row.oEid, tID, sID, row.lEid, row.otEid))
-# # update the parent objects
-# sqlP = '''UPDATE object o JOIN object po ON o.stg_id = po.external_id AND o.simulation_id = po.simulation_id SET o.parent_object_id = po.id WHERE o.tenant_id = %s and o.simulation_id = %s''' % (tID, sID)
+sqlPUERinsert1 = '''INSERT INTO probability (tenant_id, simulation_id, object_type_id, location_id, probability, probability_type_id, probability_class_id, create_user, create_timestamp) 
+SELECT %s, %s, ot.id, l.id, ?, pt.id, pc.id, "%s", CURRENT_TIMESTAMP FROM input.object_type ot JOIN input.location l ON l.simulation_id = ot.simulation_id JOIN input.probability_class pc ON pc.simulation_id = l.simulation_id JOIN input.probability_type pt ON pt.simulation_id = pc.simulation_id WHERE l.tenant_id = %s AND ot.simulation_id = %s AND ot.external_id = ? AND l.external_id = ? AND pc.name like "Maintenance_Unscheduled" AND pt.name like ?''' % (tID, sID, cUser, tID, sID)
+
+
+sqlPUERinsert3 = '''INSERT INTO probability (tenant_id, simulation_id, object_type_id, probability, probability_type_id, probability_class_id, create_user, create_timestamp) 
+SELECT %s, %s, ot.id, ?, pt.id, pc.id, "%s", CURRENT_TIMESTAMP FROM input.object_type ot JOIN input.probability_class pc ON pc.simulation_id = ot.simulation_id JOIN input.probability_type pt ON pt.simulation_id = pc.simulation_id WHERE ot.tenant_id = %s AND ot.simulation_id = %s AND ot.external_id = ? AND pc.name like "Maintenance_Unscheduled" AND pt.name like ?''' % (tID, sID, cUser, tID, sID)
+curSource.execute(sqlPUER3)
+probs = curSource.fetchall()
+# loop through - insert four LCM rows per DEMAND row
+for row in probs:
+    cursorINP.execute(sqlPUERinsert3, (row.rep, row.otype, "Repair"))
+    cursorINP.execute(sqlPUERinsert3, (row.con, row.otype, "Condemn"))
+    cursorINP.execute(sqlPUERinsert3, (row.nff, row.otype, "No_Fault_Found"))
+    cursorINP.execute(sqlPUERinsert3, (row.non, row.otype, "No_Action"))
+# TODO: fix the really minor digits at the end of the probabilities
 # cursorINP.execute(sqlP)
 # print "Done with Probability"
 ###################################### / END Probability
@@ -1476,8 +1510,8 @@ if SimOrDemo == 2:
     ###################################### / END EQUIPMENT CRITICALITY
 
     ###################################### / BEGIN TOTAL CRITICALITY
-    sqlInsertTotCritOvl = '''INSERT INTO output.total_criticality_pareto (tenant_id, simulation_id, project_name, project_id, interval_unit_id, interval_unit_name, timestamp, availability, unavailability, location_id, location_name, object_type_id, object_type_name, culprit_type_id, culprit_object_type_name, cause, event_type_id, event_type_name)
-        SELECT ?, ?, pr.name, ?, iu.id, ?, ?, ?, ?, l.id, l.name, ot.id, ot.name, cot.id, cot.name, "CM", et.id, et.name FROM lcm.project pr JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id JOIN input.object_type cot on cot.simulation_id = ot.simulation_id JOIN input.event_type et on et.simulation_id = ot.simulation_id, lcm.interval_unit iu WHERE pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND ot.tenant_id = ? and ot.simulation_id = ? AND ot.external_id = ? AND cot.external_id = ? AND l.external_id = ? AND et.name like "Failure"'''
+    sqlInsertTotCritOvl = '''INSERT INTO output.total_criticality_pareto (tenant_id, simulation_id, project_name, project_id, interval_unit_id, interval_unit_name, timestamp, availability, unavailability, location_id, location_name, object_type_id, object_type_name, object_id, object_name, culprit_type_id, culprit_object_type_name, cause, event_type_id, event_type_name)
+        SELECT ?, ?, pr.name, ?, iu.id, ?, ?, ?, ?, l.id, l.name, ot.id, ot.name, ot.id, ot.name, cot.id, cot.name, "CM", et.id, et.name FROM lcm.project pr JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id JOIN input.object_type cot on cot.simulation_id = ot.simulation_id JOIN input.event_type et on et.simulation_id = ot.simulation_id, lcm.interval_unit iu WHERE pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND ot.tenant_id = ? and ot.simulation_id = ? AND ot.external_id = ? AND cot.external_id = ? AND l.external_id = ? AND et.name like "Failure"'''
     cursorOUT.executemany(sqlInsertTotCritOvl, equipCRIT)
     print "Done with Overall Total Criticality Output" , datetime.datetime.now().time().isoformat()
     sqlMoreTCInfo = '''UPDATE output.total_criticality_pareto a
