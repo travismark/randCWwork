@@ -29,7 +29,7 @@ import pyodbc
 #import pymysql.cursors
 
 # Define a few variables
-sID = 103 # simulation id
+sID = 102 # simulation id
 tID = 100 # tenant id
 pID = 2 # project id
 cUser = 'user' # default create_user
@@ -392,7 +392,12 @@ if SimOrDemo == 1:
     for aName in enumerate(('Failure','Repair','Repair Complete','PM','PM Complete','Shipment','Relocate','Installation','Installation Complete','Removal','Removal Complete','Condemnation','Condemnation Complete','User Defined Function','Retirement','Activate','Passivate','Spare Request','Spare Available','Request Cancellation','Acquisition','Operations','Build','Build Complete','Inspection'),start=1): # 25 on this row
         cursorINP.execute(sqlE, (tID, sID, aName[1], aName[0], cUser, tID, sID, aName[0]))
     # now add a few more
-    cursorINP.execute(sqlE, (tID, sID, 'Spare Unavailable', 26, cUser, tID, sID, 19))  ### THIS IS BAD - HARDCODED !!! TODO: GET RID OF 
+    cursorINP.execute(sqlE, (tID, sID, 'Spare Unavailable', 26, cUser, tID, sID, 19))  ### THIS IS BAD - HARDCODED !!! TODO: GET RID OF
+    cursorINP.execute(sqlE, (tID, sID, 'Parent Needs Inspection', 27, cUser, tID, sID, 25)) # Inspection accessory event
+    cursorINP.execute(sqlE, (tID, sID, 'Parent Received Inspection', 28, cUser, tID, sID, 25)) # Inspection accessory event
+    cursorINP.execute(sqlE, (tID, sID, 'Inspection Request', 29, cUser, tID, sID, 25)) # Inspection accessory event
+    cursorINP.execute(sqlE, (tID, sID, 'No Action', 30, cUser, tID, sID, 2)) # of type Repair
+    cursorINP.execute(sqlE, (tID, sID, 'No Fault Found', 31, cUser, tID, sID, 2)) # of type Repair
 else: # demo, so leave some out
     for aName in enumerate(('Failure','Repair','Repair Complete','PM','PM Complete','Shipment','Relocate','Installation','Installation Complete','Removal','Removal Complete','Condemnation','Condemnation Complete','User Defined Function','Retirement','Activate','Passivate','Spare Request','Spare Available','Request Cancellation','Acquisition','Operations'),start=1): # 22 on this row
         cursorINP.execute(sqlE, (tID, sID, aName[1], aName[0], cUser, tID, sID, aName[0]))
@@ -584,48 +589,12 @@ print "Done with Probability Type" , datetime.datetime.now().time().isoformat()
 # 1) specific type + specific sran
 # 2) specific type + level
 # 3) specific type + all default
-# 4) class + specific sran NOT ALLOWED IN DEMAND
-# 5) class + level NOT ALLOWED IN DEMAND
-# 6) class + all default
-# 7) group/ind + specific sran NOT ALLOWED IN DEMAND
-# 8) group/ind + level NOT ALLOWED IN DEMAND
-# 9) group/ind + all default
-
-# find all the specific matches
-sqlPUER1 = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
-FROM [*Consequences of UER] WHERE (((Right([SRAN],2))<>-1) AND ((Right([object type],1))<>0) AND ((Right([SRAN],1))<>0))'''
-# category 2 leave out the ones that previously matched (find exact sran from table's default sran by connecting to base names via first digit)
-sqlPUER2 = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Base Names].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
-FROM [*Consequences of UER] INNER JOIN [*Base Names] ON left([*Consequences of UER].SRAN,1) = left([*Base Names].SRAN,1)
-WHERE Right([object type],1)<>0 AND Right([*Consequences of UER].[SRAN],1)=0 AND [*Base Names].sran NOT IN (SELECT CUERsub.sran
-FROM [*Consequences of UER] AS CUERsub WHERE Right([sran],1)>0 AND CUERsub.[sran]<>-1 AND CUERsub.[Object type]=[*Consequences of UER].[Object type])'''
-# category 3 leave out the ones that previously matched (leave out those that match exactly and those that match on maintenance level (as well as exact object type))
-sqlPUER3 = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Base Names].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
-FROM [*Consequences of UER], [*Base Names]
-WHERE Right([object type],1)<>0 AND [*Consequences of UER].[SRAN]=-1 AND [*Base Names].sran NOT IN (SELECT CUERsub.sran
-FROM [*Consequences of UER] AS CUERsub WHERE Right([sran],1)>0 AND CUERsub.[sran]<>-1 AND CUERsub.[Object type]=[*Consequences of UER].[Object type]) AND left([*Base Names].SRAN,1) NOT IN (SELECT left(CUERsub.sran,1)
-FROM [*Consequences of UER] AS CUERsub WHERE Right([sran],1)=0 AND CUERsub.[Object type]=[*Consequences of UER].[Object type])'''
-# category 4 leave out the ones that previously matched
-# something like this but it doesn't work now 
-sqlPUER4 = '''SELECT [*Object type].[Object type] AS otype, [*Base Names].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep, doNotWants.sran as doTheyMatch
-FROM [*Base Names], [*Object type] INNER JOIN [*Consequences of UER] ON [*Object type].[Object class] = int(left([*Consequences of UER].[Object type],6)) 
-
- RIGHT OUTER JOIN (SELECT exactOTmatches.otype, exactOTmatches.sran FROM
-(SELECT [*Consequences of UER].[Object type] AS otype, [*Base Names].SRAN
-FROM [*Base Names] INNER JOIN ([*Object type] INNER JOIN [*Consequences of UER] ON [*Object type].[Object type] = [*Consequences of UER].[Object type]) ON [*Base Names].SRAN = [*Consequences of UER].SRAN
-WHERE (((Right([*Consequences of UER].[object type],1))<>0))
-UNION
-SELECT [*Consequences of UER].[Object type] AS otype, [*Base Names].SRAN
-FROM [*Consequences of UER] INNER JOIN [*Base Names] ON left([*Consequences of UER].SRAN,1) = left([*Base Names].SRAN,1)
-WHERE Right([object type],1)<>0 AND Right([*Consequences of UER].[SRAN],1)=0 AND [*Base Names].sran 
-UNION
-SELECT [*Consequences of UER].[Object type] AS otype, [*Base Names].SRAN
-FROM [*Consequences of UER], [*Base Names]
-WHERE Right([object type],1)<>0 AND [*Consequences of UER].[SRAN]=-1 AND [*Base Names].sran NOT IN (SELECT CUERsub.sran
-FROM [*Consequences of UER] AS CUERsub WHERE Right([sran],1)>0 AND CUERsub.[sran]<>-1 AND CUERsub.[Object type]=[*Consequences of UER].[Object type]) AND left([*Base Names].SRAN,1) NOT IN (SELECT left(CUERsub.sran,1)
-FROM [*Consequences of UER] AS CUERsub WHERE Right([sran],1)=0 AND CUERsub.[Object type]=[*Consequences of UER].[Object type])) as doNotWants ON doNotWants.sran = [*Base Names].SRAN AND doNotWants.otype = [*Object type].[Object type]
-
-WHERE (((Right([*Consequences of UER].[Object type],3))=0) AND (([*Consequences of UER].SRAN)=-1)) AND doTheyMatch is NULL'''
+#  ) class + specific sran NOT ALLOWED IN DEMAND
+#  ) class + level NOT ALLOWED IN DEMAND
+# 4) class + all default
+#  ) group/ind + specific sran NOT ALLOWED IN DEMAND
+#  ) group/ind + level NOT ALLOWED IN DEMAND
+# 5) group/ind + all default
 
 sqlPUER1 = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
 FROM [*Consequences of UER] WHERE Right([object type],1)>0 AND Right([SRAN],2)>0'''
@@ -633,18 +602,35 @@ sqlPUER2 = '''SELECT [*Consequences of UER].[Object type] AS otype, left([*Conse
 FROM [*Consequences of UER] WHERE Right([object type],1)>0 AND Right([SRAN],2)=0'''
 sqlPUER3 = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
 FROM [*Consequences of UER] WHERE Right([object type],1)>0 AND Right([SRAN],2)<0'''
-sqlPUER4 = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
+sqlPUER4 = '''SELECT Left([*Consequences of UER].[Object type],6) AS oclass, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
 FROM [*Consequences of UER] WHERE Right([object type],1)=0 AND Right([object type],5)>0 AND [SRAN]=-1'''
-sqlPUER5 = '''SELECT [*Consequences of UER].[Object type] AS otype, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
-FROM [*Consequences of UER] WHERE Right([object type],1)=0 AND Right([object type],5)=0 AND [SRAN]=-1'''
+# this last one, group-default, must still use class default and exclude all the matches from the previous one - group doesn't mean the same thing in FAST TODO: investigate how/why we can get this back
+sqlPUER5 = '''SELECT Left([*Object Type].[Object type],6) as oclass, [*Consequences of UER].SRAN, [*Consequences of UER].[Pu s,non] AS non, [*Consequences of UER].[Pu s,nff] AS nff, [*Consequences of UER].[Pu s,con] AS con, [*Consequences of UER].[Pu s,rep] AS rep
+FROM [*Consequences of UER] INNER JOIN [*Object type] ON left([*Consequences of UER].[Object type],3) = left([*Object type].[Object type],3)
+WHERE right([*Consequences of UER].[Object type],5) = 0 AND [*Consequences of UER].SRAN = -1 AND left([*Object type].[Object type],6) not in (SELECT Left([Object type],6) AS avoidClass
+FROM [*Consequences of UER] WHERE (((Right([Object type],1))=0) AND (([*Consequences of UER].SRAN)=-1) AND ((Right([Object type],5))<>0)))'''
 
-#curSource.execute(sqlPUERclass)
-#probsClass = curSource.fetchall()
-#curSource.execute(sqlPUERtype)
-#probsType = curSource.fetchall()
 sqlPUERinsert1 = '''INSERT INTO probability (tenant_id, simulation_id, object_type_id, location_id, probability, probability_type_id, probability_class_id, create_user, create_timestamp) 
 SELECT %s, %s, ot.id, l.id, ?, pt.id, pc.id, "%s", CURRENT_TIMESTAMP FROM input.object_type ot JOIN input.location l ON l.simulation_id = ot.simulation_id JOIN input.probability_class pc ON pc.simulation_id = l.simulation_id JOIN input.probability_type pt ON pt.simulation_id = pc.simulation_id WHERE l.tenant_id = %s AND ot.simulation_id = %s AND ot.external_id = ? AND l.external_id = ? AND pc.name like "Maintenance_Unscheduled" AND pt.name like ?''' % (tID, sID, cUser, tID, sID)
+curSource.execute(sqlPUER1)
+probs = curSource.fetchall()
+# loop through - insert four LCM rows per DEMAND row
+for row in probs:
+    cursorINP.execute(sqlPUERinsert1, (row.rep, row.otype, row.SRAN, "Repair"))
+    cursorINP.execute(sqlPUERinsert1, (row.con, row.otype, row.SRAN, "Condemn"))
+    cursorINP.execute(sqlPUERinsert1, (row.nff, row.otype, row.SRAN, "No_Fault_Found"))
+    cursorINP.execute(sqlPUERinsert1, (row.non, row.otype, row.SRAN, "No_Action"))
 
+sqlPUERinsert2 = '''INSERT INTO probability (tenant_id, simulation_id, object_type_id, location_type_id, probability, probability_type_id, probability_class_id, create_user, create_timestamp) 
+SELECT %s, %s, ot.id, lt.id, ?, pt.id, pc.id, "%s", CURRENT_TIMESTAMP FROM input.object_type ot JOIN input.location_type lt ON lt.simulation_id = ot.simulation_id JOIN input.probability_class pc ON pc.simulation_id = lt.simulation_id JOIN input.probability_type pt ON pt.simulation_id = pc.simulation_id WHERE lt.tenant_id = %s AND ot.simulation_id = %s AND ot.external_id = ? AND lt.external_id = ? AND pc.name like "Maintenance_Unscheduled" AND pt.name like ?''' % (tID, sID, cUser, tID, sID)
+curSource.execute(sqlPUER2)
+probs = curSource.fetchall()
+# loop through - insert four LCM rows per DEMAND row
+for row in probs:
+    cursorINP.execute(sqlPUERinsert2, (row.rep, row.otype, row.locTypeExId, "Repair"))
+    cursorINP.execute(sqlPUERinsert2, (row.con, row.otype, row.locTypeExId, "Condemn"))
+    cursorINP.execute(sqlPUERinsert2, (row.nff, row.otype, row.locTypeExId, "No_Fault_Found"))
+    cursorINP.execute(sqlPUERinsert2, (row.non, row.otype, row.locTypeExId, "No_Action"))
 
 sqlPUERinsert3 = '''INSERT INTO probability (tenant_id, simulation_id, object_type_id, probability, probability_type_id, probability_class_id, create_user, create_timestamp) 
 SELECT %s, %s, ot.id, ?, pt.id, pc.id, "%s", CURRENT_TIMESTAMP FROM input.object_type ot JOIN input.probability_class pc ON pc.simulation_id = ot.simulation_id JOIN input.probability_type pt ON pt.simulation_id = pc.simulation_id WHERE ot.tenant_id = %s AND ot.simulation_id = %s AND ot.external_id = ? AND pc.name like "Maintenance_Unscheduled" AND pt.name like ?''' % (tID, sID, cUser, tID, sID)
@@ -656,6 +642,27 @@ for row in probs:
     cursorINP.execute(sqlPUERinsert3, (row.con, row.otype, "Condemn"))
     cursorINP.execute(sqlPUERinsert3, (row.nff, row.otype, "No_Fault_Found"))
     cursorINP.execute(sqlPUERinsert3, (row.non, row.otype, "No_Action"))
+
+sqlPUERinsert4 = '''INSERT INTO probability (tenant_id, simulation_id, object_class_id, probability, probability_type_id, probability_class_id, create_user, create_timestamp) 
+SELECT %s, %s, oc.id, ?, pt.id, pc.id, "%s", CURRENT_TIMESTAMP FROM input.object_class oc JOIN input.probability_class pc ON pc.simulation_id = oc.simulation_id JOIN input.probability_type pt ON pt.simulation_id = pc.simulation_id WHERE oc.tenant_id = %s AND ot.simulation_id = %s AND oc.external_id = ? AND pc.name like "Maintenance_Unscheduled" AND pt.name like ?''' % (tID, sID, cUser, tID, sID)
+curSource.execute(sqlPUER4)
+probs = curSource.fetchall()
+# loop through - insert four LCM rows per DEMAND row
+for row in probs:
+    cursorINP.execute(sqlPUERinsert4, (row.rep, row.oclass, "Repair"))
+    cursorINP.execute(sqlPUERinsert4, (row.con, row.oclass, "Condemn"))
+    cursorINP.execute(sqlPUERinsert4, (row.nff, row.oclass, "No_Fault_Found"))
+    cursorINP.execute(sqlPUERinsert4, (row.non, row.oclass, "No_Action"))
+
+# five uses the same insert as four
+curSource.execute(sqlPUER5)
+probs = curSource.fetchall()
+# loop through - insert four LCM rows per DEMAND row
+for row in probs:
+    cursorINP.execute(sqlPUERinsert4, (row.rep, row.oclass, "Repair"))
+    cursorINP.execute(sqlPUERinsert4, (row.con, row.oclass, "Condemn"))
+    cursorINP.execute(sqlPUERinsert4, (row.nff, row.oclass, "No_Fault_Found"))
+    cursorINP.execute(sqlPUERinsert4, (row.non, row.oclass, "No_Action"))
 # TODO: fix the really minor digits at the end of the probabilities
 # cursorINP.execute(sqlP)
 # print "Done with Probability"
@@ -705,7 +712,7 @@ failureUOM = failureUOM.id # get the value
 exID = 1 # use as counter for inputting parameters later
 sqlFR = '''INSERT INTO distribution (tenant_id, simulation_id, external_id, name, distribution_class_id, distribution_type_id, unit_of_measure_id, create_user, create_timestamp) SELECT ?, ?, ?, ?, dc.id, dt.id, ?, ?, CURRENT_TIMESTAMP FROM distribution_class dc join distribution_type dt on dt.simulation_id = dc.simulation_id WHERE dc.tenant_id = ? and dc.simulation_id = ? and dt.external_id = ? AND dc.name like "Unscheduled Removal" '''
 for row in failureRates:
-    if row.cr != 0:  # only load the zeroth completed repair now
+    if row.cr != 0:  # only load the zeroth completed repair now TODO: ADD MORE CRs (use expression & object property?)
         continue
     else:
         if LocalOrWeb == 1: # if it'll be put on the web, set the event distribution to something cleaner, like 'Failure'
@@ -717,14 +724,14 @@ for row in failureRates:
 # now repair distributions ############# TBD TBD TBD ##########################  - I SKIPPED REPAIRS AND THEIR DISTRIBUTION_PARAMETERS FOR ONLINE DEMO MODEL
 
 # lcm.unit_of_measure is in a different database, so I'll have to query it separately -- THIS IS NOT TRUE - YOU CAN QUERY ANY SCHEMA
-cursorLCM.execute('SELECT id from lcm.unit_of_measure where external_id = 2 and tenant_id = %s' % tID ) # hard coded as Days 
+cursorLCM.execute('SELECT id from lcm.unit_of_measure where external_id = 2 and name like "Days" and tenant_id = %s' % tID ) # DEMAND Pro server times are in Days 
 maintUOM = cursorLCM.fetchone()
 maintUOM = maintUOM.id
 constantExID = 1
 
 # right now I'm hardcoding to just get repair at any level 10000 because I'm short on time TODO: make repair distributions more general
 # I can't specify the type of maintenance without throwing an error so I'll pull all the data and cull it later
-sqlAllMaint = '''SELECT sr.[SRAN ID] as lEid, sr.[SERVER TYPE] as mntType, sr.[Object type] as otEid, sr.[Tsf Dist] AS distType, sr.[Tsf P1] AS p1, sr.[Tsf P2] AS p2 FROM [*Server times] as sr WHERE sr.[SRAN ID]=10000'''
+sqlAllMaint = '''SELECT sr.[SRAN ID] as lEid, sr.[SERVER TYPE] as mntType, sr.[Object type] as otEid, sr.[Tsf Dist] AS distType, sr.[Tsf P1] AS p1, sr.[Tsf P2] AS p2 FROM [*Server times] as sr'''
 curSource.execute(sqlAllMaint)
 maintDists = curSource.fetchall()
 repairDists = []
@@ -756,18 +763,21 @@ for row in removalDists:
     cursorINP.execute(sqlMnt, (tID, sID, exID, tempName, maintUOM, cUser, tID, sID, constantExID))
     tempName = 'Installation exTID: ' + str(row.otEid) + ' exLID: ' + str(row.lEid) # install times are zero in DEMAND
     cursorINP.execute(sqlMnt, (tID, sID, exID, tempName, maintUOM, cUser, tID, sID, constantExID))
+    exID += 1
 # inspect - not handled in Insight yet b/c consistency checks - leave out if demo
 if SimOrDemo == 1:
     exID = 1
     for row in inspectDists:
         tempName = 'Inspection exTID: ' + str(row.otEid) + ' exLID: ' + str(row.lEid)
         cursorINP.execute(sqlMnt, (tID, sID, exID, tempName, maintUOM, cUser, tID, sID, constantExID))
+        exID += 1
     # build
     exID = 1
     for row in buildDists:
         # build times are assigned to the parent - one time to install all children parts
         tempName = 'Build exTID: ' + str(row.otEid) + ' exLID: ' + str(row.lEid)
         cursorINP.execute(sqlMnt, (tID, sID, exID, tempName, maintUOM, cUser, tID, sID, constantExID))
+        exID += 1
 print "Done with Distribution" , datetime.datetime.now().time().isoformat()
 ###################################### / END DISTRIBUTION
 ###################################### / BEGIN DISTRIBUTION PARAMETER
@@ -859,12 +869,42 @@ if SimOrDemo == 1: # only if it's not being loaded to the web for a demo
 print "Done with Distribution Parameter" , datetime.datetime.now().time().isoformat()
 ###################################### / END DISTRIBUTION PARAMETER
 ###################################### / BEGIN EVENT DISTRIBUTION
+#### DOES NOT SUPPORT OBJECT GROUP DEFAULTING -- TODO: SUPPORT THIS
+#### DOES NOT MULTIPLE COMPLETED REPAIRS -- TODO: SUPPORT THIS
+#### DOES NOT SUPPORT DIFFERENT AGE UNITS -- TODO: SUPPORT THIS (DEMAND Pro only allows one age unit per item)
+
+# UNSCHEDULED REMOVAL DEFAULTING OPTIONS:
+# > Object Group, Object Class, Object Type
+# > Parent Type, all Parents
+# > SRAN, all bases
+
+# 1) Type - Type - SRAN
+#  ) Class - Type - SRAN - NOT ALLOWED IN DEMAND
+#  ) Group - Type - SRAN - NOT ALLOWED IN DEMAND
+# 2) Type - All - SRAN
+# 3) Type - All - All
+#  ) Class - All - SRAN - NOT ALLOWED IN DEMAND
+# 4) Class - All - All
+#  ) Group - All - SRAN - NOT ALLOWED IN DEMAND
+# 5) Group - All - All # Not Supporting Yet TODO: support this way
+# 6) Type - Type - All
+#  ) Class - Type - All - NOT ALLOWED IN DEMAND
+#  ) Group - Type - All - NOT ALLOWED IN DEMAND
+
 if LocalOrWeb == 1: # if it'll be put on the web, set the event distribution to something cleaner, like 'Failure'
-    sqlFED = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and d.name like "Failure%" and e.name like "Failure"''' # can also include location and parent object type for failure rates, but haven't yet
-    sqlFEDdefault = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and left(ot.external_id,6) = ? and d.name like "Failure%" and e.name like "Failure"'''
-else:
-    sqlFED = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, "Failure", d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and d.name like "Failure%" and e.name like "Failure"''' # can also include location and parent object type for failure rates, but haven't yet
-    sqlFEDdefault = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, "Failure", d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and left(ot.external_id,6) = ? and d.name like "Failure%" and e.name like "Failure"'''
+    sqlFED1 = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, parent_object_type_id, location_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, pot.id, l.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id JOIN input.location l on l.simulation_id = e.simulation_id JOIN input.object_type pot on pot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and l.external_id = ? and pot.external_id = ? and d.name like "Failure%" and e.name like "Failure"'''
+    sqlFED2defaultParentType = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, location_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, l.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id JOIN input.location l on l.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and l.external_id = ? and d.name like "Failure%" and e.name like "Failure"'''
+    sqlFED3defaultLocationParentType = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and d.name like "Failure%" and e.name like "Failure"'''
+    sqlFED4defaultTypeLocationParentType = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_class_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, oc.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_class oc ON oc.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and oc.external_id = ? and d.name like "Failure%" and e.name like "Failure"'''
+    sqlFED5defaultClassLocationParentType = '' ### NO WAY not going to spend the effort to get this working
+    sqlFED6defaultLocation = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, parent_object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, pot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id JOIN input.object_type pot on pot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and pot.external_id = ? and d.name like "Failure%" and e.name like "Failure"'''
+else:    
+    sqlFED1 = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, parent_object_type_id, location_id, create_user, create_timestamp) SELECT ?, ?, ?, "Failure", d.id, e.id, ot.id, pot.id, l.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id JOIN input.location l on l.simulation_id = e.simulation_id JOIN input.object_type pot on pot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and l.external_id = ? and pot.external_id = ? and d.name like "Failure%" and e.name like "Failure"'''
+    sqlFED2defaultParentType = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, location_id, create_user, create_timestamp) SELECT ?, ?, ?, "Failure", d.id, e.id, ot.id, l.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id JOIN input.location l on l.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and l.external_id = ? and d.name like "Failure%" and e.name like "Failure"'''
+    sqlFED3defaultLocationParentType = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, "Failure", d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and d.name like "Failure%" and e.name like "Failure"'''
+    sqlFED4defaultTypeLocationParentType = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_class_id, create_user, create_timestamp) SELECT ?, ?, ?, "Failure", d.id, e.id, oc.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_class oc ON oc.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and oc.external_id = ? and d.name like "Failure%" and e.name like "Failure"'''
+    sqlFED5defaultClassLocationParentType = '' ### NO WAY not going to spend the effort to get this working
+    sqlFED6defaultLocation = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, parent_object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, "Failure", d.id, e.id, ot.id, pot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id JOIN input.object_type pot on pot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and pot.external_id = ? and d.name like "Failure%" and e.name like "Failure"'''
     sqlFED2 = '''UPDATE input.event_distribution ed JOIN input.object_type ot ON ot.id = ed.object_type_id
         JOIN input.object_class oc ON oc.id = ot.object_class_id SET ed.object_class_id = oc.id
         WHERE ed.tenant_id = %s AND ed.simulation_id = %s AND ed.name like "Failure"''' % (tID, sID)
@@ -875,70 +915,118 @@ else:
 # use that same failure rate pyodbc list
 exID = 1 # for external event_distribution id
 for row in failureRates:
-    if int(str(row.otEid)[-1]) == 0: # handle Defaults (object types ending in zero)
-        cursorINP.execute(sqlFEDdefault, (tID, sID, exID, cUser, tID, sID, exID, str(row.otEid)[:6])) # match all object types in this class
+    if int(str(row.otEid)[-1]) != 0 and row.PetId != -1 and row.lEid != -1: # all specifics 
+        cursorINP.execute(sqlFED1, (tID, sID, exID, cUser, tID, sID, exID, row.otEid, row.lEid, row.PetId))
+    elif int(str(row.otEid)[-1]) != 0 and row.PetId == -1 and row.lEid != -1: # default parent type
+        cursorINP.execute(sqlFED2defaultParentType, (tID, sID, exID, cUser, tID, sID, exID, row.otEid, row.lEid))
+    elif int(str(row.otEid)[-1]) != 0 and row.PetId == -1 and row.lEid == -1: # default parent type and location
+        cursorINP.execute(sqlFED3defaultLocationParentType, (tID, sID, exID, cUser, tID, sID, exID, row.otEid))
+    elif int(str(row.otEid)[4:]) != 0 and int(str(row.otEid)[-1]) == 0 and row.PetId == -1 and row.lEid == -1: # default parent type and location
+        cursorINP.execute(sqlFED4defaultTypeLocationParentType, (tID, sID, exID, cUser, tID, sID, exID, int(str(row.otEid)[:6]) ))
+    elif int(str(row.otEid)[-1]) != 0 and row.PetId != -1 and row.lEid == -1: # default parent type and location
+        cursorINP.execute(sqlFED6defaultLocation, (tID, sID, exID, cUser, tID, sID, exID, row.otEid, row.PetId))
     else:
-        cursorINP.execute(sqlFED, (tID, sID, exID, cUser, tID, sID, exID, row.otEid ))
+        print "Warning:  This failure rate is not supported %s %s %s" % (row.otEid, row.PetId, row.lEid)
     exID += 1 # defaults will likely match to several Object types at a time so this external ID will no longer be unique for the failure distribution
 if LocalOrWeb == 2: # switch to class info to show up in failure distribution
     cursorINP.execute(sqlFED2)
     cursorINP.execute(sqlFED3)
-# Handle Defaulting Mechanisms
+
+# SERVER TIME DEFAULTING OPTIONS:
+# > Object Group, Object Class, Object Type
+# > SRAN, Echelon
+
+# 1) Type - SRAN
+# 2) Type - Echelon
+# 3) Class - SRAN
+# 4) Class - Echelon
+# 5) Group - SRAN
+#  ) Group - Echelon - NOT ALLOWED IN DEMAND
+
+# define the general Server Time insert queries
+sqlSED1 = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, location_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, l.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id JOIN input.location l on l.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and l.external_id = ? and d.name like "%s%%" and e.name like "%s"'''
+sqlSED2 = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, location_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, lt.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id JOIN input.location_type lt on lt.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and lt.external_id = ? and d.name like "%s%%" and e.name like "%s"'''
+sqlSED3 = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_class_id, location_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, oc.id, l.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_class oc ON oc.simulation_id = e.simulation_id JOIN input.location l on l.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and oc.external_id = ? and l.external_id = ? and d.name like "%s%%" and e.name like "%s"'''
+sqlSED4 = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_class_id, location_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, oc.id, lt.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_class oc ON oc.simulation_id = e.simulation_id JOIN input.location_type lt on lt.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and oc.external_id = ? and lt.external_id = ? and d.name like "%s%%" and e.name like "%s"'''
+sqlSED5 = '' # NOT IMPLEMENTING THIS YET
+
 
 ## Repair distributions
-sqlRED = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and d.name like "Repair%" and e.name like "Repair"''' # can also include location and parent object type for failure rates, but haven't yet
-sqlREDdefault = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and left(ot.external_id,6) = ? and d.name like "Repair%" and e.name like "Repair"''' # can also include location and parent object type for failure rates, but haven't yet
+#sqlRED = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and d.name like "Repair%" and e.name like "Repair"''' # can also include location and parent object type for failure rates, but haven't yet
+#sqlREDdefault = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_class_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, oc.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_class oc ON oc.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and oc.external_id = ? and d.name like "Repair%" and e.name like "Repair"''' # can also include location and parent object type for failure rates, but haven't yet
 exID = 1 # for external event_distribution id
 for row in repairDists:
-    if int(str(row.otEid)[-1]) == 0:
-        cursorINP.execute(sqlREDdefault, (tID, sID, exID, cUser, tID, sID, exID, str(row.otEid)[:6]))
+    if int(str(row.otEid)[-1]) != 0 and int(str(row.lEid)[-1]) != 0:
+        cursorINP.execute(sqlSED1 % ("Repair","Repair"), (tID, sID, exID, cUser, tID, sID, exID, row.otEid, row.lEid) )
+    elif int(str(row.otEid)[-1]) != 0 and int(str(row.lEid)[-1]) == 0:
+        cursorINP.execute(sqlSED2 % ("Repair","Repair"), (tID, sID, exID, cUser, tID, sID, exID, row.otEid, int(str(row.lEid)[0])))
+    elif int(str(row.otEid)[4:]) != 0 and int(str(row.otEid)[-1]) == 0 and int(str(row.lEid)[-1]) != 0:
+        cursorINP.execute(sqlSED3 % ("Repair","Repair"), (tID, sID, exID, cUser, tID, sID, exID, int(str(row.otEid)[:6]), row.lEid))
+    elif int(str(row.otEid)[4:]) != 0 and int(str(row.otEid)[-1]) == 0 and int(str(row.lEid)[-1]) == 0:
+        cursorINP.execute(sqlSED4 % ("Repair","Repair"), (tID, sID, exID, cUser, tID, sID, exID, int(str(row.otEid)[:6]), int(str(row.lEid)[0])))
     else:
-        cursorINP.execute(sqlRED, (tID, sID, exID, cUser, tID, sID, exID, row.otEid ))
+        print "Warning these Repair server times are not allowed %s %s %s" % (row.otEid, row.lEid, row.mntType)
     exID += 1
 
 ## Removal distributions
-sqlRED = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and d.name like "Removal%" and e.name like "Removal"''' # can also include location and parent object type for failure rates, but haven't yet
-sqlREDdefault = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and left(ot.external_id,6) = ? and d.name like "Removal%" and e.name like "Removal"''' # can also include location and parent object type for failure rates, but haven't yet
 exID = 1 # for external event_distribution id
 for row in removalDists:
-    if int(str(row.otEid)[-1]) == 0:
-        cursorINP.execute(sqlREDdefault, (tID, sID, exID, cUser, tID, sID, exID, str(row.otEid)[:6]))
+    if int(str(row.otEid)[-1]) != 0 and int(str(row.lEid)[-1]) != 0:
+        cursorINP.execute(sqlSED1 % ("Removal","Removal"), (tID, sID, exID, cUser, tID, sID, exID, row.otEid, row.lEid) )
+    elif int(str(row.otEid)[-1]) != 0 and int(str(row.lEid)[-1]) == 0:
+        cursorINP.execute(sqlSED2 % ("Removal","Removal"), (tID, sID, exID, cUser, tID, sID, exID, row.otEid, int(str(row.lEid)[0])))
+    elif int(str(row.otEid)[4:]) != 0 and int(str(row.otEid)[-1]) == 0 and int(str(row.lEid)[-1]) != 0:
+        cursorINP.execute(sqlSED3 % ("Removal","Removal"), (tID, sID, exID, cUser, tID, sID, exID, int(str(row.otEid)[:6]), row.lEid))
+    elif int(str(row.otEid)[4:]) != 0 and int(str(row.otEid)[-1]) == 0 and int(str(row.lEid)[-1]) == 0:
+        cursorINP.execute(sqlSED4 % ("Removal","Removal"), (tID, sID, exID, cUser, tID, sID, exID, int(str(row.otEid)[:6]), int(str(row.lEid)[0])))
     else:
-        cursorINP.execute(sqlRED, (tID, sID, exID, cUser, tID, sID, exID, row.otEid ))
+        print "Warning these Removal server times are not allowed %s %s %s" % (row.otEid, row.lEid, row.mntType)
     exID += 1
 
 ## Install distributions
-sqlIED = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and d.name like "Installation%" and e.name like "Installation"''' # can also include location and parent object type for failure rates, but haven't yet
-sqlIEDdefault = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and left(ot.external_id,6) = ? and d.name like "Installation%" and e.name like "Installation"''' # can also include location and parent object type for failure rates, but haven't yet
 exID = 1 # for external event_distribution id
 for row in removalDists:
-    if int(str(row.otEid)[-1]) == 0:
-        cursorINP.execute(sqlIEDdefault, (tID, sID, exID, cUser, tID, sID, exID, str(row.otEid)[:6]))
+    if int(str(row.otEid)[-1]) != 0 and int(str(row.lEid)[-1]) != 0:
+        cursorINP.execute(sqlSED1 % ("Installation","Installation"), (tID, sID, exID, cUser, tID, sID, exID, row.otEid, row.lEid) )
+    elif int(str(row.otEid)[-1]) != 0 and int(str(row.lEid)[-1]) == 0:
+        cursorINP.execute(sqlSED2 % ("Installation","Installation"), (tID, sID, exID, cUser, tID, sID, exID, row.otEid, int(str(row.lEid)[0])))
+    elif int(str(row.otEid)[4:]) != 0 and int(str(row.otEid)[-1]) == 0 and int(str(row.lEid)[-1]) != 0:
+        cursorINP.execute(sqlSED3 % ("Installation","Installation"), (tID, sID, exID, cUser, tID, sID, exID, int(str(row.otEid)[:6]), row.lEid))
+    elif int(str(row.otEid)[4:]) != 0 and int(str(row.otEid)[-1]) == 0 and int(str(row.lEid)[-1]) == 0:
+        cursorINP.execute(sqlSED4 % ("Installation","Installation"), (tID, sID, exID, cUser, tID, sID, exID, int(str(row.otEid)[:6]), int(str(row.lEid)[0])))
     else:
-        cursorINP.execute(sqlIED, (tID, sID, exID, cUser, tID, sID, exID, row.otEid ))
+        print "Warning these Installation server times are not allowed %s %s %s" % (row.otEid, row.lEid, row.mntType)
     exID += 1
 
 if SimOrDemo == 1:
     ## Inspection distributions
-    sqlIED = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and d.name like "Inspection%" and e.name like "Inspection"''' # can also include location and parent object type for failure rates, but haven't yet
-    sqlIEDdefault = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and left(ot.external_id,6) = ? and d.name like "Inspection%" and e.name like "Inspection"''' # can also include location and parent object type for failure rates, but haven't yet
     exID = 1 # for external event_distribution id
-    for row in buildDists:
-        if int(str(row.otEid)[-1]) == 0:
-            cursorINP.execute(sqlIEDdefault, (tID, sID, exID, cUser, tID, sID, exID, str(row.otEid)[:6]))
+    for row in inspectDists:
+        if int(str(row.otEid)[-1]) != 0 and int(str(row.lEid)[-1]) != 0:
+            cursorINP.execute(sqlSED1 % ("Inspection","Inspection"), (tID, sID, exID, cUser, tID, sID, exID, row.otEid, row.lEid) )
+        elif int(str(row.otEid)[-1]) != 0 and int(str(row.lEid)[-1]) == 0:
+            cursorINP.execute(sqlSED2 % ("Inspection","Inspection"), (tID, sID, exID, cUser, tID, sID, exID, row.otEid, int(str(row.lEid)[0])))
+        elif int(str(row.otEid)[4:]) != 0 and int(str(row.otEid)[-1]) == 0 and int(str(row.lEid)[-1]) != 0:
+            cursorINP.execute(sqlSED3 % ("Inspection","Inspection"), (tID, sID, exID, cUser, tID, sID, exID, int(str(row.otEid)[:6]), row.lEid))
+        elif int(str(row.otEid)[4:]) != 0 and int(str(row.otEid)[-1]) == 0 and int(str(row.lEid)[-1]) == 0:
+            cursorINP.execute(sqlSED4 % ("Inspection","Inspection"), (tID, sID, exID, cUser, tID, sID, exID, int(str(row.otEid)[:6]), int(str(row.lEid)[0])))
         else:
-            cursorINP.execute(sqlIED, (tID, sID, exID, cUser, tID, sID, exID, row.otEid ))
+            print "Warning these Inspection server times are not allowed %s %s %s" % (row.otEid, row.lEid, row.mntType)
         exID += 1
 
     ## Build distributions
-    sqlIED = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and d.name like "Build%" and e.name like "Build"''' # can also include location and parent object type for failure rates, but haven't yet
-    sqlIEDdefault = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, create_user, create_timestamp) SELECT ?, ?, ?, d.name, d.id, e.id, ot.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and left(ot.external_id,6) = ? and d.name like "Build%" and e.name like "Build"''' # can also include location and parent object type for failure rates, but haven't yet
     exID = 1 # for external event_distribution id
     for row in buildDists:
-        if int(str(row.otEid)[-1]) == 0:
-            cursorINP.execute(sqlIEDdefault, (tID, sID, exID, cUser, tID, sID, exID, str(row.otEid)[:6]))
+        if int(str(row.otEid)[-1]) != 0 and int(str(row.lEid)[-1]) != 0:
+            cursorINP.execute(sqlSED1 % ("Build","Build"), (tID, sID, exID, cUser, tID, sID, exID, row.otEid, row.lEid) )
+        elif int(str(row.otEid)[-1]) != 0 and int(str(row.lEid)[-1]) == 0:
+            cursorINP.execute(sqlSED2 % ("Build","Build"), (tID, sID, exID, cUser, tID, sID, exID, row.otEid, int(str(row.lEid)[0])))
+        elif int(str(row.otEid)[4:]) != 0 and int(str(row.otEid)[-1]) == 0 and int(str(row.lEid)[-1]) != 0:
+            cursorINP.execute(sqlSED3 % ("Build","Build"), (tID, sID, exID, cUser, tID, sID, exID, int(str(row.otEid)[:6]), row.lEid))
+        elif int(str(row.otEid)[4:]) != 0 and int(str(row.otEid)[-1]) == 0 and int(str(row.lEid)[-1]) == 0:
+            cursorINP.execute(sqlSED4 % ("Build","Build"), (tID, sID, exID, cUser, tID, sID, exID, int(str(row.otEid)[:6]), int(str(row.lEid)[0])))
         else:
-            cursorINP.execute(sqlIED, (tID, sID, exID, cUser, tID, sID, exID, row.otEid ))
+            print "Warning these Build server times are not allowed %s %s %s" % (row.otEid, row.lEid, row.mntType)
         exID += 1
 print "Done with Event Distribution" , datetime.datetime.now().time().isoformat()
 ###################################### / END EVENT DISTRIBUTION
