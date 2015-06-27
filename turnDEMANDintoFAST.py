@@ -29,12 +29,12 @@ import pyodbc
 #import pymysql.cursors
 
 # Define a few variables
-sID = 102 # simulation id
-tID = 100 # tenant id
+sID = 1056 # simulation id
+tID = 1000 # tenant id
 pID = 2 # project id
 cUser = 'user' # default create_user
-SimOrDemo = 1 # Simulation, 1 (with failure rates defined in calendar time) or demo, 2 (with failure rates defined in operating hours)
-LocalOrWeb = 1 # local, 1 (localhost) or web, 2 (out on insight)
+SimOrDemo = 2 # Simulation, 1 (with failure rates defined in calendar time) or demo, 2 (with failure rates defined in operating hours)
+LocalOrWeb = 2 # local, 1 (localhost) or web, 2 (out on insight)
 numberOfReps = 2000
 newTenant = 1
 prevTime = datetime.datetime.now().time().isoformat()
@@ -47,10 +47,10 @@ simTypeID = 1 if SimOrDemo == 1 else 1 # set simulation_type_id to 1 (Insight) f
 # First the Source database (DEMAND Pro)
 #db_path = 'C:/Users/tbaer/Desktop/demo/data/'
 #model = 'test.mdb'
-db_path = 'P:/Internal Projects/Data Scientist Team/InsightLCM/Testing/FAST/DEMAND Pro Basic Training/BasicCourseModelsDEMAND/PreEx1/'
-model = "Model 1-1_TS2.mdb"
-#db_path = "P:/Internal Projects/Data Scientist Team/InsightLCM/Demo/Aviation/Early2015/1June/"
-#model = "1-Baseline.mdb"
+#db_path = 'P:/Internal Projects/Data Scientist Team/InsightLCM/Testing/FAST/DEMAND Pro Basic Training/BasicCourseModelsDEMAND/PreEx1/'
+#model = "Model 1-1_TS1.mdb"
+db_path = "P:/Internal Projects/Data Scientist Team/InsightLCM/Demo/Aviation/Early2015/1June/"
+model = "1-Baseline.mdb"
 full_filename = db_path+model
 constr = 'Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=%s;'  % full_filename
 connSource = pyodbc.connect(constr)
@@ -378,9 +378,9 @@ if SimOrDemo == 2 and newTenant == 1:
 ###################################### / BEGIN EVENT TYPE
 sqlET = '''INSERT INTO event_type (tenant_id, simulation_id, name, external_id, create_user, create_timestamp) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'''
 if SimOrDemo == 1:    
-    for aName in enumerate(('Failure','Repair','Repair Complete','PM','PM Complete','Shipment','Relocate','Installation','Installation Complete','Removal','Removal Complete','Condemnation','Condemnation Complete','User Defined Function','Retirement','Activate','Passivate','Spare Request','Spare Response','Request Cancellation','Acquisition','Operations','Build','Build Complete','Inspection'),start=1):
+    for aName in enumerate(('Failure','Repair','Repair Complete','PM','PM Complete','Shipment','Relocate','Installation','Installation Complete','Removal','Removal Complete','Condemnation','Condemnation Complete','User Defined Function','Retirement','Activate','Passivate','Spare Request','Spare Response','Request Cancellation','Acquisition','Operations','Inspection'),start=1):
        cursorINP.execute(sqlET, (tID, sID, aName[1], aName[0], cUser))
-else: # if it's a demo, leave out the events that the consistency check doesn't like: build, build_complete, and inspection
+else: # if it's a demo, leave out the events that the consistency check doesn't like: inspection
     for aName in enumerate(('Failure','Repair','Repair Complete','PM','PM Complete','Shipment','Relocate','Installation','Installation Complete','Removal','Removal Complete','Condemnation','Condemnation Complete','User Defined Function','Retirement','Activate','Passivate','Spare Request','Spare Response','Request Cancellation','Acquisition','Operations'),start=1):
        cursorINP.execute(sqlET, (tID, sID, aName[1], aName[0], cUser))
 print "Done with Event Type"
@@ -389,15 +389,18 @@ print "Done with Event Type"
 # most event types only have one event, but we'll have to add a few more after looping through
 sqlE = '''INSERT INTO event (tenant_id, simulation_id, name, external_id, event_type_id, create_user, create_timestamp) SELECT ?, ?, ?, ?, et.id, ?, CURRENT_TIMESTAMP FROM event_type et WHERE et.tenant_id = ? and et.simulation_id = ? and et.external_id = ?'''
 if SimOrDemo == 1:
-    for aName in enumerate(('Failure','Repair','Repair Complete','PM','PM Complete','Shipment','Relocate','Installation','Installation Complete','Removal','Removal Complete','Condemnation','Condemnation Complete','User Defined Function','Retirement','Activate','Passivate','Spare Request','Spare Available','Request Cancellation','Acquisition','Operations','Build','Build Complete','Inspection'),start=1): # 25 on this row
+    for aName in enumerate(('Failure','Repair','Repair Complete','PM','PM Complete','Shipment','Relocate','Installation','Installation Complete','Removal','Removal Complete','Condemnation','Condemnation Complete','User Defined Function','Retirement','Activate','Passivate','Spare Request','Spare Available','Request Cancellation','Acquisition','Operations','Inspection'),start=1): # 23 on this row
         cursorINP.execute(sqlE, (tID, sID, aName[1], aName[0], cUser, tID, sID, aName[0]))
     # now add a few more
     cursorINP.execute(sqlE, (tID, sID, 'Spare Unavailable', 26, cUser, tID, sID, 19))  ### THIS IS BAD - HARDCODED !!! TODO: GET RID OF
-    cursorINP.execute(sqlE, (tID, sID, 'Parent Needs Inspection', 27, cUser, tID, sID, 25)) # Inspection accessory event
-    cursorINP.execute(sqlE, (tID, sID, 'Parent Received Inspection', 28, cUser, tID, sID, 25)) # Inspection accessory event
-    cursorINP.execute(sqlE, (tID, sID, 'Inspection Request', 29, cUser, tID, sID, 25)) # Inspection accessory event
+    cursorINP.execute(sqlE, (tID, sID, 'Parent Needs Inspection', 27, cUser, tID, sID, 23)) # Inspection accessory event
+    cursorINP.execute(sqlE, (tID, sID, 'Parent Received Inspection', 28, cUser, tID, sID, 23)) # Inspection accessory event
+    cursorINP.execute(sqlE, (tID, sID, 'Inspection Request', 29, cUser, tID, sID, 23)) # Inspection accessory event
     cursorINP.execute(sqlE, (tID, sID, 'No Action', 30, cUser, tID, sID, 2)) # of type Repair
     cursorINP.execute(sqlE, (tID, sID, 'No Fault Found', 31, cUser, tID, sID, 2)) # of type Repair
+    cursorINP.execute(sqlE, (tID, sID, 'Tear', 32, cUser, tID, sID, 10)) # of type Removal
+    cursorINP.execute(sqlE, (tID, sID, 'Build', 33, cUser, tID, sID, 8)) # of type Installation
+    cursorINP.execute(sqlE, (tID, sID, 'Build Complete', 34, cUser, tID, sID, 8)) # of type Installation
 else: # demo, so leave some out
     for aName in enumerate(('Failure','Repair','Repair Complete','PM','PM Complete','Shipment','Relocate','Installation','Installation Complete','Removal','Removal Complete','Condemnation','Condemnation Complete','User Defined Function','Retirement','Activate','Passivate','Spare Request','Spare Available','Request Cancellation','Acquisition','Operations'),start=1): # 22 on this row
         cursorINP.execute(sqlE, (tID, sID, aName[1], aName[0], cUser, tID, sID, aName[0]))
@@ -1404,7 +1407,7 @@ connSinkInput.commit()
     # Output data requires some information from the LCM schema and some information from the INPUT schema.
     # First put data in the output.simulation table.
     ###################################### / BEGIN SIMULATION
-sqlOS = '''INSERT INTO simulation (tenant_id, simulation_id, simulation_name, simulation_type_name) SELECT DISTINCT %s, %s, s.name, st.name FROM lcm.simulation s, lcm.simulation_type st WHERE s.id = %s AND st.id = %s ''' % (tID, sID, sID, simTypeID)
+sqlOS = '''INSERT INTO simulation (tenant_id, simulation_id, simulation_name, simulation_type_name, number_of_replications) SELECT DISTINCT %s, %s, s.name, st.name, %s FROM lcm.simulation s, lcm.simulation_type st WHERE s.id = %s AND st.id = %s ''' % (tID, sID, numberOfReps, sID, simTypeID)
 cursorOUT.execute(sqlOS)
     ###################################### / END SIMULATION
     # Only enter output data for Demos
@@ -1488,6 +1491,15 @@ if SimOrDemo == 2:
         WHERE   a.tenant_id = %s AND a.simulation_id = %s ''' % (tID, sID)
     cursorOUT.execute(sqlMoreCEInfo)    
     connSinkOut.commit()
+    ## Now do New Buys - both parts that arrive after t=0 (defined in OAI, e.g. buy plan) and new buys (from BUC)
+    # 1) Parts that Arrive after T=0
+    sqlOAtT = '''SELECT %s as tenantID, %s as simulationID, %s as projectID, %s as intervalUnitId,  [*Weeks and Dates].Date, count(TreeCode) as count, %s, %s, %s, %s, %s, sran as lEid, [object type] as otEid, %s, %s FROM [*object attributes initial], [*Analysis Range] INNER JOIN [*Weeks and Dates] ON [*Analysis Range].[First quarter (1 - 4)] = [*Weeks and Dates].Quarter WHERE ((([*object attributes initial].[parent pp])=0) AND (([*object attributes initial].[Arrival time ta])<>0) AND (([*Weeks and Dates].Week)=1) AND (([*Analysis Range].[First year (>= 1999)]+[*Object attributes initial].[Arrival time ta])=[*Weeks and Dates].[Year])) GROUP BY [*Object attributes initial].SRAN, [*Object attributes initial].[object type], [*Weeks and Dates].Date''' % (tID, sID, pID, qtr, tID, sID, pID, tID, qtr, eventNameMatch, sID)
+    curSource.execute(sqlOAtT)
+    acquisitions = curSource.fetchall()
+    eventNameMatch = ''' 'Acquisition' '''
+    cursorOUT.executemany(sqlFOLruEv, acquisitions)
+    connSinkOut.commit()
+    # 2) New Buys
     print 'Done with Output: Component Events' , datetime.datetime.now().time().isoformat()
     ###################################### / END COMPONENT EVENTS
 
