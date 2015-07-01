@@ -29,7 +29,7 @@ import pyodbc
 #import pymysql.cursors
 
 # Define a few variables
-sID = 1056 # simulation id
+sID = 1058 # simulation id
 tID = 1000 # tenant id
 pID = 2 # project id
 cUser = 'user' # default create_user
@@ -144,6 +144,8 @@ if newTenant == 1:
     cursorLCM.execute(sqlUoMnoIU, (tID, 'Each', 4, cUser)) # for Future Inventory
     cursorLCM.execute(sqlUoMnoIU, (tID, 'Integer', 5, cUser)) # for Future Inventory
     cursorLCM.execute(sqlUoMcurrNoIU, (tID, 'Dollars', 5, 6, cUser)) # for Operations and revenue
+    cursorLCM.execute(sqlUoMnoIU, (tID, 'Proporiton', 6, cUser)) # for Age Multiplier for initializaiton
+    cursorLCM.execute(sqlUoMnoIU, (tID, 'Boolean', 7, cUser)) # for Has failed for initializaiton
     print "Done with Unit of Measure" , datetime.datetime.now().time().isoformat()
 ###################################### / END UNIT OF MEASURE
 
@@ -1398,6 +1400,14 @@ cursorINP.execute(SQLResupplyGenGen, (tID, sID, 1, 0, cUser, tID, sID, tID, sID)
 print 'Done with Resupply' , datetime.datetime.now().time().isoformat()
 ###################################### / END RESUPPLY
 
+###################################### / BEGIN INITIALIZATION
+# insert properties
+sqlProp = '''INSERT INTO property (tenant_id, simulation_id, name, unit_of_measure_id, external_id, create_user, create_timestamp) SELECT ?, ?, ?, uom.id, ?, ?, CURRENT_TIMESTAMP FROM lcm.unit_of_measure uom WHERE uom.tenant_id = ? AND uom.external_id = ?'''
+cursorINP.execute(sqlProp, (tID, sID, 'Failure Time Since Birth', 1, cUser, tID, 3))
+cursorINP.execute(sqlProp, (tID, sID, 'Failure Age Multiplier', 2, cUser, tID, 6))
+cursorINP.execute(sqlProp, (tID, sID, 'Failure Has Failed', 3, cUser, tID, 7))
+###################################### / END INITIALIZATION
+
 connSinkLCM.commit()
 connSinkInput.commit()
 
@@ -1498,6 +1508,16 @@ if SimOrDemo == 2:
     acquisitions = curSource.fetchall()
     eventNameMatch = ''' 'Acquisition' '''
     cursorOUT.executemany(sqlFOLruEv, acquisitions)
+    sqlMoreCEInfo = '''UPDATE output.component_events a
+            JOIN    input.object_type ot ON ot.id = a.object_type_id
+            JOIN    input.object_class oc ON oc.id = ot.object_class_id
+            JOIN    input.object_group og ON og.id = oc.object_group_id
+            JOIN    input.location l ON l.id = a.location_id
+            JOIN    input.location_region lr ON lr.id = l.location_region_id
+        SET     a.object_class_id = oc.id, a.object_class_name = oc.name, a.object_group_id = og.id,
+                a.object_group_name = og.name, a.region_id = lr.id, a.region_name = lr.name, a.object_name = ot.name, a.object_internal_name = ot.internal_name
+        WHERE   a.tenant_id = %s AND a.simulation_id = %s AND event_name = %s''' % (tID, sID, eventNameMatch)
+    cursorOUT.execute(sqlMoreCEInfo)   
     connSinkOut.commit()
     # 2) New Buys
     print 'Done with Output: Component Events' , datetime.datetime.now().time().isoformat()
