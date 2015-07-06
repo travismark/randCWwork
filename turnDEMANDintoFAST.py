@@ -1039,7 +1039,7 @@ print "Done with Event Distribution" , datetime.datetime.now().time().isoformat(
 ###################################### / BEGIN STRUCTURE
 # FROM JESSICA W
 # parent structures (objects with at least one child)
-sqlPS ='''INSERT into input.structure 
+sqlPS ='''INSERT into input.structure
         ( name, internal_name, minimum_count, object_id, tenant_id
         , simulation_id, create_user, create_timestamp)
     SELECT concat(obj.name,' Parent'), concat(obj.internal_name,'Parent')
@@ -1503,11 +1503,26 @@ if SimOrDemo == 2:
     connSinkOut.commit()
     ## Now do New Buys - both parts that arrive after t=0 (defined in OAI, e.g. buy plan) and new buys (from BUC)
     # 1) Parts that Arrive after T=0
-    sqlOAtT = '''SELECT %s as tenantID, %s as simulationID, %s as projectID, %s as intervalUnitId,  [*Weeks and Dates].Date, count(TreeCode) as count, %s, %s, %s, %s, %s, sran as lEid, [object type] as otEid, %s, %s FROM [*object attributes initial], [*Analysis Range] INNER JOIN [*Weeks and Dates] ON [*Analysis Range].[First quarter (1 - 4)] = [*Weeks and Dates].Quarter WHERE ((([*object attributes initial].[parent pp])=0) AND (([*object attributes initial].[Arrival time ta])<>0) AND (([*Weeks and Dates].Week)=1) AND (([*Analysis Range].[First year (>= 1999)]+[*Object attributes initial].[Arrival time ta])=[*Weeks and Dates].[Year])) GROUP BY [*Object attributes initial].SRAN, [*Object attributes initial].[object type], [*Weeks and Dates].Date''' % (tID, sID, pID, qtr, tID, sID, pID, tID, qtr, eventNameMatch, sID)
+    #    these likely do not span each quarter/type/location, but to plot in analytics tab they must.  
+    #    first fill relevant quarters with zero (across all quarters for any matches on type/location)
+    #           possible quarter values taken from the distinct ones that exist for that interval unit in component events data inserted above for failures
+    #       then update where acquisitions do exist 
+    eventNameMatch = ''' 'Acquisition' '''
+    # this query only works for arrival times equal to a round year, i.e. years-from-start rather than quarters between
+    sqlTLmatch = '''SELECT %s as sID, %s as IUN, %s as tID, %s as sID2, %s as prId, %s as tID2, %s as IUN2, [*Object attributes initial].SRAN as lEid, [*Object attributes initial].[Object type] as otEid, %s as etn, %s as sId3 FROM [*Object attributes initial]
+        WHERE ((([*Object attributes initial].[Arrival time ta])>0) AND (([*Object attributes initial].[Parent Pp])=0))
+        GROUP BY [*Object attributes initial].[Object type], [*Object attributes initial].SRAN''' % (sID, qtr, tID, sID, pID, tID, qtr, eventNameMatch, sID)
+    sqlOAt11 = '''INSERT INTO output.component_events (tenant_id, simulation_id, project_name, project_id, event_id, event_name, event_type_id, event_type_name, interval_unit_id, interval_unit_name, timestamp, value, location_id, location_name, object_type_id, object_type_name)
+    SELECT pr.tenant_id, e.simulation_id, pr.name, pr.id, e.id, e.name, et.id, et.name, iu.id, iu.name, allTimes.timestamp, 0, l.id, l.name, ot.id, ot.name FROM input.event e JOIN input.event_type et on et.id = e.event_type_id JOIN lcm.project pr ON e.tenant_id = pr.tenant_id JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id, lcm.interval_unit iu, (SELECT DISTINCT timestamp from output.component_events where simulation_id = ? and interval_unit_name = ?) allTimes WHERE et.tenant_id = ? and et.simulation_id = ? AND pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND l.external_id = ? AND ot.external_id = ? AND e.name = ? and l.simulation_id = ?'''
+    curSource.execute(sqlTLmatch)
+    aqPairs = curSource.fetchall()
+    for pair in aqPairs:
+        cursorOUT.execute(sqlOAt11, pair)
+    sqlOAt12 = '''UPDATE output.component_events ce JOIN input.object_type ot on ot.id = ce.object_type_id JOIN input.location l on l.id = ce.location_id SET ce.value = ? WHERE ce.tenant_id = ? AND ce.simulation_id = ? AND ce.interval_unit_name = ? AND ot.external_id = ? AND l.external_id = ? AND ce.timestamp = ?'''
+    sqlOAtT = '''SELECT count(TreeCode) as count, %s as tenantID, %s as simulationID, %s as intervalUnitName, [object type] as otEid, sran as lEid, [*Weeks and Dates].Date FROM [*object attributes initial], [*Analysis Range] INNER JOIN [*Weeks and Dates] ON [*Analysis Range].[First quarter (1 - 4)] = [*Weeks and Dates].Quarter WHERE ((([*object attributes initial].[parent pp])=0) AND (([*object attributes initial].[Arrival time ta])<>0) AND (([*Weeks and Dates].Week)=1) AND (([*Analysis Range].[First year (>= 1999)]+[*Object attributes initial].[Arrival time ta])=[*Weeks and Dates].[Year])) GROUP BY [*Object attributes initial].SRAN, [*Object attributes initial].[object type], [*Weeks and Dates].Date''' % (tID, sID, qtr)
     curSource.execute(sqlOAtT)
     acquisitions = curSource.fetchall()
-    eventNameMatch = ''' 'Acquisition' '''
-    cursorOUT.executemany(sqlFOLruEv, acquisitions)
+    cursorOUT.executemany(sqlOAt12, acquisitions)
     sqlMoreCEInfo = '''UPDATE output.component_events a
             JOIN    input.object_type ot ON ot.id = a.object_type_id
             JOIN    input.object_class oc ON oc.id = ot.object_class_id
