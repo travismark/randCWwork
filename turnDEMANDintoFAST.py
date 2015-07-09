@@ -75,7 +75,7 @@ cursorINP = connSinkInput.cursor()
 
 constr = 'DRIVER={MySQL ODBC 5.3 Unicode Driver};SERVER=%s;PORT=%s;DATABASE=lcm;user=%s;Password=%s' % (aServer,aPort,aUser,aPW)
 connSinkLCM = pyodbc.connect(constr)
-cursorLCM = connSinkLCM.cursor() 
+cursorLCM = connSinkLCM.cursor()
 
 constr = 'DRIVER={MySQL ODBC 5.3 Unicode Driver};SERVER=%s;PORT=%s;DATABASE=output;user=%s;Password=%s' % (aServer,aPort,aUser,aPW)
 connSinkOut = pyodbc.connect(constr)
@@ -144,8 +144,8 @@ if newTenant == 1:
     cursorLCM.execute(sqlUoMnoIU, (tID, 'Each', 4, cUser)) # for Future Inventory
     cursorLCM.execute(sqlUoMnoIU, (tID, 'Integer', 5, cUser)) # for Future Inventory
     cursorLCM.execute(sqlUoMcurrNoIU, (tID, 'Dollars', 5, 6, cUser)) # for Operations and revenue
-    cursorLCM.execute(sqlUoMnoIU, (tID, 'Proporiton', 6, cUser)) # for Age Multiplier for initializaiton
-    cursorLCM.execute(sqlUoMnoIU, (tID, 'Boolean', 7, cUser)) # for Has failed for initializaiton
+    cursorLCM.execute(sqlUoMnoIU, (tID, 'Proporiton', 7, cUser)) # for Age Multiplier for initializaiton
+    cursorLCM.execute(sqlUoMnoIU, (tID, 'Boolean', 8, cUser)) # for Has failed for initializaiton
     print "Done with Unit of Measure" , datetime.datetime.now().time().isoformat()
 ###################################### / END UNIT OF MEASURE
 
@@ -410,6 +410,17 @@ else: # demo, so leave some out
     cursorINP.execute(sqlE, (tID, sID, 'Spare Unavailable', 23, cUser, tID, sID, 19))  ### THIS IS BAD - HARDCODED !!! TODO: GET RID OF 
 print "Done with Event" , datetime.datetime.now().time().isoformat()
 ###################################### / END EVENT
+###################################### / BEGIN PROPERTY
+sqlProp = '''INSERT INTO property (tenant_id, simulation_id, name, unit_of_measure_id, external_id, create_user, create_timestamp) SELECT ?, ?, ?, uom.id, ?, ?, CURRENT_TIMESTAMP FROM lcm.unit_of_measure uom WHERE uom.tenant_id = ? AND uom.external_id = ?'''
+cursorINP.execute(sqlProp, (tID, sID, 'Failure Time Since Birth', 1, cUser, tID, 3)) # for initialization
+cursorINP.execute(sqlProp, (tID, sID, 'Failure Age Multiplier', 2, cUser, tID, 7)) # for repair distributions
+cursorINP.execute(sqlProp, (tID, sID, 'Failure Has Failed', 3, cUser, tID, 8)) # for initialization
+###################################### / END PROPERTY
+###################################### / BEGIN EVENT PROPERTY
+# insert properties
+sqlProp = '''INSERT INTO event_property (tenant_id, simulation_id, event_id, property_id, property_value, create_user, create_timestamp) SELECT ?, e.simulation_id, e.id, p.id, ?, ?, CURRENT_TIMESTAMP FROM input.event e join input.property p on e.simulation_id = p.simulation_id WHERE e.simulation_id = ? and e.external_id = ? and p.external_id = ?'''
+cursorINP.execute(sqlProp, (tID, 1, cUser, sID, 31, 2)) # for No Fault Found on the standard "failure" failure mode. constrast to default for repair: zero
+###################################### / END EVENT PROPERTY
 
 # Location info
 ###################################### / BEGIN LOCATION REGION
@@ -873,6 +884,12 @@ if SimOrDemo == 1: # only if it's not being loaded to the web for a demo
         dexID += 1
 print "Done with Distribution Parameter" , datetime.datetime.now().time().isoformat()
 ###################################### / END DISTRIBUTION PARAMETER
+###################################### / BEGIN EXPRESSION
+sqlExpressionInsert = '''INSERT INTO input.expression (tenant_id, simulation_id, external_id, expression, name, create_user, create_timestamp) SELECT ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP'''
+cursorINP.execute(sqlExpressionInsert, (tID, sID, 1, 'false', 'Never', cUser))
+cursorINP.execute(sqlExpressionInsert, (tID, sID, 2, 'state.available', 'Internally Available', cUser))
+cursorINP.execute(sqlExpressionInsert, (tID, sID, 3, '!state.available', 'Internally Unavailable', cUser))
+###################################### / END EXPRESSION
 ###################################### / BEGIN EVENT DISTRIBUTION
 #### DOES NOT SUPPORT OBJECT GROUP DEFAULTING -- TODO: SUPPORT THIS
 #### DOES NOT MULTIPLE COMPLETED REPAIRS -- TODO: SUPPORT THIS
@@ -1403,9 +1420,9 @@ print 'Done with Resupply' , datetime.datetime.now().time().isoformat()
 ###################################### / BEGIN INITIALIZATION
 # insert properties
 sqlProp = '''INSERT INTO property (tenant_id, simulation_id, name, unit_of_measure_id, external_id, create_user, create_timestamp) SELECT ?, ?, ?, uom.id, ?, ?, CURRENT_TIMESTAMP FROM lcm.unit_of_measure uom WHERE uom.tenant_id = ? AND uom.external_id = ?'''
-cursorINP.execute(sqlProp, (tID, sID, 'Failure Time Since Birth', 1, cUser, tID, 3))
-cursorINP.execute(sqlProp, (tID, sID, 'Failure Age Multiplier', 2, cUser, tID, 6))
-cursorINP.execute(sqlProp, (tID, sID, 'Failure Has Failed', 3, cUser, tID, 7))
+cursorINP.execute(sqlProp, (tID, sID, 'Failure Time Since Birth', 1, cUser, tID, 3)) # for initialization
+cursorINP.execute(sqlProp, (tID, sID, 'Failure Age Multiplier', 2, cUser, tID, 7)) # for repair distributions
+cursorINP.execute(sqlProp, (tID, sID, 'Failure Has Failed', 3, cUser, tID, 8)) # for initialization
 ###################################### / END INITIALIZATION
 
 connSinkLCM.commit()
@@ -1667,6 +1684,44 @@ if SimOrDemo == 2:
     cursorOUT.execute(sqlMoreTCInfo)
     print 'Done with Output: Total Criticality' , datetime.datetime.now().time().isoformat()
     ###################################### / END TOTAL CRITICALITY
+
+    ###################################### / BEGIN SHIPMENTS
+    # there is no shipments output table, so I have to go straight to cost :(
+    sqlInsertShipmentCost = '''INSERT INTO output.operations_support_cost (tenant_id, simulation_id, project_name, project_id, interval_unit_id, interval_unit_name, timestamp, value, location_id, location_name, to_location_id, to_location_name, object_type_id, object_type_name, object_id, object_name, cost_id, cost_name, cost_type_id, cost_type_name)
+        SELECT pr.tenant_id, l.simulation_id, pr.name, pr.id, iu.id, iu.name, ?, ?*cv.currency_value, l.id, l.name, l_t.id, l_t.name, ot.id, ot.name, ot.id, ot.name, cv.id, cv.name, cvt.id, cvt.name
+        FROM lcm.project pr JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.location_type lt on lt.id = l.location_type_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id JOIN input.location l_t on l_t.simulation_id = l.simulation_id JOIN input.location_type lt_t on lt_t.id = l_t.location_type_id JOIN input.currency_value cv on cv.simulation_id = ot.simulation_id and cv.object_class_id = ot.object_class_id and cv.from_location_type_id = lt.id and cv.to_location_type_id = lt_t.id JOIN input.currency_value_type cvt on cvt.id = cv.currency_value_type_id, lcm.interval_unit iu 
+        WHERE pr.id = ? AND pr.tenant_id = ? AND iu.name like ? AND ot.tenant_id = ? and ot.simulation_id = ? AND ot.external_id = ? AND l.external_id = ? AND l_t.external_id = ? AND lt.external_id = ? AND lt_t.external_id = ? AND cvt.name like "Shipment"'''
+    sqlShipmentCostSource = '''SELECT [*Weeks and Dates].Date, [out Shipments].Shipments, %s as proj, %s as tenant, %s as iun, %s as tenant2, %s as sim, [out Shipments].Type, [out Shipments].[From SRAN], [out Shipments].[To SRAN], int(Left([From SRAN],1)) AS lt_f, int(Left([To SRAN],1)) AS lt_t
+        FROM [*Weeks and Dates] INNER JOIN [out Shipments] ON ([*Weeks and Dates].Quarter = [out Shipments].Qtr) AND ([*Weeks and Dates].Year = [out Shipments].Year)
+        WHERE ((([*Weeks and Dates].Week)=1))''' % (pID, tID, qtr, tID, sID)
+    curSource.execute(sqlShipmentCostSource)
+    shipments = curSource.fetchall()
+    cursorOUT.executemany(sqlInsertShipmentCost, shipments) # took 2+ hours for ~70K rows
+
+    sqlMoreOSCInfo = '''UPDATE output.operations_support_cost a
+        JOIN    input.object_type ot ON ot.id = a.object_type_id
+        JOIN    input.object_class oc ON oc.id = ot.object_class_id
+        JOIN    input.object_group og ON og.id = oc.object_group_id
+        JOIN    input.location l ON l.id = a.location_id
+        JOIN    input.location_region lr ON lr.id = l.location_region_id
+        JOIN    input.location_type lt on lt.id = l.location_type_id
+        JOIN    input.object_type cot ON cot.id = a.object_type_id
+        JOIN    input.object_class coc ON coc.id = cot.object_class_id
+        JOIN    input.object_group cog ON cog.id = coc.object_group_id
+        JOIN    input.location l_t ON a.to_location_id = l_t.id
+        JOIN    input.location_type lt_t on l_t.location_type_id = lt_t.id
+        JOIN    input.currency_value cv on cv.id = a.cost_id
+        JOIN    input.currency_value_type cvt on cvt.id = cv.currency_value_type_id
+    SET     a.object_class_id = oc.id, a.object_class_name = oc.name, a.object_group_id = og.id,
+            a.object_group_name = og.name, a.region_id = lr.id, a.region_name = lr.name,
+            a.location_type_id = lt.id, a.location_type_name = lt.name, 
+            a.from_location_id = a.location_id, a.from_location_name = a.location_name, 
+            a.from_location_type_id = a.from_location_type_id, a.from_location_type_name = a.location_type_name,
+            a.to_location_type_id = lt_t.id, a.to_location_type_name = lt_t.name
+    WHERE   a.tenant_id = %s AND a.simulation_id = %s AND a.currency_value_type = "Shipment"''' % (tID, sID)
+    cursorOUT.execute(sqlMoreOSCInfo)
+    connSinkOut.commit()
+    ###################################### / END SHIPMENTS
 
 connSinkLCM.commit()
 connSinkInput.commit()
