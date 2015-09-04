@@ -29,13 +29,13 @@ import pyodbc
 #import pymysql.cursors
 
 # Define a few variables
-sID = 102 # simulation id
-tID = 100 # tenant id
-pID = 2 # project id
+sID = 1 # simulation id
+tID = 1001 # tenant id
+pID = 3 # project id
 cUser = 'user' # default create_user
-SimOrDemo = 1 # Simulation, 1 (with failure rates defined in calendar time) or demo, 2 (with failure rates defined in operating hours)
-LocalOrWeb = 1 # local, 1 (localhost) or web, 2 (out on insight)
-numberOfReps = 2000
+SimOrDemo = 2 # Simulation, 1 (with failure rates defined in calendar time) or demo, 2 (with failure rates defined in operating hours)
+LocalOrWeb = 2 # local, 1 (localhost) or web, 2 (out on insight)
+numberOfReps = 100
 newTenant = 1
 prevTime = datetime.datetime.now().time().isoformat()
 simTypeID = 1 if SimOrDemo == 1 else 1 # set simulation_type_id to 1 (Insight) for all cases - only these models show up in the scenarios tab  
@@ -47,10 +47,10 @@ simTypeID = 1 if SimOrDemo == 1 else 1 # set simulation_type_id to 1 (Insight) f
 # First the Source database (DEMAND Pro)
 #db_path = 'C:/Users/tbaer/Desktop/demo/data/'
 #model = 'test.mdb'
-db_path = 'P:/Internal Projects/Data Scientist Team/InsightLCM/Testing/FAST/DEMAND Pro Basic Training/BasicCourseModelsDEMAND/PreEx1/'
-model = "Model 1-1_TS2.mdb"
-#db_path = "P:/Internal Projects/Data Scientist Team/InsightLCM/Demo/Aviation/Early2015/1June/"
-#model = "1-Baseline.mdb"
+#db_path = 'P:/Internal Projects/Data Scientist Team/InsightLCM/Testing/FAST/DEMAND Pro Basic Training/BasicCourseModelsDEMAND/PreEx1/'
+#model = "Model 1-1_TS3.mdb"
+db_path = "P:/Internal Projects/Data Scientist Team/InsightLCM/Demo/Aviation/Early2015/1June/"
+model = "1-Baseline.mdb"
 full_filename = db_path+model
 constr = 'Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=%s;'  % full_filename
 connSource = pyodbc.connect(constr)
@@ -138,6 +138,7 @@ if newTenant == 1:
     sqlUoM = '''INSERT INTO unit_of_measure (tenant_id, name, interval_unit_id, external_id, create_user, create_timestamp) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'''
     sqlUoMcurrNoIU = '''INSERT INTO unit_of_measure (tenant_id, name, currency_id, external_id, create_user, create_timestamp) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'''
     sqlUoMnoIU = '''INSERT INTO unit_of_measure (tenant_id, name, external_id, create_user, create_timestamp) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)'''
+    sqlUoMcurrAndIU = '''INSERT INTO unit_of_measure (tenant_id, name, currency_id, interval_unit_id, external_id, create_user, create_timestamp) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'''
     cursorLCM.execute(sqlUoM, (tID, 'Hours', 10, 1, cUser)) # for failures
     cursorLCM.execute(sqlUoM, (tID, 'Days', 9, 2, cUser)) # for repairs and shipping times
     cursorLCM.execute(sqlUoM, (tID, 'Operating Hours', 10, 3, cUser)) # for operating hours (viewing failures in scenario editor)
@@ -146,6 +147,7 @@ if newTenant == 1:
     cursorLCM.execute(sqlUoMcurrNoIU, (tID, 'Dollars', 5, 6, cUser)) # for Operations and revenue
     cursorLCM.execute(sqlUoMnoIU, (tID, 'Proportion', 7, cUser)) # for Age Multiplier for initializaiton
     cursorLCM.execute(sqlUoMnoIU, (tID, 'Boolean', 8, cUser)) # for Has failed for initializaiton
+    cursorLCM.execute(sqlUoMcurrAndIU, (tID, '$ per Quarter', 5, 3, 9, cUser)) # dollars per quarter for storage cost
     print "Done with Unit of Measure" , datetime.datetime.now().time().isoformat()
 ###################################### / END UNIT OF MEASURE
 
@@ -579,18 +581,18 @@ print "Done with Object" , datetime.datetime.now().time().isoformat()
 ###################################### / BEGIN PROBABILITY CLASS
 # two of these so far - condemnation and nrts
 sqlPC = '''INSERT INTO probability_class (tenant_id, simulation_id, name, sum_of_one_flag, external_id, create_user, create_timestamp) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'''
-cursorINP.execute(sqlPC, (tID, sID, 'Maintenance_Unscheduled', True, 1, cUser))
-cursorINP.execute(sqlPC, (tID, sID, 'Evacuation_Probability', False, 2, cUser))
+cursorINP.execute(sqlPC, (tID, sID, 'Maintenance Unscheduled', True, 1, cUser))
+cursorINP.execute(sqlPC, (tID, sID, 'Evacuation Probability', False, 2, cUser))
 print "Done with Probabilty Class" , datetime.datetime.now().time().isoformat()
 ###################################### / END PROBABILITY CLASS
 ###################################### / BEGIN PROBABILITY TYPE
 # five of these
 sqlPT = '''INSERT INTO probability_type (tenant_id, simulation_id, name, external_id, stg_id, create_user, create_timestamp) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'''
 # Maintenance
-for aName in enumerate(('No_Action','No_Fault_Found','Condemn','Repair'),start=1): # distributions in alphabetical order
+for aName in enumerate(('No Action','No Fault Found','Condemn','Repair'),start=1): # distributions in alphabetical order
     cursorINP.execute(sqlPT, (tID, sID, aName[1], aName[0], 1, cUser))
 # NRTS
-cursorINP.execute(sqlPT, (tID, sID, 'Evacuation_Probability', 5, 2, cUser))
+cursorINP.execute(sqlPT, (tID, sID, 'Evacuation Probability', 5, 2, cUser))
 print "Done with Probability Type" , datetime.datetime.now().time().isoformat()
 ###################################### / END PROBABILITY TYPE
 ###################################### / BEGIN Probability  
@@ -627,48 +629,48 @@ WHERE right([*Consequences of UER].[Object type],5) = 0 AND [*Consequences of UE
 FROM [*Consequences of UER] WHERE (((Right([Object type],1))=0) AND (([*Consequences of UER].SRAN)=-1) AND ((Right([Object type],5))<>0)))'''
 
 sqlPUERinsert1 = '''INSERT INTO probability (tenant_id, simulation_id, object_type_id, location_id, probability, probability_type_id, probability_class_id, create_user, create_timestamp) 
-SELECT %s, %s, ot.id, l.id, ?, pt.id, pc.id, "%s", CURRENT_TIMESTAMP FROM input.object_type ot JOIN input.location l ON l.simulation_id = ot.simulation_id JOIN input.probability_class pc ON pc.simulation_id = l.simulation_id JOIN input.probability_type pt ON pt.simulation_id = pc.simulation_id WHERE l.tenant_id = %s AND ot.simulation_id = %s AND ot.external_id = ? AND l.external_id = ? AND pc.name like "Maintenance_Unscheduled" AND pt.name like ?''' % (tID, sID, cUser, tID, sID)
+SELECT %s, %s, ot.id, l.id, ?, pt.id, pc.id, "%s", CURRENT_TIMESTAMP FROM input.object_type ot JOIN input.location l ON l.simulation_id = ot.simulation_id JOIN input.probability_class pc ON pc.simulation_id = l.simulation_id JOIN input.probability_type pt ON pt.simulation_id = pc.simulation_id WHERE l.tenant_id = %s AND ot.simulation_id = %s AND ot.external_id = ? AND l.external_id = ? AND pc.name like "Maintenance Unscheduled" AND pt.name like ?''' % (tID, sID, cUser, tID, sID)
 curSource.execute(sqlPUER1)
 probs = curSource.fetchall()
 # loop through - insert four LCM rows per DEMAND row
 for row in probs:
     cursorINP.execute(sqlPUERinsert1, (row.rep, row.otype, row.SRAN, "Repair"))
     cursorINP.execute(sqlPUERinsert1, (row.con, row.otype, row.SRAN, "Condemn"))
-    cursorINP.execute(sqlPUERinsert1, (row.nff, row.otype, row.SRAN, "No_Fault_Found"))
-    cursorINP.execute(sqlPUERinsert1, (row.non, row.otype, row.SRAN, "No_Action"))
+    cursorINP.execute(sqlPUERinsert1, (row.nff, row.otype, row.SRAN, "No Fault Found"))
+    cursorINP.execute(sqlPUERinsert1, (row.non, row.otype, row.SRAN, "No Action"))
 
 sqlPUERinsert2 = '''INSERT INTO probability (tenant_id, simulation_id, object_type_id, location_type_id, probability, probability_type_id, probability_class_id, create_user, create_timestamp) 
-SELECT %s, %s, ot.id, lt.id, ?, pt.id, pc.id, "%s", CURRENT_TIMESTAMP FROM input.object_type ot JOIN input.location_type lt ON lt.simulation_id = ot.simulation_id JOIN input.probability_class pc ON pc.simulation_id = lt.simulation_id JOIN input.probability_type pt ON pt.simulation_id = pc.simulation_id WHERE lt.tenant_id = %s AND ot.simulation_id = %s AND ot.external_id = ? AND lt.external_id = ? AND pc.name like "Maintenance_Unscheduled" AND pt.name like ?''' % (tID, sID, cUser, tID, sID)
+SELECT %s, %s, ot.id, lt.id, ?, pt.id, pc.id, "%s", CURRENT_TIMESTAMP FROM input.object_type ot JOIN input.location_type lt ON lt.simulation_id = ot.simulation_id JOIN input.probability_class pc ON pc.simulation_id = lt.simulation_id JOIN input.probability_type pt ON pt.simulation_id = pc.simulation_id WHERE lt.tenant_id = %s AND ot.simulation_id = %s AND ot.external_id = ? AND lt.external_id = ? AND pc.name like "Maintenance Unscheduled" AND pt.name like ?''' % (tID, sID, cUser, tID, sID)
 curSource.execute(sqlPUER2)
 probs = curSource.fetchall()
 # loop through - insert four LCM rows per DEMAND row
 for row in probs:
     cursorINP.execute(sqlPUERinsert2, (row.rep, row.otype, row.locTypeExId, "Repair"))
     cursorINP.execute(sqlPUERinsert2, (row.con, row.otype, row.locTypeExId, "Condemn"))
-    cursorINP.execute(sqlPUERinsert2, (row.nff, row.otype, row.locTypeExId, "No_Fault_Found"))
-    cursorINP.execute(sqlPUERinsert2, (row.non, row.otype, row.locTypeExId, "No_Action"))
+    cursorINP.execute(sqlPUERinsert2, (row.nff, row.otype, row.locTypeExId, "No Fault Found"))
+    cursorINP.execute(sqlPUERinsert2, (row.non, row.otype, row.locTypeExId, "No Action"))
 
 sqlPUERinsert3 = '''INSERT INTO probability (tenant_id, simulation_id, object_type_id, probability, probability_type_id, probability_class_id, create_user, create_timestamp) 
-SELECT %s, %s, ot.id, ?, pt.id, pc.id, "%s", CURRENT_TIMESTAMP FROM input.object_type ot JOIN input.probability_class pc ON pc.simulation_id = ot.simulation_id JOIN input.probability_type pt ON pt.simulation_id = pc.simulation_id WHERE ot.tenant_id = %s AND ot.simulation_id = %s AND ot.external_id = ? AND pc.name like "Maintenance_Unscheduled" AND pt.name like ?''' % (tID, sID, cUser, tID, sID)
+SELECT %s, %s, ot.id, ?, pt.id, pc.id, "%s", CURRENT_TIMESTAMP FROM input.object_type ot JOIN input.probability_class pc ON pc.simulation_id = ot.simulation_id JOIN input.probability_type pt ON pt.simulation_id = pc.simulation_id WHERE ot.tenant_id = %s AND ot.simulation_id = %s AND ot.external_id = ? AND pc.name like "Maintenance Unscheduled" AND pt.name like ?''' % (tID, sID, cUser, tID, sID)
 curSource.execute(sqlPUER3)
 probs = curSource.fetchall()
 # loop through - insert four LCM rows per DEMAND row
 for row in probs:
     cursorINP.execute(sqlPUERinsert3, (row.rep, row.otype, "Repair"))
     cursorINP.execute(sqlPUERinsert3, (row.con, row.otype, "Condemn"))
-    cursorINP.execute(sqlPUERinsert3, (row.nff, row.otype, "No_Fault_Found"))
-    cursorINP.execute(sqlPUERinsert3, (row.non, row.otype, "No_Action"))
+    cursorINP.execute(sqlPUERinsert3, (row.nff, row.otype, "No Fault Found"))
+    cursorINP.execute(sqlPUERinsert3, (row.non, row.otype, "No Action"))
 
 sqlPUERinsert4 = '''INSERT INTO probability (tenant_id, simulation_id, object_class_id, probability, probability_type_id, probability_class_id, create_user, create_timestamp) 
-SELECT %s, %s, oc.id, ?, pt.id, pc.id, "%s", CURRENT_TIMESTAMP FROM input.object_class oc JOIN input.probability_class pc ON pc.simulation_id = oc.simulation_id JOIN input.probability_type pt ON pt.simulation_id = pc.simulation_id WHERE oc.tenant_id = %s AND oc.simulation_id = %s AND oc.external_id = ? AND pc.name like "Maintenance_Unscheduled" AND pt.name like ?''' % (tID, sID, cUser, tID, sID)
+SELECT %s, %s, oc.id, ?, pt.id, pc.id, "%s", CURRENT_TIMESTAMP FROM input.object_class oc JOIN input.probability_class pc ON pc.simulation_id = oc.simulation_id JOIN input.probability_type pt ON pt.simulation_id = pc.simulation_id WHERE oc.tenant_id = %s AND oc.simulation_id = %s AND oc.external_id = ? AND pc.name like "Maintenance Unscheduled" AND pt.name like ?''' % (tID, sID, cUser, tID, sID)
 curSource.execute(sqlPUER4)
 probs = curSource.fetchall()
 # loop through - insert four LCM rows per DEMAND row
 for row in probs:
     cursorINP.execute(sqlPUERinsert4, (row.rep, row.oclass, "Repair"))
     cursorINP.execute(sqlPUERinsert4, (row.con, row.oclass, "Condemn"))
-    cursorINP.execute(sqlPUERinsert4, (row.nff, row.oclass, "No_Fault_Found"))
-    cursorINP.execute(sqlPUERinsert4, (row.non, row.oclass, "No_Action"))
+    cursorINP.execute(sqlPUERinsert4, (row.nff, row.oclass, "No Fault Found"))
+    cursorINP.execute(sqlPUERinsert4, (row.non, row.oclass, "No Action"))
 
 # five uses the same insert as four
 curSource.execute(sqlPUER5)
@@ -677,8 +679,8 @@ probs = curSource.fetchall()
 for row in probs:
     cursorINP.execute(sqlPUERinsert4, (row.rep, row.oclass, "Repair"))
     cursorINP.execute(sqlPUERinsert4, (row.con, row.oclass, "Condemn"))
-    cursorINP.execute(sqlPUERinsert4, (row.nff, row.oclass, "No_Fault_Found"))
-    cursorINP.execute(sqlPUERinsert4, (row.non, row.oclass, "No_Action"))
+    cursorINP.execute(sqlPUERinsert4, (row.nff, row.oclass, "No Fault Found"))
+    cursorINP.execute(sqlPUERinsert4, (row.non, row.oclass, "No Action"))
 # TODO: fix the really minor digits at the end of the probabilities
 # cursorINP.execute(sqlP)
 # print "Done with Probability"
@@ -795,8 +797,8 @@ if SimOrDemo == 1:
         cursorINP.execute(sqlMnt, (tID, sID, exID, tempName, maintUOM, cUser, tID, sID, constantExID))
         exID += 1
 # Distribution of constant zero
-sqlZero = '''INSERT INTO distribution (tenant_id, simulation_id, external_id, name, distribution_class_id, distribution_type_id, unit_of_measure_id, create_user, create_timestamp) SELECT dc.tenant_id, dc.simulation_id, ?, ?, dc.id, dt.id, ?, ?, CURRENT_TIMESTAMP FROM distribution_class dc join distribution_type dt on dt.simulation_id = dc.simulation_id WHERE dc.tenant_id = ? and dc.simulation_id = ? and dt.external_id = ? AND dc.name like "General" '''
-cursorINP.execute(sqlZero, (1, 'Zero', 2, cUser, tID,sID, 1)) # 1 for external id and then constant distribution
+sqlZero = '''INSERT INTO distribution (tenant_id, simulation_id, external_id, name, distribution_class_id, distribution_type_id, unit_of_measure_id, create_user, create_timestamp) SELECT dc.tenant_id, dc.simulation_id, ?, ?, dc.id, dt.id, uom.id, ?, CURRENT_TIMESTAMP FROM distribution_class dc join distribution_type dt on dt.simulation_id = dc.simulation_id JOIN lcm.unit_of_measure uom on uom.tenant_id = dc.tenant_id WHERE dc.tenant_id = ? and dc.simulation_id = ? and dt.external_id = ? AND uom.external_id = ? AND dc.name like "General" '''
+cursorINP.execute(sqlZero, (1, 'Zero', cUser, tID,sID, 1, 2)) # 1 for external id and then constant distribution
 print "Done with Distribution" , datetime.datetime.now().time().isoformat()
 ###################################### / END DISTRIBUTION
 ###################################### / BEGIN DISTRIBUTION PARAMETER
@@ -930,7 +932,7 @@ if LocalOrWeb == 1: # if it'll be put on the web, set the event distribution nam
 else:    
     sqlFED1 = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, parent_object_type_id, location_id, expression_id, create_user, create_timestamp) SELECT ?, ?, ?, "Failure", d.id, e.id, ot.id, pot.id, l.id, exp.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id JOIN input.location l on l.simulation_id = e.simulation_id JOIN input.object_type pot on pot.simulation_id = e.simulation_id JOIN input.expression exp on exp.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and l.external_id = ? and pot.external_id = ? and d.name like "Failure%" and e.name like "Failure" and exp.external_id = ?'''
     sqlFED2defaultParentType = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, location_id, expression_id, create_user, create_timestamp) SELECT ?, ?, ?, "Failure", d.id, e.id, ot.id, l.id, exp.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id JOIN input.location l on l.simulation_id = e.simulation_id JOIN input.expression exp on exp.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and l.external_id = ? and d.name like "Failure%" and e.name like "Failure" and exp.external_id = ?'''
-    sqlFED3defaultLocationParentType = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, expression_id, create_user, create_timestamp) SELECT ?, ?, ?, "Failure", d.id, e.id, ot.id, exp.id ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id JOIN input.expression exp on exp.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and d.name like "Failure%" and e.name like "Failure" and exp.external_id = ?'''
+    sqlFED3defaultLocationParentType = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, expression_id, create_user, create_timestamp) SELECT ?, ?, ?, "Failure", d.id, e.id, ot.id, exp.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id JOIN input.expression exp on exp.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and d.name like "Failure%" and e.name like "Failure" and exp.external_id = ?'''
     sqlFED4defaultTypeLocationParentType = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_class_id, expression_id, create_user, create_timestamp) SELECT ?, ?, ?, "Failure", d.id, e.id, oc.id, exp.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_class oc ON oc.simulation_id = e.simulation_id JOIN input.expression exp on exp.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and oc.external_id = ? and d.name like "Failure%" and e.name like "Failure" and exp.external_id = ?'''
     sqlFED5defaultClassLocationParentType = '' ### NO WAY not going to spend the effort to get this working
     sqlFED6defaultLocation = '''INSERT INTO event_distribution (tenant_id, simulation_id, external_id, name, distribution_id, event_id, object_type_id, parent_object_type_id, expression_id, create_user, create_timestamp) SELECT ?, ?, ?, "Failure", d.id, e.id, ot.id, pot.id, exp.id, ?, CURRENT_TIMESTAMP FROM distribution d JOIN event e on d.simulation_id = e.simulation_id JOIN object_type ot ON ot.simulation_id = e.simulation_id JOIN input.object_type pot on pot.simulation_id = e.simulation_id JOIN input.expression exp on exp.simulation_id = e.simulation_id WHERE e.tenant_id = ? and e.simulation_id = ? AND d.external_id = ? and ot.external_id = ? and pot.external_id = ? and d.name like "Failure%" and e.name like "Failure" and exp.external_id = ?'''
@@ -1073,6 +1075,20 @@ if SimOrDemo == 1:
 print "Done with Event Distribution" , datetime.datetime.now().time().isoformat()
 ###################################### / END EVENT DISTRIBUTION
 
+############################################################################ / BEGIN CURRENCY
+###################################### / BEGIN CURRENCY VALUE CLASS
+    SQLcurclass1 = '''INSERT INTO currency_value_class (tenant_id, simulation_id, name, create_user, create_timestamp) VALUES (%s, %s, "Revenue", "%s", CURRENT_TIMESTAMP)''' % (tID, sID, cUser)
+    SQLcurclass2 = '''INSERT INTO currency_value_class (tenant_id, simulation_id, name, create_user, create_timestamp) VALUES (%s, %s, "Cost", "%s", CURRENT_TIMESTAMP)''' % (tID, sID, cUser)
+    cursorINP.execute(SQLcurclass1) # currency value class - revenue
+    cursorINP.execute(SQLcurclass2) # currency value class - cost
+###################################### / END CURRENCY VALUE CLASS
+###################################### / BEGIN CURRENCY VALUE TYPE
+    SQLcurtype = '''INSERT INTO currency_value_type (tenant_id, simulation_id, external_id, name, create_user, create_timestamp) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'''
+    for aName in enumerate(('Acquisition','Repair','Shipment','Storage'),start=1):
+        cursorINP.execute(SQLcurtype, (tID, sID, aName[0], aName[1], cUser))
+###################################### / END CURRENCY VALUE TYPE
+############################################################################ / END CURRENCY
+
 ###################################### / BEGIN STRUCTURE
 # FROM JESSICA W
 # parent structures (objects with at least one child)
@@ -1105,31 +1121,44 @@ sqlMC='''UPDATE input.structure s
 cursorINP.execute(sqlMC)
 
 #child structures
-sqlCS='''INSERT INTO input.structure
-        ( name, internal_name, minimum_count, parent_structure_id
-        , tenant_id, simulation_id, create_user, create_timestamp)
-    SELECT concat(obj.name,' Child'), concat(obj.internal_name,'Child')
-        , 1, str.id, %s, %s, '%s', CURRENT_TIMESTAMP
-    FROM input.object obj
-    JOIN input.structure str
-    on str.object_id = obj.parent_object_id
-    WHERE str.tenant_id=%s AND str.simulation_id=%s''' % (tID, sID, cUser, tID, sID)
-cursorINP.execute(sqlCS)
+#sqlCS='''INSERT INTO input.structure
+#        ( name, internal_name, minimum_count, parent_structure_id
+#        , tenant_id, simulation_id, create_user, create_timestamp)
+#    SELECT concat(obj.name,' Child'), concat(obj.internal_name,'Child')
+#        , 1, str.id, %s, %s, '%s', CURRENT_TIMESTAMP
+#    FROM input.object obj
+#    JOIN input.structure str
+#    on str.object_id = obj.parent_object_id
+#    WHERE str.tenant_id=%s AND str.simulation_id=%s''' % (tID, sID, cUser, tID, sID)
+#cursorINP.execute(sqlCS)
 
 #structure_object - connect children objects to their children (not top-level objects, e.g. assets)
 # the structures of interest are child structures whose names end with ' Child'
+# sqlSO='''INSERT INTO input.structure_object
+#         ( object_id, structure_id, tenant_id
+#         , simulation_id, create_user, create_timestamp)
+#     SELECT o.id, s.id, %s, %s, '%s', CURRENT_TIMESTAMP 
+#     FROM input.object o 
+#     JOIN input.structure s 
+#     on left(s.name,length(s.name)-6)=o.name AND o.simulation_id = s.simulation_id
+#     WHERE s.object_id is null 
+#     AND o.parent_object_id is not null 
+#     AND right(s.name,5) = 'Child'
+#     AND s.tenant_id=%s and s.simulation_id=%s;''' % (tID, sID, cUser, tID, sID)
+# cursorINP.execute(sqlSO)
+
+# structure object (no parent/child structure relationships)
 sqlSO='''INSERT INTO input.structure_object
-        ( object_id, structure_id, tenant_id
-        , simulation_id, create_user, create_timestamp)
-    SELECT o.id, s.id, %s, %s, '%s', CURRENT_TIMESTAMP 
-    FROM input.object o 
-    JOIN input.structure s 
-    on left(s.name,length(s.name)-6)=o.name AND o.simulation_id = s.simulation_id
-    WHERE s.object_id is null 
-    AND o.parent_object_id is not null 
-    AND right(s.name,5) = 'Child'
-    AND s.tenant_id=%s and s.simulation_id=%s;''' % (tID, sID, cUser, tID, sID)
+         ( object_id, structure_id, tenant_id
+         , simulation_id, create_user, create_timestamp)
+     SELECT co.id, s.id, %s, %s, 'user', CURRENT_TIMESTAMP 
+     FROM input.object po 
+     JOIN input.structure s 
+     on s.object_id=po.id AND po.simulation_id = s.simulation_id
+     JOIN input.object co on co.parent_object_id = po.id
+     AND s.tenant_id=%s and s.simulation_id=%s''' % (tID, sID, cUser, tID, sID)
 cursorINP.execute(sqlSO)
+
 print 'Done with Structure and Structure_Object' , datetime.datetime.now().time().isoformat()
 ###################################### / END STRUCTURE
 
@@ -1151,7 +1180,7 @@ sqlS = '''UPDATE input.object o join input.storage s on s.location_id = o.locati
 cursorINP.execute(sqlS, (tID, sID))
 print "Done with Current Inventory" , datetime.datetime.now().time().isoformat()
 ###################################### / END STORAGE
- 
+
 ###################################### / BEGIN FUTURE INVENTORY 
 # get data - only select the objects that are not originally in the simulation (with arrival time > 0)
 sqlS = '''SELECT oai.[object type] AS otEid, oai.sran AS lEid, Count(oai.id) AS num2acq, oai.[Arrival time ta] as ArrivalYear FROM [*object attributes initial] AS oai
@@ -1701,8 +1730,11 @@ if SimOrDemo == 2:
     print 'Done with Output: Total Criticality' , datetime.datetime.now().time().isoformat()
     ###################################### / END TOTAL CRITICALITY
 
-    ###################################### / BEGIN SHIPMENTS
-    # there is no shipments output table, so I have to go straight to cost :(
+    ############################################################################ / BEGIN COST
+    # currency value class and type should already be defined in input schema. simply add currency value
+
+    ###################################### / BEGIN SHIPMENT COST
+    # there is no shipments output table, and I can't use component events because there is only one sran (not to or from) so I have to go straight to cost :(
     sqlInsertShipmentCost = '''INSERT INTO output.operations_support_cost (tenant_id, simulation_id, project_name, project_id, interval_unit_id, interval_unit_name, timestamp, value, location_id, location_name, to_location_id, to_location_name, object_type_id, object_type_name, object_id, object_name, cost_id, cost_name, cost_type_id, cost_type_name)
         SELECT pr.tenant_id, l.simulation_id, pr.name, pr.id, iu.id, iu.name, ?, ?*cv.currency_value, l.id, l.name, l_t.id, l_t.name, ot.id, ot.name, ot.id, ot.name, cv.id, cv.name, cvt.id, cvt.name
         FROM lcm.project pr JOIN input.location l on l.tenant_id = pr.tenant_id JOIN input.location_type lt on lt.id = l.location_type_id JOIN input.object_type ot ON ot.simulation_id = l.simulation_id JOIN input.location l_t on l_t.simulation_id = l.simulation_id JOIN input.location_type lt_t on lt_t.id = l_t.location_type_id JOIN input.currency_value cv on cv.simulation_id = ot.simulation_id and cv.object_class_id = ot.object_class_id and cv.from_location_type_id = lt.id and cv.to_location_type_id = lt_t.id JOIN input.currency_value_type cvt on cvt.id = cv.currency_value_type_id, lcm.interval_unit iu 
@@ -1737,7 +1769,10 @@ if SimOrDemo == 2:
     WHERE   a.tenant_id = %s AND a.simulation_id = %s AND a.cost_type_name = "Shipment"''' % (tID, sID)
     cursorOUT.execute(sqlMoreOSCInfo)
     connSinkOut.commit()
-    ###################################### / END SHIPMENTS
+    ###################################### / BEGIN STORAGE COST
+
+
+    ############################################################################ / END COST
 
 connSinkLCM.commit()
 connSinkInput.commit()
