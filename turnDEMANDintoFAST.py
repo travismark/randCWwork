@@ -30,11 +30,11 @@ import pyodbc
 
 # Define a few variables
 sID = 1 # simulation id
-tID = 1001 # tenant id
+tID = 1000 # tenant id
 pID = 3 # project id
 cUser = 'user' # default create_user
-SimOrDemo = 2 # Simulation, 1 (with failure rates defined in calendar time) or demo, 2 (with failure rates defined in operating hours)
-LocalOrWeb = 2 # local, 1 (localhost) or web, 2 (out on insight)
+SimOrDemo = 1 # Simulation, 1 (with failure rates defined in calendar time) or demo, 2 (with failure rates defined in operating hours)
+LocalOrWeb = 1 # local, 1 (localhost) or web, 2 (out on insight)
 numberOfReps = 100
 newTenant = 1
 prevTime = datetime.datetime.now().time().isoformat()
@@ -47,10 +47,10 @@ simTypeID = 1 if SimOrDemo == 1 else 1 # set simulation_type_id to 1 (Insight) f
 # First the Source database (DEMAND Pro)
 #db_path = 'C:/Users/tbaer/Desktop/demo/data/'
 #model = 'test.mdb'
-#db_path = 'P:/Internal Projects/Data Scientist Team/InsightLCM/Testing/FAST/DEMAND Pro Basic Training/BasicCourseModelsDEMAND/PreEx1/'
-#model = "Model 1-1_TS3.mdb"
-db_path = "P:/Internal Projects/Data Scientist Team/InsightLCM/Demo/Aviation/Early2015/1June/"
-model = "1-Baseline.mdb"
+db_path = 'P:/Internal Projects/Data Scientist Team/InsightLCM/Testing/FAST/DEMAND Pro Basic Training/BasicCourseModelsDEMAND/PreEx1/'
+model = "Model 1-1_TS3.mdb"
+#db_path = "P:/Internal Projects/Data Scientist Team/InsightLCM/Demo/Aviation/Early2015/1June/"
+#model = "1-Baseline.mdb"
 full_filename = db_path+model
 constr = 'Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=%s;'  % full_filename
 connSource = pyodbc.connect(constr)
@@ -426,7 +426,7 @@ cursorINP.execute(sqlProp, (tID, 1, cUser, sID, 31, 2)) # for No Fault Found on 
 
 # Location info
 ###################################### / BEGIN LOCATION REGION
-# idealy this would come from the command table, but there's no guarentee that'll be filled in.  so just use one region
+# just use one region if none are defined
 sqlCommand = '''SELECT [*Command names].[Command Name] as name, [*Command names].[Command Name] as intname, [*Command names].Code FROM [*Command names]'''
 curSource.execute(sqlCommand)
 commands = curSource.fetchall()
@@ -682,7 +682,24 @@ for row in probs:
     cursorINP.execute(sqlPUERinsert4, (row.nff, row.oclass, "No Fault Found"))
     cursorINP.execute(sqlPUERinsert4, (row.non, row.oclass, "No Action"))
 # TODO: fix the really minor digits at the end of the probabilities
-# cursorINP.execute(sqlP)
+# NRTS:
+# allowed combinations of Type, SRAN, Qtr, Year - only six of them
+# what are all the possibilities?  
+    # object type: default to group + indenture, class, or specific to type
+    # sran: default to all, default to level, specific to sran
+    # time: both year and qtr default to -1 or specific
+# 1) specific type + specific sran + specific time (Good)
+# 2) specific type + specific sran + general time (Good)
+#  ) specific type + level + specific time NOT ALLOWED IN DEMAND
+# 3) specific type + level + general time (Good)
+#  ) specific type + all default + specific time NOT ALLOWED IN DEMAND
+# 4) specific type + all default + general time (Good)
+#  ) class + specific sran NOT ALLOWED IN DEMAND
+#  ) class + level NOT ALLOWED IN DEMAND
+# 5) class + all default + time default (Good)
+#  ) group/ind + specific sran NOT ALLOWED IN DEMAND
+#  ) group/ind + level NOT ALLOWED IN DEMAND
+# 6) group/ind + all default + time default (Good)
 # print "Done with Probability"
 ###################################### / END Probability
 
@@ -1077,20 +1094,20 @@ print "Done with Event Distribution" , datetime.datetime.now().time().isoformat(
 
 ############################################################################ / BEGIN CURRENCY
 ###################################### / BEGIN CURRENCY VALUE CLASS
-    SQLcurclass1 = '''INSERT INTO currency_value_class (tenant_id, simulation_id, name, create_user, create_timestamp) VALUES (%s, %s, "Revenue", "%s", CURRENT_TIMESTAMP)''' % (tID, sID, cUser)
-    SQLcurclass2 = '''INSERT INTO currency_value_class (tenant_id, simulation_id, name, create_user, create_timestamp) VALUES (%s, %s, "Cost", "%s", CURRENT_TIMESTAMP)''' % (tID, sID, cUser)
-    cursorINP.execute(SQLcurclass1) # currency value class - revenue
-    cursorINP.execute(SQLcurclass2) # currency value class - cost
+SQLcurclass1 = '''INSERT INTO currency_value_class (tenant_id, simulation_id, name, create_user, create_timestamp) VALUES (%s, %s, "Revenue", "%s", CURRENT_TIMESTAMP)''' % (tID, sID, cUser)
+SQLcurclass2 = '''INSERT INTO currency_value_class (tenant_id, simulation_id, name, create_user, create_timestamp) VALUES (%s, %s, "Cost", "%s", CURRENT_TIMESTAMP)''' % (tID, sID, cUser)
+cursorINP.execute(SQLcurclass1) # currency value class - revenue
+cursorINP.execute(SQLcurclass2) # currency value class - cost
 ###################################### / END CURRENCY VALUE CLASS
 ###################################### / BEGIN CURRENCY VALUE TYPE
-    SQLcurtype = '''INSERT INTO currency_value_type (tenant_id, simulation_id, external_id, name, create_user, create_timestamp) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'''
-    for aName in enumerate(('Acquisition','Repair','Shipment','Storage'),start=1):
-        cursorINP.execute(SQLcurtype, (tID, sID, aName[0], aName[1], cUser))
+SQLcurtype = '''INSERT INTO currency_value_type (tenant_id, simulation_id, external_id, name, create_user, create_timestamp) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'''
+for aName in enumerate(('Acquisition','Repair','Shipment','Storage'),start=1):
+    cursorINP.execute(SQLcurtype, (tID, sID, aName[0], aName[1], cUser))
 ###################################### / END CURRENCY VALUE TYPE
 ############################################################################ / END CURRENCY
 
 ###################################### / BEGIN STRUCTURE
-# FROM JESSICA W
+# FROM JESSICA W with adjustments to simplify
 # parent structures (objects with at least one child)
 sqlPS ='''INSERT into input.structure
         ( name, internal_name, minimum_count, object_id, tenant_id
@@ -1151,7 +1168,7 @@ cursorINP.execute(sqlMC)
 sqlSO='''INSERT INTO input.structure_object
          ( object_id, structure_id, tenant_id
          , simulation_id, create_user, create_timestamp)
-     SELECT co.id, s.id, %s, %s, 'user', CURRENT_TIMESTAMP 
+     SELECT co.id, s.id, %s, %s, '%s', CURRENT_TIMESTAMP 
      FROM input.object po 
      JOIN input.structure s 
      on s.object_id=po.id AND po.simulation_id = s.simulation_id
