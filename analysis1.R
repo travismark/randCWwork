@@ -322,7 +322,7 @@ oemWUCDescpareto <- within(oemWUCDescpareto, WUC_Narrative <- factor(
 gb <- ggplot(oemWUCDescpareto, aes(x=WUC_Narrative,y=lbrHrs)) +
   geom_bar(stat="identity") + labs(y="Total Labor Hours, OEM Data") + coord_flip()
 gb
-ggsave(filename="wuc_labor_hours_pareto_oem_all.svg", plot=gb, scale=9)
+ggsave(filename="wuc_labor_hours_pareto_oem_all.svg", plot=gb, scale=5)
 # top twenty
 oemWUCDescparetoOrder20 <- head(oemWUCDescparetoOrder, 20)
 oemWUCDescpareto20 <- oemWUCDescpareto[oemWUCDescpareto$WUC_Narrative %in% tail(levels(oemWUCDescpareto$WUC_Narrative),20), ]
@@ -359,6 +359,45 @@ oemWUCDescRepDayspareto <- group_by(oem, WUC_Narrative, Job_Control_Number) %>% 
 oemWUCDescRepDayspareto$maintDays <- 1+difftime(oemWUCDescRepDayspareto$maxDt,oemWUCDescRepDayspareto$minDt,units="days")
 oemWUCDescRepDayspareto <- select(oemWUCDescRepDayspareto,WUC_Narrative, maintDays) %>% group_by(WUC_Narrative) %>% summarise(totalMaintDays = sum(maintDays))
 # reorder & pareto
+theOrder <- oemWUCDescRepDayspareto[order(-as.numeric(oemWUCDescRepDayspareto$totalMaintDays)),"WUC_Narrative"]
+theOrder <- as.character(theOrder$WUC_Narrative)
+oemWUCDescRepDayspareto <- within(oemWUCDescRepDayspareto, WUC_Narrative <- factor(WUC_Narrative, levels = rev(theOrder)))
+gb <- ggplot(oemWUCDescRepDayspareto, aes(x=WUC_Narrative,y=as.numeric(totalMaintDays))) +
+  geom_bar(stat="identity") + labs(y="Total Maintenance Days, OEM Data") + coord_flip()
+gb
+ggsave(filename="wuc_maint_days_pareto_oem_all.svg", plot=gb, width=15, height=40, scale=1)
+# top 20
+oemWUCDescRepDayspareto20order <- tail(levels(oemWUCDescRepDayspareto$WUC_Narrative), 20)
+oemWUCDescRepDayspareto20 <- oemWUCDescRepDayspareto[oemWUCDescRepDayspareto$WUC_Narrative %in% oemWUCDescRepDayspareto20order,]
+gb <- ggplot(oemWUCDescRepDayspareto20, aes(x=WUC_Narrative,y=as.numeric(totalMaintDays))) +
+  geom_bar(stat="identity") + labs(y="Total Maintenance Days, OEM Data") + coord_flip()
+gb
+ggsave(filename="wuc_maint_days_pareto_oem_top20.svg", plot=gb, width=10, height=8, scale=1)
+### NOW WITH type-maintenance for scheduled and unscheduled - most jcn/wuc combos have only one type, BUT there's still some weird data, like 'radome, tail cone' comes up with a lot more days than before and 'actr, owf l&r' a lot fewer
+oemWUCDescRepDaysparetoMType <- group_by(oem, WUC_Narrative, Job_Control_Number, Type_Maintenance_Code) %>% filter(!is.na(On_Component_Part_Number)) %>% summarise(count = n(), lbrHrs = sum(Labor_Manhours), minDt = min(Transaction_Date), maxDt = max(Transaction_Date))
+oemWUCDescRepDaysparetoMType$maintDays <- 1+difftime(oemWUCDescRepDaysparetoMType$maxDt,oemWUCDescRepDaysparetoMType$minDt,units="days")
+oemWUCDescRepDaysparetoMType$maintType <- NA
+oemWUCDescRepDaysparetoMType[oemWUCDescRepDaysparetoMType$Type_Maintenance_Code %in% c("A", "C", "D", "E", "H", "J", "P", "Q", "R"),]$maintType <- "Scheduled"
+oemWUCDescRepDaysparetoMType[oemWUCDescRepDaysparetoMType$Type_Maintenance_Code %in% c("B", "S", "Y"),]$maintType <- "Unscheduled"
+oemWUCDescRepDaysparetoMType$maintType<-factor(oemWUCDescRepDaysparetoMType$maintType)
+oemWUCDescRepDaysparetoMType <- select(oemWUCDescRepDaysparetoMType,WUC_Narrative, maintType, maintDays) %>% group_by(WUC_Narrative, maintType) %>% summarise(totalMaintDays = sum(maintDays))
+# reorder & pareto
+oemWUCDescRepDaysparetoMType$WUC_Narrative <- as.character(oemWUCDescRepDaysparetoMType$WUC_Narrative)
+theOrder <- group_by(oemWUCDescRepDaysparetoMType, WUC_Narrative) %>% summarise(wucMntHr = sum(totalMaintDays))
+theOrder <- theOrder[order(-as.numeric(theOrder$wucMntHr)),"WUC_Narrative"]
+oemWUCDescRepDaysparetoMType <- within(oemWUCDescRepDaysparetoMType, WUC_Narrative <- factor(WUC_Narrative, levels = rev(theOrder$WUC_Narrative)))
+gb <- ggplot(oemWUCDescRepDaysparetoMType, aes(x=WUC_Narrative, y=as.numeric(totalMaintDays))) + 
+  geom_bar(stat="identity", aes(fill=maintType)) + labs(y="Total Maintenance Days by Type, OEM Data") + coord_flip()
+gb  
+ggsave(filename="wuc_maint_days_byType_pareto_oem_all.svg", plot=gb, width=15, height=40, scale=1)
+# top 20
+theOrder20 <- tail(levels(oemWUCDescRepDaysparetoMType$WUC_Narrative), 20)
+oemWUCDescRepDaysparetoMType20 <- oemWUCDescRepDaysparetoMType[oemWUCDescRepDaysparetoMType$WUC_Narrative %in% theOrder20,]
+gb <- ggplot(oemWUCDescRepDaysparetoMType20, aes(x=WUC_Narrative, y=as.numeric(totalMaintDays))) + 
+  geom_bar(stat="identity", aes(fill=maintType)) + labs(y="Total Maintenance Days by Type, OEM Data") + coord_flip()
+gb  
+ggsave(filename="wuc_maint_days_byType_pareto_oem_top20.svg", plot=gb, width=10, height=8, scale=1)
+
 
 ##################### APPENDIX L
 ## 1) ABORT AIR
@@ -429,26 +468,10 @@ ggsave("subsystem_wuc_ground_aborted_sorties_pareto_debrief.svg",scale=2)
 
 
 
-##################################################### FUUUNCTIONS
-reorderTable<-function(df,factorCol,valueCol){
-  
-  # get the order of the levels and re-order
-  factorValueOrder <- df[order(-df$valueCol),]$factorCol
-  oemWUCDescparetoOrder <- as.character(oemWUCDescparetoOrder$WUC_Narrative)
-  oemWUCDescpareto <- within(oemWUCDescpareto, WUC_Narrative <- factor(
-    WUC_Narrative, levels = rev(oemWUCDescparetoOrder)))
-  # now plot pareto
-  gb <- ggplot(oemWUCDescpareto, aes(x=WUC_Narrative,y=lbrHrs)) +
-    geom_bar(stat="identity") + labs(y="Total Labor Hours, OEM Data") + coord_flip()
-  gb
-  ggsave(filename="wuc_labor_hours_pareto_oem_all.svg", plot=gb, scale=9)
-  # top twenty
-  oemWUCDescparetoOrder20 <- head(oemWUCDescparetoOrder, 20)
-  oemWUCDescpareto20 <- oemWUCDescpareto[oemWUCDescpareto$WUC_Narrative %in% tail(levels(oemWUCDescpareto$WUC_Narrative),20), ]
-  oemWUCDescpareto20 <- within(oemWUCDescpareto20, WUC_Narrative <- factor(
-    WUC_Narrative, levels = rev(oemWUCDescparetoOrder20)))
-  gb20 <- ggplot(oemWUCDescpareto20, aes(x=WUC_Narrative,y=lbrHrs)) +
-    geom_bar(stat="identity") + labs(y="Total Labor Hours, OEM Data") + coord_flip()
-  gb20
-  ggsave(filename="wuc_labor_hours_pareto_oem_top20.svg", plot=gb20, width=15, height=9, scale=1)
-}
+##################################################### FUUUNCTIONS FAIL FAIL FAIL FAIL FAIL
+# reorderTable<-function(df,factorCol,valueCol){
+#   # get the order of the levels and re-order
+#   factorValueOrder <- df[order(-df$valueCol),]$factorCol
+#   factorValueOrder <- as.character(factorValueOrder$factorCol)
+#   df <- within(factorValueOrder, factorCol <- factor(factorCol, levels = rev(factorValueOrder)))
+# }
