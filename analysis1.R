@@ -1,0 +1,454 @@
+# University of Dayton Research Institute
+# Autumn 2015
+require(RODBC);require(lubridate);require(ggplot2);require(tm);require(dplyr)
+udri <- odbcConnect(dsn="onion-udri",uid="tbaer",pw="tbaer1") # created through the Data Sources (ODBC) window described above
+## Debrief Data
+debrief <- sqlQuery(udri, "SELECT * FROM debrief")
+# add and clean data
+# de-duplicate
+debrief <- distinct(debrief)
+# adjust column types
+debrief$Sortie_Date <- ymd(debrief$Sortie_Date)
+debrief$Landing_Date <- ymd(debrief$Landing_Date)
+debrief$Takeoff_Date <- ymd(debrief$Takeoff_Date)
+debrief$Landing_Status <- as.factor(debrief$Landing_Status)
+debrief$Sortie_Modifier <- as.factor(debrief$Sortie_Modifier)
+debrief$Capability_Code <- as.factor(debrief$Capability_Code)
+debrief$Serial_Number <- as.factor(debrief$Serial_Number)
+debrief$Discrepancy_Narrative <- as.character(debrief$Discrepancy_Narrative)
+debrief$Deviation_Remarks <- as.character(debrief$Deviation_Remarks)
+# add day information
+debrief$Sortie_DayOfWeek <- wday(debrief$Sortie_Date, label = TRUE)
+
+# fix mission code
+# take out spaces and hyphens
+debrief$Mission_Code <- as.character(debrief$Mission_Code)
+debrief$Mission_Code <- gsub(pattern="-",replacement="",x=debrief$Mission_Code)
+debrief$Mission_Code <- gsub(pattern=" ",replacement="",x=debrief$Mission_Code)
+debrief$Mission_Code <- factor(debrief$Mission_Code)
+levels(debrief$Mission_Code)[3] <- "450" # change "450.0" to "450" fix the mission code in debrief
+# add mission classification
+# make some classes - ten of these including "other" done by outside help picking the top nine categories and seeing where some codes were close enough to the class to estimate
+mc <- data.frame("Mission_Code"=unique(as.character(debrief$Mission_Code)),"Mission_Class"=NA)
+# mc[grep("BONE", mc$code),]$class <- "BONE" # 1
+for (className in c("BONE","DARK","FELON","FIEND","HAWK","PUMA","SLAM","SLAYER")){
+  mc[grep(className, mc$Mission_Code),]$Mission_Class <- className
+}
+# fix a few more
+mc[grep("TH", mc$Mission_Code),]$Mission_Class <- "THUNDER"; mc[grep("DR", mc$Mission_Code),]$Mission_Class <- "THUNDER"; mc[grep("TR", mc$Mission_Code),]$Mission_Class <- "THUNDER"
+mc[grep("FN", mc$Mission_Code),]$Mission_Class <- "FIEND";
+# set NAs to class "OTHER" where code isn't null
+mc[!is.na(mc$Mission_Code) & is.na(mc$Mission_Class),]$Mission_Class <- "OTHER"
+# set to factor
+mc$Mission_Class <- factor(mc$Mission_Class)
+# this classifies most of the longest (>15hr) missions as "Other", along with a few shorter missions 
+
+#setwd("C:/Users/tbaer/Desktop/udri")
+#mc<-read.csv("mission_class.csv")
+debrief<-left_join(debrief,mc,by="Mission_Code")
+# add an NA
+debrief$Mission_Class<-addNA(debrief$Mission_Class)
+# set NAs to Other - not really a good idea
+# levels(debrief$Mission_Class)<-c(levels(debrief$Mission_Class)[1:length(levels(debrief$Mission_Class))-1],"Other")
+# input data has been reset to ten total factors, excluding "Other"
+# mission class vs geo loc (rows)
+(ggplot(debrief, aes(x=Mission_Class, fill=Geographic_Location))+geom_histogram()+coord_flip())
+# sorties-ish
+sts <- group_by(debrief, Sortie_Number, Sortie_Date, Mission_Class, Geographic_Location) %>% distinct()
+(ggplot(sts, aes(x=Mission_Class, fill=Geographic_Location))+geom_histogram()+coord_flip())
+
+# main organizational data
+print("Command");table(debrief$Command);round(table(debrief$Command)/nrow(debrief),3)
+print("Geographic Location");table(debrief$Geographic_Location);round(table(debrief$Geographic_Location)/nrow(debrief),3)
+print("Organization");table(debrief$Organization);round(table(debrief$Organization)/nrow(debrief),3)
+length(unique(debrief$Job_Control_Number))/nrow(debrief)
+
+# time and date figures
+qplot(debrief$Sortie_Date)
+qplot(debrief$Sortie_DayOfWeek)
+qplot(debrief$Flight_Duration) # three groups of durations
+qplot(debrief$Flight_Duration, fill=debrief$Sortie_DayOfWeek)
+qplot(debrief$Flight_Duration, fill=debrief$Geographic_Location)
+qplot(debrief$Flight_Duration, fill=debrief$Mission_Class)
+qplot(debrief$Flight_Duration, fill=debrief$Deviation_Code)
+(ggplot(debrief[debrief$Geographic_Location %in% "FXBM",], aes(x=Flight_Duration))+geom_histogram(aes(fill=Deviation_Code)))
+(ggplot(debrief[debrief$Mission_Class %in% "BONE",], aes(x=Flight_Duration))+geom_histogram(aes(fill=Deviation_Code)))
+qplot(Flight_Duration, data=debrief[debrief$Sortie_DayOfWeek=="Sun",]) # Sunday flights are usually long
+qplot(Flight_Duration, data=debrief[debrief$Sortie_DayOfWeek=="Sat",]) # Saturday flights are often short, and sometimes long
+qplot(Flight_Duration, data=debrief[debrief$Sortie_DayOfWeek=="Wed",]) # no real insight
+qplot(debrief$Takeoff_Time/100, fill = debrief$Sortie_DayOfWeek) 
+
+qplot(debrief$Work_Unit_Code) # all WUC
+# top ten WUCsd
+head(sort(table(debrief$Work_Unit_Code),decreasing=T),10)
+ttw<-names(tail(sort(table(debrief$Work_Unit_Code)),10))
+barplot(rev(tail(sort(table(debrief$Work_Unit_Code)),10)), main = "Top Ten WUC by Records")
+unique(debrief[debrief$Work_Unit_Code %in% ttw, "WUC_Description"])
+qplot(debrief[debrief$Work_Unit_Code %in% ttw,"Work_Unit_Code"])
+
+# What is Sortie Number?
+plot(y=debrief$Sortie_Number, x=debrief$Sortie_Date)
+qplot(y=Sortie_Number, x=Sortie_Date, data = debrief, colour=Geographic_Location)
+qplot(y=Sortie_Number, x=Sortie_Date, data = debrief, colour=Organization)
+qplot(y=Sortie_Number, x=Sortie_Date, data = debrief, colour=Mission_Class)
+qplot(y=Sortie_Number, x=Sortie_Date, 
+      data = debrief[debrief$Serial_Number %in% c(8600000119,8500000074,8500000080,8600000105,8600000097),], colour=Serial_Number)
+
+## text analysis
+# two text fields: Discrepancy Narrative and Deviation Remarks
+# first pull out the '[Code]' - if fails, try '(Code)' but sometimes these are bad systems
+#gregexpr("\\]","tele[pho]ne")[[1]][1]
+getCode<-function(s){
+  firstTry <- unlist(strsplit(unlist(strsplit(s,"\\["))[2],"\\]"))[1] # get text between [%%%]
+  if(is.na(firstTry)) { # didn't match
+    return(unlist(strsplit(unlist(strsplit(s,"\\("))[2],"\\)"))[1]) # get text between (%%%)
+  }
+  return(firstTry) # if the first equation found something
+}
+debrief$Discrepancy_Narrative_System <- sapply(debrief$Discrepancy_Narrative,FUN=getCode)
+# some of these aren't really systems, so take them out
+ones<-group_by(debrief,Discrepancy_Narrative_System)
+ones<-summarise(ones,c = n())
+ones<-ones[ones$c==1,]$Discrepancy_Narrative_System
+debrief$Discrepancy_Narrative_System[debrief$Discrepancy_Narrative_System %in% (ones)]<-NA
+# now set to factor - only 27 systems
+debrief$Discrepancy_Narrative_System<-as.factor(debrief$Discrepancy_Narrative_System)
+qplot(debrief$Discrepancy_Narrative_System)
+nonNAdebrief<-debrief[!is.na(debrief$Discrepancy_Narrative_System),]
+qplot(nonNAdebrief$Discrepancy_Narrative_System) # un sorted
+# sort (thanks to https://stackoverflow.com/questions/5208679/order-bars-in-ggplot2-bar-graph) - for pareto
+discSystem<-(nonNAdebrief$Discrepancy_Narrative_System)
+discSystem <- factor(discSystem, levels = names(sort(table(discSystem),decreasing=TRUE)))
+qplot(discSystem) # sorted
+discSystemSummary <- group_by(nonNAdebrief, Discrepancy_Narrative_System)
+discSystemSummary <- summarise(discSystemSummary, count = n())
+# fancier gg plot, needs count as a separate field
+discSystemSummary <- within(discSystemSummary, Discrepancy_Narrative_System <- factor(
+  Discrepancy_Narrative_System, levels = rev(levels(discSystem))))
+gb <- ggplot(discSystemSummary, aes(x=Discrepancy_Narrative_System, y=count)) + 
+  geom_bar(stat="identity") + coord_flip()
+gb
+gp <- ggplot(discSystemSummary, aes(y=Discrepancy_Narrative_System, x=count)) + 
+  geom_point(stat="identity")
+gp
+ggsave(filename="system_from_debrief_discrepancy_narrative.svg", plot=gp, scale=2)
+# Is the discrepancy narrative system different than the wuc subsystem?
+narSysCount <- group_by(debrief, Discrepancy_Narrative_System) %>% summarise(narSysCount = n())
+subSysCount <- group_by(debrief, Subsystem_WUC_Description) %>% summarise(subSysCount = n())
+WUCsubsysVNarSys <- group_by(debrief, Discrepancy_Narrative_System, Subsystem_WUC_Description) %>% summarise(subSysNarSysCount = n())
+WUCsubsysVNarSys <- inner_join(WUCsubsysVNarSys, narSysCount, by="Discrepancy_Narrative_System")
+WUCsubsysVNarSys <- inner_join(WUCsubsysVNarSys, subSysCount, by="Subsystem_WUC_Description")
+
+# only OAS discrepancy system, ordered by subsystem
+WUCsubsysVNarSys[order(-WUCsubsysVNarSys$subSysNarSysCount),][WUCsubsysVNarSys[order(-WUCsubsysVNarSys$subSysNarSysCount),]$Discrepancy_Narrative_System %in% 'OAS',]
+# there doesn't appear to be a strong correlation between the system in discrepancy narrative and the wuc subsystem
+
+# try some advanced text stuff
+# discrepancy narrative
+debriefDiscrepancyVector <- VectorSource(debrief$Discrepancy_Narrative) # convert to vector of words
+debriefDiscrepancyCorpus <- Corpus(debriefDiscrepancyVector) # convert to corpus
+#str(documentCorpus)
+debriefDiscrepancyCorpus <- tm_map(debriefDiscrepancyCorpus, removeWords, stopwords("english")) # remove stop words
+# das - data analysis system
+require(wordcloud);wordcloud(debriefDiscrepancyCorpus,max.words=100)
+# deviation remarks
+debriefDeviationVector <- VectorSource(debrief$Deviation_Remarks)
+debriefDeviationVector <- Corpus(debriefDeviationVector)
+debriefDeviationVector <- tm_map(debriefDeviationVector, removeWords, stopwords("english"))
+wordcloud(debriefDeviationVector,max.words=100)
+
+## maps
+require(maps)
+name<-c("Dyess AFB", "Ellsworth AFB", "Edwards AFB", "Tinker AFB")
+lat<-c(32.420833,44.146389,34.905556,35.414722)
+long<-c(-99.854722,-103.074722,-117.883611,-97.386667)
+geo_locs<-data.frame(name,lat,long)
+map(database = "usa")
+# ?
+
+## achieved vs. scheduled flight hours
+missionCdHrs <- group_by(debrief, Mission_Code, Mission_Class)
+missionCdMaxHrs <- summarise(missionCdHrs, maxFlDur = max(Flight_Duration))
+missionCdMaxHrs <- arrange(missionCdMaxHrs, maxFlDur)
+mchr <- ggplot(missionCdMaxHrs, aes(x=Mission_Code, y=maxFlDur)) + 
+  geom_point(size=4,aes(colour=Mission_Class))
+mchr
+# mission class density
+mcHrDen <- ggplot(missionCdMaxHrs, aes(x=maxFlDur)) + 
+  geom_density(alpha=0.4,aes(fill=Mission_Class))
+mcHrDen
+(ggplot(filter(missionCdMaxHrs,Mission_Class %in% "BONE"), aes(maxFlDur)) + geom_density())
+# for all aborted sorties (air and ground) - calculate lost hours (scheduled - actual) 
+#  assuming scheduled hours are the average for that mission code where deviation code isn't aborted
+#  or substituted (TS) or spare (SP) or cancelled (CX) and flight duration > 0 (includes missing Deviation Codes)
+goodSortieHrs <- filter(debrief, Flight_Duration > 0, !(Deviation_Code %in% c('GA','AI','AA','TS','CX')))
+goodSortieHrs <- group_by(goodSortieHrs, Sortie_Number, Sortie_Date, Mission_Code, Mission_Class, Flight_Duration) %>% distinct()
+goodSortieHrs <- ungroup(goodSortieHrs) %>% select(Mission_Code, Mission_Class, Flight_Duration) #%>% summarise(avgFlHr = mean(Flight_Duration), sortieCount = n())
+avgMisCodeHrs <- group_by(goodSortieHrs, Mission_Code, Mission_Class) %>% summarise(count = n(), avgCodeFltDur = mean(Flight_Duration))
+avgMisClassHrs <- group_by(goodSortieHrs, Mission_Class) %>% summarise(count = n(), avgClassFltDur = mean(Flight_Duration))
+
+abortedSorties <- filter(debrief, Deviation_Code %in% c('GA', 'AI', 'AA')) %>% select(Mission_Code, Mission_Class, Flight_Duration) 
+abortedSorties <- group_by(abortedSorties, Mission_Code, Mission_Class, Flight_Duration) %>% distinct()
+abortedSorties <- abortedSorties[!is.na(abortedSorties$Mission_Code),]# drop the NA
+# merge with average code and class (only use code if more than two sorties)
+avgMisCodeHrs <- filter(avgMisCodeHrs, count>1)
+abortedSorties <- left_join(abortedSorties, select(avgMisCodeHrs, Mission_Code, avgCodeFltDur), by="Mission_Code")
+abortedSorties <- left_join(abortedSorties, select(avgMisClassHrs, Mission_Class, avgClassFltDur), by="Mission_Class")
+abortedSorties$diff <- 0
+abortedSorties[!is.na(abortedSorties$avgCodeFltDur),]$diff <- pmax(0,abortedSorties[!is.na(abortedSorties$avgCodeFltDur),]$avgCodeFltDur-abortedSorties[!is.na(abortedSorties$avgCodeFltDur),]$Flight_Duration)
+abortedSorties[is.na(abortedSorties$avgCodeFltDur),]$diff <- pmax(0,abortedSorties[is.na(abortedSorties$avgCodeFltDur),]$avgClassFltDur-abortedSorties[is.na(abortedSorties$avgCodeFltDur),]$Flight_Duration)
+
+missingHrs <- sum(abortedSorties$diff)
+# how many achieved hours?
+
+sortieHrs <- group_by(debrief, Sortie_Number, Serial_Number, Sortie_Date, Mission_Code, Mission_Class)
+sortieHrs <- summarise(sortieHrs, maxFlHr = max(Flight_Duration), records = n())
+qplot(sortieHrs[sortieHrs$Mission_Class %in% 'Bone',]$maxFlHr)
+
+
+
+
+## subsystem wuc paretos - debrief
+debriefSubWUcs <- group_by(debrief, Sortie_Number, Sortie_Date, Subsystem_Work_Unit_Code, Subsystem_WUC_Description)
+# group by sortie and subystem-wuc
+debriefSubWUcs <- summarise(debriefSubWUcs, count=n())
+# leave out NAs (description not found), which show up in 48% of subsystem wuc descriptions (likely other subsystems in those sorties as well)
+debriefSubWUcs <- debriefSubWUcs[!is.na(debriefSubWUcs$Subsystem_Work_Unit_Code),]
+# re-level
+debriefSubWUcs$Subsystem_WUC_Description <- factor(debriefSubWUcs$Subsystem_WUC_Description)
+debriefSubWUcs$Subsystem_Work_Unit_Code <- factor(debriefSubWUcs$Subsystem_Work_Unit_Code)
+# count sorties with a subsystem wuc (some may show up twice)
+debriefSubWUcsShowUpTwice <- group_by(debriefSubWUcs, Sortie_Number, Sortie_Date)
+debriefSubWUcsShowUpTwice <- summarise(debriefSubWUcsShowUpTwice, count=n()) # 16 show up twice
+# first get the order of the levels
+debriefSubWUCsorder <- names(sort(table(debriefSubWUcs$Subsystem_WUC_Description),decreasing=TRUE))
+# count sorties per subsystem wuc
+debriefSubWUcs <- group_by(debriefSubWUcs, Subsystem_Work_Unit_Code, Subsystem_WUC_Description)
+debriefSubWUcs <- summarise(debriefSubWUcs, count = n())
+# now plot a pareto
+debriefSubWUcs <- within(debriefSubWUcs, Subsystem_WUC_Description <- factor(
+  Subsystem_WUC_Description, levels = rev(debriefSubWUCsorder)))
+gb <- ggplot(debriefSubWUcs, aes(x=Subsystem_WUC_Description,y=count)) +
+  geom_bar(stat="identity") + labs(y="Sorties Subsystem Appears In, Debrief Data") + coord_flip()
+gb
+ggsave(filename="subsystem_wuc_sorties_pareto_debrief.svg", plot=gb, scale=3)
+
+# try only ground aborts
+debriefSubWUcsGA <- group_by(debrief, Sortie_Number, Sortie_Date, Subsystem_Work_Unit_Code, Subsystem_WUC_Description) %>% filter(Deviation_Code %in% 'GA') %>% summarise(count=n())
+debriefWUcsGA <- group_by(debrief, Sortie_Number, Sortie_Date, Work_Unit_Code, WUC_Description) %>% filter(Deviation_Code %in% 'GA') %>% summarise(count=n())
+#relevel
+debriefSubWUcsGA$Subsystem_Work_Unit_Code <- factor(debriefSubWUcsGA$Subsystem_Work_Unit_Code);debriefSubWUcsGA$Subsystem_WUC_Description <- factor(debriefSubWUcsGA$Subsystem_WUC_Description)
+debriefWUcsGA$WUC_Description <- factor(debriefWUcsGA$WUC_Description); debriefWUcsGA$Work_Unit_Code <- factor(debriefWUcsGA$Work_Unit_Code)
+
+#########################################################################################################
+## On Equipment Maintenance Data
+oem <- sqlQuery(udri, "SELECT * FROM on_equipment_maintenance")
+# adjust column types
+#oem$On_Work_Order_Key <- as.factor(oem$On_Work_Order_Key) 
+#oem$On_Maint_Action_Key <- as.factor(oem$On_Maint_Action_Key) 
+oem$Record_Identifier <- as.factor(oem$Record_Identifier)
+oem$Discrepancy_Narrative <- as.character(oem$Discrepancy_Narrative)
+oem$Corrective_Narrative <- as.character(oem$Corrective_Narrative)
+oem$How_Malfunction_Code <- as.factor(oem$How_Malfunction_Code)
+oem$How_Malfunction_Class_Ind <- as.factor(oem$How_Malfunction_Class_Ind)
+oem$AFTO_Form_350_Tag_Number <- as.factor(oem$AFTO_Form_350_Tag_Number)
+oem$Work_Center_Event_Identifier <- as.factor(oem$Work_Center_Event_Identifier)
+# add date information
+oem$Transaction_DayOfWeek <- wday(oem$Transaction_Date, label = TRUE)
+oem$Transaction_Month <- as.factor(month(oem$Transaction_Date))
+oem$Transaction_DayOfMonth <- day(oem$Transaction_Date)
+
+# date histogram
+qplot(Transaction_Date, data = oem, fill=Geographic_Location)
+qplot(Transaction_Date, data = oem[oem$Transaction_Date >= '2014-01-01' & oem$Transaction_Date < '2015-01-01',], fill=Geographic_Location)
+
+
+# weird fields
+oem[which(oem$On_Maint_Action_Key==max(oem$On_Maint_Action_Key)),"Transaction_Date"]
+qplot(y=oem$On_Work_Order_Key, x=oem$Transaction_Date)
+# on maintenance action key
+qplot(y=oem$On_Maint_Action_Key, x=oem$Transaction_Date)
+qplot(y=On_Maint_Action_Key, x=Transaction_Date, data = oem[oem$Transaction_Date >= '2014-01-01' & oem$Transaction_Date < '2015-01-01',], colour=Transaction_Month)
+qplot(y=On_Maint_Action_Key, x=Transaction_Date, data = oem[oem$Transaction_Date >= '2014-01-01' & oem$Transaction_Date < '2015-01-01',], colour=Geographic_Location)
+qplot(y=On_Maint_Action_Key, x=Transaction_Date, data = oem[oem$Transaction_Date >= '2014-01-01' & oem$Transaction_Date < '2015-01-01' & oem$Geographic_Location == 'FXBM',])
+qplot(y=On_Maint_Action_Key, x=Transaction_Date, data = oem[oem$Transaction_Date >= '2014-01-01' & oem$Transaction_Date < '2015-01-01' & oem$Geographic_Location == 'FXBM' & oem$On_Maint_Action_Key < 100,])
+g<-ggplot(oem[oem$Transaction_Date >= '2014-01-01' & oem$Transaction_Date < '2015-01-01' & oem$Geographic_Location == 'FXBM' & oem$On_Maint_Action_Key < 100,], aes(Transaction_Date, On_Maint_Action_Key)) + stat_binhex(bins=60); print(g)
+g<-ggplot(oem[oem$Transaction_Date >= '2014-01-01' & oem$Transaction_Date < '2015-01-01' ,], aes(Transaction_Date, On_Maint_Action_Key)) + stat_binhex(bins=60); print(g)
+# sequence number
+qplot(y=Sequence_Number, x=Transaction_Date, data = oem[oem$Transaction_Date >= '2014-01-01' & oem$Transaction_Date < '2015-01-01',], colour=Geographic_Location)
+qplot(y=Sequence_Number, x=Transaction_Date, data = oem[oem$Transaction_Date >= '2014-01-01' & oem$Transaction_Date < '2015-01-01',], colour=Transaction_Month)
+qplot(y=Sequence_Number, x=Transaction_Date, data = oem[oem$Transaction_Date >= '2014-01-01' & oem$Transaction_Date < '2015-01-01' & oem$Geographic_Location == 'FNWZ',], colour=Transaction_Month)
+qplot(y=Sequence_Number, x=Transaction_Date, data = oem[oem$Transaction_Date >= '2014-01-01' & oem$Transaction_Date < '2015-01-01' & oem$Geographic_Location == 'FNWZ',], colour=Transaction_Month)
+
+# current operating time, or time since overhaul (according to data dictionary 4.11)
+qplot(oem$Current_Operating_Time)
+
+# text
+# try some advanced stuff
+# discrepancy narrative
+oemDiscrepancyVector <- VectorSource(oem$Discrepancy_Narrative) # convert to vector of words
+oemDiscrepancyCorpus <- Corpus(oemDiscrepancyVector) # convert to corpus
+#str(documentCorpus)
+oemDiscrepancyCorpus <- tm_map(oemDiscrepancyCorpus, removeWords, stopwords("english")) # remove stop words
+# das - data analysis system
+wordcloud(oemDiscrepancyCorpus,max.words=100)
+# event narrative
+oemWorkCenterEventNarrative <- VectorSource(oem$Work_Center_Event_Narrative) # convert to vector of words
+oemWorkCenterEventNarrativeCorpus <- Corpus(oemWorkCenterEventNarrative) # convert to corpus
+#str(documentCorpus)
+oemWorkCenterEventNarrativeCorpus <- tm_map(oemWorkCenterEventNarrativeCorpus, removeWords, stopwords("english")) # remove stop words
+wordcloud(oemWorkCenterEventNarrativeCorpus,max.words=100)
+
+
+## maintenance times
+jcnTimeSpans <- group_by(oem,Job_Control_Number)
+jcnTimeSpans <- summarise(jcnTimeSpans, maxDate = max(Transaction_Date), minDate = min(Transaction_Date))
+jcnTimeSpans$daysSpan <- jcnTimeSpans$maxDate - jcnTimeSpans$minDate
+qplot(as.numeric(jcnTimeSpans$daysSpan),xlim=c(0,15))
+
+## WUC pareto
+# By Labor Hours, Occurances, and 
+# filter out nondescript maintenance (cases with no PN)
+oemWUCDescpareto <- group_by(oem, WUC_Narrative) %>% filter(!is.na(On_Component_Part_Number)) %>% summarise(count = n(), lbrHrs = sum(Labor_Manhours))
+# relevel
+oemWUCDescpareto$WUC_Narrative <- factor(oemWUCDescpareto$WUC_Narrative)
+# 1) labor hours
+# get the order of the levels and re-order
+oemWUCDescparetoOrder <- oemWUCDescpareto[order(-oemWUCDescpareto$lbrHrs),"WUC_Narrative"]
+oemWUCDescparetoOrder <- as.character(oemWUCDescparetoOrder$WUC_Narrative)
+oemWUCDescpareto <- within(oemWUCDescpareto, WUC_Narrative <- factor(
+  WUC_Narrative, levels = rev(oemWUCDescparetoOrder)))
+# now plot pareto
+gb <- ggplot(oemWUCDescpareto, aes(x=WUC_Narrative,y=lbrHrs)) +
+  geom_bar(stat="identity") + labs(y="Total Labor Hours, OEM Data") + coord_flip()
+gb
+ggsave(filename="wuc_labor_hours_pareto_oem_all.svg", plot=gb, scale=9)
+# top twenty
+oemWUCDescparetoOrder20 <- head(oemWUCDescparetoOrder, 20)
+oemWUCDescpareto20 <- oemWUCDescpareto[oemWUCDescpareto$WUC_Narrative %in% tail(levels(oemWUCDescpareto$WUC_Narrative),20), ]
+oemWUCDescpareto20 <- within(oemWUCDescpareto20, WUC_Narrative <- factor(
+  WUC_Narrative, levels = rev(oemWUCDescparetoOrder20)))
+gb20 <- ggplot(oemWUCDescpareto20, aes(x=WUC_Narrative,y=lbrHrs)) +
+  geom_bar(stat="identity") + labs(y="Total Labor Hours, OEM Data") + coord_flip()
+gb20
+ggsave(filename="wuc_labor_hours_pareto_oem_top20.svg", plot=gb20, width=15, height=9, scale=1)
+# 2) Occurances
+oemWUCDescparetoOrderAct <- oemWUCDescpareto[order(-oemWUCDescpareto$count),"WUC_Narrative"]
+oemWUCDescparetoOrderAct <- as.character(oemWUCDescparetoOrderAct$WUC_Narrative)
+oemWUCDescparetoAct <- within(oemWUCDescpareto, WUC_Narrative <- factor(
+  WUC_Narrative, levels = rev(oemWUCDescparetoOrderAct)))
+gb <- ggplot(oemWUCDescparetoAct, aes(x=WUC_Narrative,y=count)) +
+  geom_bar(stat="identity") + labs(y="Total Actions, OEM Data") + coord_flip()
+gb
+ggsave(filename="wuc_actions_pareto_oem_all.svg", plot=gb, scale=9)
+# top twenty
+oemWUCDescparetoOrderAct20 <- head(oemWUCDescparetoOrderAct, 20)
+oemWUCDescpareto20Act <- oemWUCDescparetoAct[oemWUCDescparetoAct$WUC_Narrative %in% tail(levels(oemWUCDescparetoAct$WUC_Narrative),20), ]
+oemWUCDescpareto20Act <- within(oemWUCDescpareto20Act, WUC_Narrative <- factor(
+  WUC_Narrative, levels = rev(oemWUCDescparetoOrderAct20)))
+gb20 <- ggplot(oemWUCDescpareto20Act, aes(x=WUC_Narrative,y=count)) +
+  geom_bar(stat="identity") + labs(y="Total Actions, OEM Data") + coord_flip()
+gb20
+ggsave(filename="wuc_actions_pareto_oem_top20.svg", plot=gb20, width=15, height=9,scale=1)
+# 3) repair days
+# distributions? total per week? average?
+# total first:
+oemWUCDescRepDayspareto <- group_by(oem, WUC_Narrative, Job_Control_Number) %>% filter(!is.na(On_Component_Part_Number)) %>% summarise(count = n(), lbrHrs = sum(Labor_Manhours), minDt = min(Transaction_Date), maxDt = max(Transaction_Date))
+# add a day to indicate any portion of day maintenance is being performed
+# what is this? days between first and last date for this WUC and for this JCN?
+oemWUCDescRepDayspareto$maintDays <- 1+difftime(oemWUCDescRepDayspareto$maxDt,oemWUCDescRepDayspareto$minDt,units="days")
+oemWUCDescRepDayspareto <- select(oemWUCDescRepDayspareto,WUC_Narrative, maintDays) %>% group_by(WUC_Narrative) %>% summarise(totalMaintDays = sum(maintDays))
+# reorder & pareto
+
+##################### APPENDIX L
+## 1) ABORT AIR
+## if DEBRIEF DEVIATION CODE = "AA" OR "AI", then add "1" to AIR ABORT.
+(aaTotal<-sqlQuery(udri, "SELECT count(*) as airAborts FROM debrief WHERE Deviation_Code in ('AA','AI')")) #sum(debrief$Deviation_Code %in% c("AA","AI"))
+
+## 2) ABORT AIR RELATED MAINTENANCE ACTIONS
+## if WHEN DISCOVERED CODE = "C" then add units to AIR ABORT RELATED MAINTENANCE ACTIONS.
+
+## 3) ABORT AIR RATE
+## ( ABORT AIR / SORTIES FLOWN ) x 100
+sortiesTotal <- 
+aaRate <- 
+aaRatioToSortie<-aaTotal/length(unique(debrief))
+
+### analytics from sql file
+# debrief WUCs pareto - Air abort
+debWUCpareto<-sqlQuery(udri, "SELECT 
+    Subsystem_Work_Unit_Code,
+    Subsystem_WUC_Description,
+                       COUNT(*) AS airAborts
+                       FROM
+                       (SELECT 
+                       d.Sortie_Number,
+                       d.Sortie_Date,
+                       d.Deviation_Code,
+                       d.Subsystem_Work_Unit_Code,
+                       d.Subsystem_WUC_Description
+                       FROM
+                       debrief d
+                       WHERE
+                       d.Deviation_Code IN ('AA' , 'AI')
+                       GROUP BY d.Sortie_Number , d.Sortie_Date , deviation_code , Subsystem_Work_Unit_Code , Subsystem_WUC_Description) AS allAirAbortSubWucs
+                       GROUP BY Subsystem_Work_Unit_Code , Subsystem_WUC_Description
+                       ORDER BY COUNT(*) DESC")
+debWUCpareto <- within(debWUCpareto, Subsystem_WUC_Description <- factor(
+  Subsystem_WUC_Description, levels = rev(as.character(debWUCpareto$Subsystem_WUC_Description))))
+gb <- ggplot(debWUCpareto, aes(x=Subsystem_WUC_Description,y=airAborts)) +
+  geom_bar(stat="identity") + coord_flip()
+gb
+ggsave("subsystem_wuc_air_aborted_sorties_pareto_debrief.svg",scale=2)
+## ground aborts
+debWUCpareto<-sqlQuery(udri, "SELECT 
+    Subsystem_Work_Unit_Code,
+    Subsystem_WUC_Description,
+                       COUNT(*) AS groundAborts
+                       FROM
+                       (SELECT 
+                       d.Sortie_Number,
+                       d.Sortie_Date,
+                       d.Deviation_Code,
+                       d.Subsystem_Work_Unit_Code,
+                       d.Subsystem_WUC_Description
+                       FROM
+                       debrief d
+                       WHERE
+                       d.Deviation_Code LIKE 'GA'
+                       GROUP BY d.Sortie_Number , d.Sortie_Date , deviation_code , Subsystem_Work_Unit_Code , Subsystem_WUC_Description) AS allAirAbortSubWucs
+                       GROUP BY Subsystem_Work_Unit_Code , Subsystem_WUC_Description
+                       ORDER BY COUNT(*) DESC")
+debWUCpareto <- within(debWUCpareto, Subsystem_WUC_Description <- factor(
+  Subsystem_WUC_Description, levels = rev(as.character(debWUCpareto$Subsystem_WUC_Description))))
+gb <- ggplot(debWUCpareto, aes(x=Subsystem_WUC_Description,y=groundAborts)) +
+  geom_bar(stat="identity") + coord_flip()
+gb
+ggsave("subsystem_wuc_ground_aborted_sorties_pareto_debrief.svg",scale=2)
+
+
+
+
+##################################################### FUUUNCTIONS
+reorderTable<-function(df,factorCol,valueCol){
+  
+  # get the order of the levels and re-order
+  factorValueOrder <- df[order(-df$valueCol),]$factorCol
+  oemWUCDescparetoOrder <- as.character(oemWUCDescparetoOrder$WUC_Narrative)
+  oemWUCDescpareto <- within(oemWUCDescpareto, WUC_Narrative <- factor(
+    WUC_Narrative, levels = rev(oemWUCDescparetoOrder)))
+  # now plot pareto
+  gb <- ggplot(oemWUCDescpareto, aes(x=WUC_Narrative,y=lbrHrs)) +
+    geom_bar(stat="identity") + labs(y="Total Labor Hours, OEM Data") + coord_flip()
+  gb
+  ggsave(filename="wuc_labor_hours_pareto_oem_all.svg", plot=gb, scale=9)
+  # top twenty
+  oemWUCDescparetoOrder20 <- head(oemWUCDescparetoOrder, 20)
+  oemWUCDescpareto20 <- oemWUCDescpareto[oemWUCDescpareto$WUC_Narrative %in% tail(levels(oemWUCDescpareto$WUC_Narrative),20), ]
+  oemWUCDescpareto20 <- within(oemWUCDescpareto20, WUC_Narrative <- factor(
+    WUC_Narrative, levels = rev(oemWUCDescparetoOrder20)))
+  gb20 <- ggplot(oemWUCDescpareto20, aes(x=WUC_Narrative,y=lbrHrs)) +
+    geom_bar(stat="identity") + labs(y="Total Labor Hours, OEM Data") + coord_flip()
+  gb20
+  ggsave(filename="wuc_labor_hours_pareto_oem_top20.svg", plot=gb20, width=15, height=9, scale=1)
+}
