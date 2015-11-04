@@ -15,6 +15,7 @@ debrief$Landing_Status <- as.factor(debrief$Landing_Status)
 debrief$Sortie_Modifier <- as.factor(debrief$Sortie_Modifier)
 debrief$Capability_Code <- as.factor(debrief$Capability_Code)
 debrief$Serial_Number <- as.factor(debrief$Serial_Number)
+debrief$Job_Control_Number <- as.factor(debrief$Job_Control_Number)
 debrief$Discrepancy_Narrative <- as.character(debrief$Discrepancy_Narrative)
 debrief$Deviation_Remarks <- as.character(debrief$Deviation_Remarks)
 # add day information
@@ -43,7 +44,7 @@ mc[!is.na(mc$Mission_Code) & is.na(mc$Mission_Class),]$Mission_Class <- "OTHER"
 mc$Mission_Class <- factor(mc$Mission_Class)
 # this classifies most of the longest (>15hr) missions as "Other", along with a few shorter missions 
 
-#setwd("C:/Users/tbaer/Desktop/udri")
+setwd("C:/Users/tbaer/Desktop/udri")
 #mc<-read.csv("mission_class.csv")
 debrief<-left_join(debrief,mc,by="Mission_Code")
 # add an NA
@@ -52,10 +53,10 @@ debrief$Mission_Class<-addNA(debrief$Mission_Class)
 # levels(debrief$Mission_Class)<-c(levels(debrief$Mission_Class)[1:length(levels(debrief$Mission_Class))-1],"Other")
 # input data has been reset to ten total factors, excluding "Other"
 # mission class vs geo loc (rows)
-(ggplot(debrief, aes(x=Mission_Class, fill=Geographic_Location))+geom_histogram()+coord_flip())
+(ggplot(debrief, aes(x=Mission_Class, fill=Geographic_Location))+geom_histogram()+coord_flip())+ylab("debrief rows")
 # sorties-ish
 sts <- group_by(debrief, Sortie_Number, Sortie_Date, Mission_Class, Geographic_Location) %>% distinct()
-(ggplot(sts, aes(x=Mission_Class, fill=Geographic_Location))+geom_histogram()+coord_flip())
+(ggplot(sts, aes(x=Mission_Class, fill=Geographic_Location))+geom_histogram()+coord_flip())+ylab("sorties-ish")
 
 # main organizational data
 print("Command");table(debrief$Command);round(table(debrief$Command)/nrow(debrief),3)
@@ -182,31 +183,46 @@ mcHrDen
 #  assuming scheduled hours are the average for that mission code where deviation code isn't aborted
 #  or substituted (TS) or spare (SP) or cancelled (CX) and flight duration > 0 (includes missing Deviation Codes)
 goodSortieHrs <- filter(debrief, Flight_Duration > 0, !(Deviation_Code %in% c('GA','AI','AA','TS','CX')))
-goodSortieHrs <- group_by(goodSortieHrs, Sortie_Number, Sortie_Date, Mission_Code, Mission_Class, Flight_Duration) %>% distinct()
+goodSortieHrs <- group_by(goodSortieHrs, Sortie_Number, Sortie_Date, Mission_Code, Mission_Class, Flight_Duration, Serial_Number) %>% distinct()
 goodSortieHrs <- ungroup(goodSortieHrs) %>% select(Mission_Code, Mission_Class, Flight_Duration) #%>% summarise(avgFlHr = mean(Flight_Duration), sortieCount = n())
-avgMisCodeHrs <- group_by(goodSortieHrs, Mission_Code, Mission_Class) %>% summarise(count = n(), avgCodeFltDur = mean(Flight_Duration))
-avgMisClassHrs <- group_by(goodSortieHrs, Mission_Class) %>% summarise(count = n(), avgClassFltDur = mean(Flight_Duration))
+medMisCodeHrs <- group_by(goodSortieHrs, Mission_Code, Mission_Class) %>% summarise(count = n(), medCodeFltDur = median(Flight_Duration))
+medMisClassHrs <- group_by(goodSortieHrs, Mission_Class) %>% summarise(count = n(), medClassFltDur = median(Flight_Duration))
+medMisAllHrs <- median(goodSortieHrs$Flight_Duration) # 4.2
+avgMisAllHrs <- mean(goodSortieHrs$Flight_Duration) # 6.2
+qplot(goodSortieHrs$Flight_Duration, fill=goodSortieHrs$Mission_Class)
 
-abortedSorties <- filter(debrief, Deviation_Code %in% c('GA', 'AI', 'AA')) %>% select(Mission_Code, Mission_Class, Flight_Duration) 
-abortedSorties <- group_by(abortedSorties, Mission_Code, Mission_Class, Flight_Duration) %>% distinct()
-abortedSorties <- abortedSorties[!is.na(abortedSorties$Mission_Code),]# drop the NA
-# merge with average code and class (only use code if more than two sorties)
-avgMisCodeHrs <- filter(avgMisCodeHrs, count>1)
-abortedSorties <- left_join(abortedSorties, select(avgMisCodeHrs, Mission_Code, avgCodeFltDur), by="Mission_Code")
-abortedSorties <- left_join(abortedSorties, select(avgMisClassHrs, Mission_Class, avgClassFltDur), by="Mission_Class")
-abortedSorties$diff <- 0
-abortedSorties[!is.na(abortedSorties$avgCodeFltDur),]$diff <- pmax(0,abortedSorties[!is.na(abortedSorties$avgCodeFltDur),]$avgCodeFltDur-abortedSorties[!is.na(abortedSorties$avgCodeFltDur),]$Flight_Duration)
-abortedSorties[is.na(abortedSorties$avgCodeFltDur),]$diff <- pmax(0,abortedSorties[is.na(abortedSorties$avgCodeFltDur),]$avgClassFltDur-abortedSorties[is.na(abortedSorties$avgCodeFltDur),]$Flight_Duration)
+abortedSorties <- filter(debrief, Deviation_Code %in% c('GA', 'AI', 'AA')) %>% select(Mission_Code, Mission_Class, Flight_Duration, Serial_Number, Sortie_Number, Sortie_Date) 
+abortedSorties <- group_by(abortedSorties, Mission_Code, Mission_Class, Flight_Duration, Serial_Number,Sortie_Number, Sortie_Date) %>% distinct()
+# abortedSorties <- abortedSorties[!is.na(abortedSorties$Mission_Code),]# drop the NA
+# merge with average code and class 
+  # 1) only use code if more than one sortie, 
+  # 2) assign NAs to the median of all missions in avgMisCodeHrs
+medMisCodeHrs <- filter(medMisCodeHrs, count>1)
+abortedSorties <- left_join(abortedSorties, select(medMisCodeHrs, Mission_Code, medCodeFltDur), by="Mission_Code")
+abortedSorties <- left_join(abortedSorties, select(medMisClassHrs, Mission_Class, medClassFltDur), by="Mission_Class")
+abortedSorties$diff <- medMisAllHrs # will stay with those sorties with no mission code
+abortedSorties[!is.na(abortedSorties$medCodeFltDur),]$diff <- pmax(0,abortedSorties[!is.na(abortedSorties$medCodeFltDur),]$medCodeFltDur-abortedSorties[!is.na(abortedSorties$medCodeFltDur),]$Flight_Duration)
+abortedSorties[is.na(abortedSorties$medCodeFltDur),]$diff <- pmax(0,abortedSorties[is.na(abortedSorties$medCodeFltDur),]$medClassFltDur-abortedSorties[is.na(abortedSorties$medCodeFltDur),]$Flight_Duration)
 
-missingHrs <- sum(abortedSorties$diff)
+(missingHrs <- sum(abortedSorties$diff))
+# by tail number
+abortedSortiesByTNsomeAborts <- group_by(abortedSorties, Serial_Number) %>% summarise(missedHours = sum(diff))
+abortedSortiesByTN <- data.frame("Serial_Number"=levels(abortedSortiesByTNsomeAborts$Serial_Number))
+abortedSortiesByTN <- left_join(abortedSortiesByTN, abortedSortiesByTNsomeAborts, by="Serial_Number")
+abortedSortiesByTN[is.na(abortedSortiesByTN$missedHours),"missedHours"]<-0 # replace NAs with 0
+(ggplot(abortedSortiesByTN, aes(x=Serial_Number, y=missedHours)) + geom_bar(stat="identity") + coord_flip()) + ylab("Missed Flight Hours due to Aborts")
+# could color bars by air/ground, facet for two geographic locations, etc.
+
 # how many achieved hours?
+
 
 sortieHrs <- group_by(debrief, Sortie_Number, Serial_Number, Sortie_Date, Mission_Code, Mission_Class)
 sortieHrs <- summarise(sortieHrs, maxFlHr = max(Flight_Duration), records = n())
 qplot(sortieHrs[sortieHrs$Mission_Class %in% 'Bone',]$maxFlHr)
 
-
-
+## gg plot adds values from rows with same factor - however, the order
+abc <- data.frame("c1" = c("a","a","b","b"), "c2"=c(1,2,3,1), "c3"=c("c","d","c","d"))
+(ggplot(abc, aes(c1,c2)) + geom_bar(stat="identity", aes(fill=c3)))
 
 ## subsystem wuc paretos - debrief
 debriefSubWUcs <- group_by(debrief, Sortie_Number, Sortie_Date, Subsystem_Work_Unit_Code, Subsystem_WUC_Description)
@@ -257,11 +273,14 @@ oem$Work_Center_Event_Identifier <- as.factor(oem$Work_Center_Event_Identifier)
 oem$Transaction_DayOfWeek <- wday(oem$Transaction_Date, label = TRUE)
 oem$Transaction_Month <- as.factor(month(oem$Transaction_Date))
 oem$Transaction_DayOfMonth <- day(oem$Transaction_Date)
+# turn JCN into a factor that matches debrief data (take out the ".0" at the end)
+oem$Job_Control_Number <- as.character(oem$Job_Control_Number)
+oem$Job_Control_Number <- gsub("\\.0","",oem$Job_Control_Number)
+oem$Job_Control_Number <- factor(oem$Job_Control_Number)
 
 # date histogram
 qplot(Transaction_Date, data = oem, fill=Geographic_Location)
 qplot(Transaction_Date, data = oem[oem$Transaction_Date >= '2014-01-01' & oem$Transaction_Date < '2015-01-01',], fill=Geographic_Location)
-
 
 # weird fields
 oem[which(oem$On_Maint_Action_Key==max(oem$On_Maint_Action_Key)),"Transaction_Date"]
@@ -282,6 +301,9 @@ qplot(y=Sequence_Number, x=Transaction_Date, data = oem[oem$Transaction_Date >= 
 
 # current operating time, or time since overhaul (according to data dictionary 4.11)
 qplot(oem$Current_Operating_Time)
+qplot(oem[oem$Current_Operating_Time>0,]$Current_Operating_Time)
+qplot(oem[oem$Install_Prev_Operating_Time>0,]$Install_Prev_Operating_Time); (length(oem[oem$Install_Prev_Operating_Time>0,]$Install_Prev_Operating_Time)/sum(!is.na(oem$Install_Prev_Operating_Time)))
+qplot(oem[oem$Install_Current_Operating_Time>0,]$Install_Current_Operating_Time); (length(oem[oem$Install_Current_Operating_Time>0,]$Install_Current_Operating_Time)/sum(!is.na(oem$Install_Current_Operating_Time)))
 
 # text
 # try some advanced stuff
@@ -305,11 +327,15 @@ jcnTimeSpans <- group_by(oem,Job_Control_Number)
 jcnTimeSpans <- summarise(jcnTimeSpans, maxDate = max(Transaction_Date), minDate = min(Transaction_Date))
 jcnTimeSpans$daysSpan <- jcnTimeSpans$maxDate - jcnTimeSpans$minDate
 qplot(as.numeric(jcnTimeSpans$daysSpan),xlim=c(0,15))
-
 ## WUC pareto
-# By Labor Hours, Occurances, and 
+# By Labor Hours, Occurances, and Days
 # filter out nondescript maintenance (cases with no PN)
 oemWUCDescpareto <- group_by(oem, WUC_Narrative) %>% filter(!is.na(On_Component_Part_Number)) %>% summarise(count = n(), lbrHrs = sum(Labor_Manhours))
+compareA <- oemWUCDescpareto <- group_by(oem, WUC_Narrative) %>% filter(!is.na(On_Component_Part_Number))
+compareB <- inner_join(select(oem,On_Component_Part_Number, Labor_Manhours,Job_Control_Number, Work_Unit_Code, WUC_Narrative), 
+                             select(debrief, Job_Control_Number, Deviation_Code), by="Job_Control_Number") %>% filter(!is.na(On_Component_Part_Number))
+## very different
+##### focus on all records in OEM first
 # relevel
 oemWUCDescpareto$WUC_Narrative <- factor(oemWUCDescpareto$WUC_Narrative)
 # 1) labor hours
@@ -395,9 +421,88 @@ theOrder20 <- tail(levels(oemWUCDescRepDaysparetoMType$WUC_Narrative), 20)
 oemWUCDescRepDaysparetoMType20 <- oemWUCDescRepDaysparetoMType[oemWUCDescRepDaysparetoMType$WUC_Narrative %in% theOrder20,]
 gb <- ggplot(oemWUCDescRepDaysparetoMType20, aes(x=WUC_Narrative, y=as.numeric(totalMaintDays))) + 
   geom_bar(stat="identity", aes(fill=maintType)) + labs(y="Total Maintenance Days by Type, OEM Data") + coord_flip()
-gb  
 ggsave(filename="wuc_maint_days_byType_pareto_oem_top20.svg", plot=gb, width=10, height=8, scale=1)
 
+############ Now mix with debrief data (by JCN)
+# mix oem with debrief for deviation code
+# 2b) only for aborts
+oemWUCDescparetoDC <- inner_join(select(oem,On_Component_Part_Number, Labor_Manhours,Job_Control_Number, Work_Unit_Code, WUC_Narrative, Transaction_Date, How_Malfunction_Class_Ind, On_Component_Part_Number), 
+                                 select(debrief, Job_Control_Number, Deviation_Code, Subsystem_WUC_Description), by="Job_Control_Number")
+oemWUCDescparetoDC <- group_by(oemWUCDescparetoDC, WUC_Narrative, Deviation_Code, Subsystem_WUC_Description, Transaction_Date, How_Malfunction_Class_Ind, On_Component_Part_Number) %>% filter(!is.na(On_Component_Part_Number)) %>% summarise(count = n(), lbrHrs = sum(Labor_Manhours))
+# find order & plot
+oemWUCDescparetoDC$Deviation_Code <- factor(oemWUCDescparetoDC$Deviation_Code);oemWUCDescparetoDC$Subsystem_WUC_Description <- factor(oemWUCDescparetoDC$Subsystem_WUC_Description);oemWUCDescparetoDC$On_Component_Part_Number <- factor(oemWUCDescparetoDC$On_Component_Part_Number);oemWUCDescparetoDC$How_Malfunction_Class_Ind <- factor(oemWUCDescparetoDC$How_Malfunction_Class_Ind)
+oemWUCDescparetoDC$WUC_Narrative <- factor(oemWUCDescparetoDC$WUC_Narrative) # relelve the factors
+oemWUCDescparetoDCagg <- group_by(oemWUCDescparetoDC, WUC_Narrative) %>% summarise(count = sum(count), lbrHrs = sum(lbrHrs))
+oemWUCDescparetoDC <- within(oemWUCDescparetoDC, WUC_Narrative <- factor(WUC_Narrative, levels = levels(oemWUCDescparetoDC$WUC_Narrative)[order(as.numeric(oemWUCDescparetoDCagg$count))])) # might be able to use the reorder() function
+( gb <- ggplot(oemWUCDescparetoDC, aes(x=WUC_Narrative, y=count)) + 
+  geom_bar(stat="identity", aes(fill=Deviation_Code)) + labs(y="Total Maintenance Actions by WUC & Deviation Code, Joined Data") + coord_flip() )
+ggsave(filename="wuc_maint_actions_byType_DevCode_pareto_joined_all.svg", plot=gb, width=15, height=40, scale=1)
+# top 20
+oemWUCDescparetoDC20 <- oemWUCDescparetoDC[oemWUCDescparetoDC$WUC_Narrative %in% tail(levels(oemWUCDescparetoDC$WUC_Narrative),20),]
+( gb <- ggplot(oemWUCDescparetoDC20, aes(x=WUC_Narrative, y=count)) + 
+    geom_bar(stat="identity", aes(fill=Deviation_Code)) + labs(y="Total Maintenance Actions by WUC & Deviation Code, Joined Data") + coord_flip() )
+ggsave(filename="wuc_maint_actions_byType_DevCode_pareto_joined_top20.svg", plot=gb, width=10, height=8, scale=1)
+# by How Malfunction Class
+oemWUCDescparetoDC<-oemWUCDescparetoDC[order(oemWUCDescparetoDC$How_Malfunction_Class_Ind),] # so that all HWC are together within each bar
+( gb <- ggplot(oemWUCDescparetoDC, aes(x=WUC_Narrative, y=count)) + ggtitle("Total Maintenance Actions by WUC & How-Malfunction Class, Joined Data") +
+    geom_bar(stat="identity", aes(fill=How_Malfunction_Class_Ind)) + labs(y="Total Maintenance Actions") + scale_fill_discrete(labels=c("1 - Inherent","2 - Induced","6 - No Defect")) + coord_flip() )
+ggsave(filename="wuc_maint_actions_byHowMalClass_pareto_joined_all.svg", plot=gb, width=17, height=40, scale=1)
+# top 20
+( gb <- ggplot(oemWUCDescparetoDC20, aes(x=WUC_Narrative, y=count)) + ggtitle("Total Maintenance Actions by WUC & How-Malfunction Class, Joined Data") +
+    geom_bar(stat="identity", aes(fill=How_Malfunction_Class_Ind)) + labs(y="Total Maintenance Actions") + scale_fill_discrete(labels=c("1 - Inherent","2 - Induced","6 - No Defect")) + coord_flip() )
+ggsave(filename="wuc_maint_actions_byHowMalClass_pareto_joined_top20.svg", plot=gb, width=10, height=8, scale=1)
+
+## only aborted ones
+oemWUCDescparetoDCabort <- filter(oemWUCDescparetoDC, Deviation_Code %in% c('GA','AI','AA'))
+oemWUCDescparetoDCabort$abortType <- "Air"
+oemWUCDescparetoDCabort[oemWUCDescparetoDCabort$Deviation_Code %in% 'GA',]$abortType <- "Ground"
+# sort levels
+oemWUCDescparetoDCabort$Deviation_Code <- factor(oemWUCDescparetoDCabort$Deviation_Code);oemWUCDescparetoDCabort$Subsystem_WUC_Description <- factor(oemWUCDescparetoDCabort$Subsystem_WUC_Description)
+oemWUCDescparetoDCabort$WUC_Narrative <- factor(oemWUCDescparetoDCabort$WUC_Narrative) # filter out non-existant WUCs
+oemWUCDescparetoDCabortagg <- group_by(oemWUCDescparetoDCabort, WUC_Narrative) %>% summarise(count = sum(count), lbrHrs = sum(lbrHrs))
+oemWUCDescparetoDCabort <- within(oemWUCDescparetoDCabort, WUC_Narrative <- factor(WUC_Narrative, levels = levels(oemWUCDescparetoDCabort$WUC_Narrative)[order(as.numeric(oemWUCDescparetoDCabortagg$count))]))
+( gb <- ggplot(oemWUCDescparetoDCabort, aes(x=WUC_Narrative, y=count)) + ggtitle("Total Maintenance Actions from Aborted Flights by WUC and Abort Type, Joined Data") + 
+    geom_bar(stat="identity", aes(fill=abortType)) + labs(y="Maintenance Actions from Aborted Flights, Joined Data",fill="Abort Type") + coord_flip() )
+ggsave(filename="wuc_maint_actions_AbortType_pareto_joined_all.svg", plot=gb, width=11, height=8, scale=1) 
+## Connection between debrief subsystem and eventual WUC - way too many of these subystems
+( gb <- ggplot(oemWUCDescparetoDC, aes(x=WUC_Narrative, y=count)) + ggtitle("Total Maintenance Actions by WUC & Debrief Subsystem, Joined Data") +
+    geom_bar(stat="identity", aes(fill=Subsystem_WUC_Description)) + labs(y="Maintenance Actions") + coord_flip() )
+ggsave(filename="wuc_maint_actions_debSubSys_pareto_joined_all.svg", plot=gb, width=20, height=40, scale=1)
+# connection of just aborted ones
+( gb <- ggplot(oemWUCDescparetoDCabort, aes(x=WUC_Narrative, y=count)) + ggtitle("Maintenance Actions from Aborted Sorties by WUC & Debrief Subsystem, Joined Data") +
+    geom_bar(stat="identity", aes(fill=Subsystem_WUC_Description)) + labs(y="Maintenance Actions") + coord_flip() )
+ggsave(filename="wuc_maint_actions_aborted_DebSubsys_pareto_joined_all.svg", plot=gb, width=11, height=8, scale=1) 
+# facet
+( gb <- ggplot(oemWUCDescparetoDCabort, aes(x=WUC_Narrative, y=count)) + ggtitle("Maintenance Actions from Aborted Sorties by WUC, Abort Type, Debrief Subsystem, Joined Data") +
+    geom_bar(stat="identity", aes(fill=Subsystem_WUC_Description)) + labs(y="Maintenance Actions") + coord_flip() + facet_grid( . ~ abortType) )
+ggsave(filename="wuc_maint_actions_AbortType_DebSubsys_pareto_joined_all.svg", plot=gb, width=18, height=8, scale=1) 
+
+# PN pareto
+## by part number
+# top five WUCs, faceted - this doesn't look great, but it is not that useful : we don't need to compare PNs across WUCs
+oemWUCDescparetoDC5 <- oemWUCDescparetoDC[oemWUCDescparetoDC$WUC_Narrative %in% tail(levels(oemWUCDescparetoDC$WUC_Narrative),5),]
+# relevel all factors in the DF
+oemWUCDescparetoDC5[,lapply(oemWUCDescparetoDC5,class)=="factor"] <- lapply(oemWUCDescparetoDC5[,lapply(oemWUCDescparetoDC5,class)=="factor"],factor)
+( gb <- ggplot(oemWUCDescparetoDC5, aes(x=On_Component_Part_Number, y=count)) + ggtitle("Total Maintenance Actions by WUC & How-Malfunction Class, Joined Data") +
+    geom_bar(stat="identity", aes(fill=How_Malfunction_Class_Ind)) + labs(y="Total Maintenance Actions") + scale_fill_discrete(labels=c("1 - Inherent","2 - Induced","6 - No Defect")) + facet_grid(.~WUC_Narrative, scales="free") ) # coord_flip doesn't play nicely with this
+# on WUC
+( gb <- ggplot(oemWUCDescparetoDC5, aes(x=On_Component_Part_Number, y=count)) + ggtitle("Total Maintenance Actions for WUC SDMA & How-Malfunction Class, Joined Data") +
+    geom_bar(stat="identity", aes(fill=How_Malfunction_Class_Ind)) + labs(y="Total Maintenance Actions") + scale_fill_discrete(labels=c("1 - Inherent","2 - Induced","6 - No Defect")) + coord_flip() ) 
+
+
+#########
+## Work order distribution
+workOrders <- select(oem, Work_Order_Number, Geographic_Location, Transaction_Date, Labor_Manhours) %>% group_by(Work_Order_Number)
+workOrders <-  summarise(workOrders, totalHrs = sum(Labor_Manhours), maxDate = max(Transaction_Date), minDate = min(Transaction_Date), maxDate = max(Transaction_Date), minDate = min(Transaction_Date), minDt = min(Transaction_Date), maxDt = max(Transaction_Date))
+workOrders$daysSpan <- workOrders$maxDate - workOrders$minDate
+# I can't use qplot for work order days because its discrete and it looks awful
+#barplot(table(as.numeric(workOrders$daysSpan)),xlim=c(0,5), xlab="Work Order Total Days To Complete") - x axis is awful
+plot(table(as.numeric(workOrders$daysSpan)),xlim=c(0,14),ylab="count", xlab="Work Order Total Days To Complete", main="Calendar Time", frame.plot=FALSE)
+hist(workOrders$totalHrs,xlim=c(0,40),breaks=50000/30, xlab="Work Order Total Labor Hours To Complete", ylab="count", main="Labor Hours")
+#qplot(workOrders$totalHrs,xlim=c(0,50), xlab="Work Order Total Labor Hours To Complete")
+#(ggplot(workOrders, aes(y=totalHrs)) + geom_boxplot())
+#plot(density(workOrders$totalHrs))
+# exported at 597 x 378
 
 ##################### APPENDIX L
 ## 1) ABORT AIR
@@ -413,7 +518,7 @@ sortiesTotal <-
 aaRate <- 
 aaRatioToSortie<-aaTotal/length(unique(debrief))
 
-### analytics from sql file
+##################### analytics from sql file
 # debrief WUCs pareto - Air abort
 debWUCpareto<-sqlQuery(udri, "SELECT 
     Subsystem_Work_Unit_Code,

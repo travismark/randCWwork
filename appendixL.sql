@@ -1892,7 +1892,7 @@ WHERE
 ## 33) CANNIBALIZATION RATE
 ## if TYPE EQUIPMENT equals “A”or “E” then
 ## CANNIBALIZATION RATE = ( CANNIBALIZATIONS / SORTIES FLOWN ) X 100
-
+# B1 is equipment type A. probably want to count 1 cannibalization no matter how many occur for a flown sortie so that max rate is 100%
 
 ## if TYPE EQUIPMENT not equal “A” or “E” then
 ## CANNIBALIZATION RATE = ( CANNIBALIZATIONS / action taken "P," "R," or "T" ) X 100
