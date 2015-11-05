@@ -1,6 +1,6 @@
 # University of Dayton Research Institute
 # Autumn 2015
-require(RODBC);require(lubridate);require(ggplot2);require(tm);require(dplyr)
+require(RODBC);require(lubridate);require(ggplot2);require(tm);require(dplyr);require(tidyr)
 udri <- odbcConnect(dsn="onion-udri",uid="tbaer",pw="tbaer1") # created through the Data Sources (ODBC) window described above
 ## Debrief Data
 debrief <- sqlQuery(udri, "SELECT * FROM debrief")
@@ -43,7 +43,6 @@ mc[!is.na(mc$Mission_Code) & is.na(mc$Mission_Class),]$Mission_Class <- "OTHER"
 # set to factor
 mc$Mission_Class <- factor(mc$Mission_Class)
 # this classifies most of the longest (>15hr) missions as "Other", along with a few shorter missions 
-
 setwd("C:/Users/tbaer/Desktop/udri")
 #mc<-read.csv("mission_class.csv")
 debrief<-left_join(debrief,mc,by="Mission_Code")
@@ -77,7 +76,8 @@ qplot(debrief$Flight_Duration, fill=debrief$Deviation_Code)
 qplot(Flight_Duration, data=debrief[debrief$Sortie_DayOfWeek=="Sun",]) # Sunday flights are usually long
 qplot(Flight_Duration, data=debrief[debrief$Sortie_DayOfWeek=="Sat",]) # Saturday flights are often short, and sometimes long
 qplot(Flight_Duration, data=debrief[debrief$Sortie_DayOfWeek=="Wed",]) # no real insight
-qplot(debrief$Takeoff_Time/100, fill = debrief$Sortie_DayOfWeek) 
+qplot(debrief$Takeoff_Time/100, fill = debrief$Sortie_DayOfWeek)
+
 
 qplot(debrief$Work_Unit_Code) # all WUC
 # top ten WUCsd
@@ -171,13 +171,10 @@ map(database = "usa")
 missionCdHrs <- group_by(debrief, Mission_Code, Mission_Class)
 missionCdMaxHrs <- summarise(missionCdHrs, maxFlDur = max(Flight_Duration))
 missionCdMaxHrs <- arrange(missionCdMaxHrs, maxFlDur)
-mchr <- ggplot(missionCdMaxHrs, aes(x=Mission_Code, y=maxFlDur)) + 
-  geom_point(size=4,aes(colour=Mission_Class))
-mchr
+(mchr <- ggplot(missionCdMaxHrs, aes(x=Mission_Code, y=maxFlDur)) + geom_point(size=4,aes(colour=Mission_Class)))
+( mchr <- ggplot(missionCdMaxHrs, aes(x=Mission_Code, y=maxFlDur)) + geom_point(size=4) + facet_grid(Mission_Class~.) )
 # mission class density
-mcHrDen <- ggplot(missionCdMaxHrs, aes(x=maxFlDur)) + 
-  geom_density(alpha=0.4,aes(fill=Mission_Class))
-mcHrDen
+(mcHrDen <- ggplot(missionCdMaxHrs, aes(x=maxFlDur)) + geom_density(alpha=0.4,aes(fill=Mission_Class)))
 (ggplot(filter(missionCdMaxHrs,Mission_Class %in% "BONE"), aes(maxFlDur)) + geom_density())
 # for all aborted sorties (air and ground) - calculate lost hours (scheduled - actual) 
 #  assuming scheduled hours are the average for that mission code where deviation code isn't aborted
@@ -206,25 +203,41 @@ abortedSorties[is.na(abortedSorties$medCodeFltDur),]$diff <- pmax(0,abortedSorti
 
 (missingHrs <- sum(abortedSorties$diff))
 # by tail number
-abortedSortiesByTNsomeAborts <- group_by(abortedSorties, Serial_Number) %>% summarise(missedHours = sum(diff))
-abortedSortiesByTN <- data.frame("Serial_Number"=levels(abortedSortiesByTNsomeAborts$Serial_Number))
-abortedSortiesByTN <- left_join(abortedSortiesByTN, abortedSortiesByTNsomeAborts, by="Serial_Number")
-abortedSortiesByTN[is.na(abortedSortiesByTN$missedHours),"missedHours"]<-0 # replace NAs with 0
-(ggplot(abortedSortiesByTN, aes(x=Serial_Number, y=missedHours)) + geom_bar(stat="identity") + coord_flip()) + ylab("Missed Flight Hours due to Aborts")
+abortedSortiesByTNsomeAborts <- group_by(abortedSorties, Serial_Number, Mission_Class) %>% summarise(missedHours = sum(diff))
+missedHoursByTN <- data.frame("Serial_Number"=levels(abortedSortiesByTNsomeAborts$Serial_Number))
+missedHoursByTN <- left_join(missedHoursByTN, abortedSortiesByTNsomeAborts, by="Serial_Number")
+missedHoursByTN[is.na(missedHoursByTN$missedHours),"missedHours"]<-0 # replace NAs with 0
+(ggplot(missedHoursByTN, aes(x=Serial_Number, y=missedHours)) + geom_bar(stat="identity") + coord_flip()) + ylab("Missed Flight Hours due to Aborts")
 # could color bars by air/ground, facet for two geographic locations, etc.
 
 # how many achieved hours?
-
-
-sortieHrs <- group_by(debrief, Sortie_Number, Serial_Number, Sortie_Date, Mission_Code, Mission_Class)
+sortieHrs <- group_by(debrief, Sortie_Number, Serial_Number, Sortie_Date, Sortie_DayOfWeek, Mission_Code, Mission_Class) # includes aborted, cancelled, tail-swap, etc. (sometimes mutliple SNs per sortie)
 sortieHrs <- summarise(sortieHrs, maxFlHr = max(Flight_Duration), records = n())
-qplot(sortieHrs[sortieHrs$Mission_Class %in% 'Bone',]$maxFlHr)
+(achievedHrs <- sum(sortieHrs$maxFlHr) )
 
-## gg plot adds values from rows with same factor - however, the order
-abc <- data.frame("c1" = c("a","a","b","b"), "c2"=c(1,2,3,1), "c3"=c("c","d","c","d"))
+# missed / (missed+achieved) hours
+missingHrs / (missingHrs + achievedHrs) # unavailability
+
+## missed and achieved hours by debrief week:
+weekStarts <- unique(sortieHrs[sortieHrs$Sortie_DayOfWeek %in% "Sun","Sortie_Date"])
+weekEnds <- unique(sortieHrs[sortieHrs$Sortie_DayOfWeek %in% "Sat","Sortie_Date"])
+debriefWeeks <- data.frame("weekStarts"=sort(weekStarts$Sortie_Date), "weekEnds"=c(sort(weekEnds$Sortie_Date),NA))
+
+# achieved hours by tail
+achievedHrsByTN <- group_by(debrief, Sortie_Number, Sortie_Date, Serial_Number, Mission_Class, Flight_Duration) %>% summarise(achievedSortieHours = max(Flight_Duration)) %>% group_by(Serial_Number, Mission_Class) %>% summarise(achievedHours = sum(achievedSortieHours))
+flightHrsByTN <- left_join(achievedHrsByTN,missedHoursByTN,by=c("Serial_Number","Mission_Class"))
+# flip the data
+flightHrsByTN <- gather(flightHrsByTN,"flightType","flightHours",achievedHours:missedHours)
+(gtn <- ggplot(flightHrsByTN, aes(x=Serial_Number,y=flightHours)) + geom_bar(stat="identity", aes(fill=flightType)) + coord_flip() + labs(y="Flight Hours") + ggtitle("Flight Hours by Tail Number, Achieved or Missed"))
+ggsave(filename="tail_number_flight_hours_byMissedAchieved.svg", plot=gtn, width=14, height=10, scale=1)
+(gtn <- ggplot(flightHrsByTN, aes(x=Serial_Number,y=flightHours)) + geom_bar(stat="identity", aes(fill=Mission_Class)) + coord_flip() + labs(y="Flight Hours") + ggtitle("Flight Hours by Tail Number, Achieved or Missed"))
+
+
+########### gg plot adds values from rows with same factor - however, the order
+abc <- data.frame("c1" = c("a","a","b","b"), "c2"=c(1,2,3,1), "c3"=c("c","d","c","d")) # TIME ZONES ruining this
 (ggplot(abc, aes(c1,c2)) + geom_bar(stat="identity", aes(fill=c3)))
 
-## subsystem wuc paretos - debrief
+################# subsystem wuc paretos - debrief
 debriefSubWUcs <- group_by(debrief, Sortie_Number, Sortie_Date, Subsystem_Work_Unit_Code, Subsystem_WUC_Description)
 # group by sortie and subystem-wuc
 debriefSubWUcs <- summarise(debriefSubWUcs, count=n())
