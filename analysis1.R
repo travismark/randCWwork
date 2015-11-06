@@ -8,9 +8,9 @@ debrief <- sqlQuery(udri, "SELECT * FROM debrief")
 # de-duplicate
 debrief <- distinct(debrief)
 # adjust column types
-debrief$Sortie_Date <- ymd(debrief$Sortie_Date)
-debrief$Landing_Date <- ymd(debrief$Landing_Date)
-debrief$Takeoff_Date <- ymd(debrief$Takeoff_Date)
+debrief$Sortie_Date <- ymd(debrief$Sortie_Date, tz='UTC')
+debrief$Landing_Date <- ymd(debrief$Landing_Date, tz='UTC')
+debrief$Takeoff_Date <- ymd(debrief$Takeoff_Date, tz='UTC')
 debrief$Landing_Status <- as.factor(debrief$Landing_Status)
 debrief$Sortie_Modifier <- as.factor(debrief$Sortie_Modifier)
 debrief$Capability_Code <- as.factor(debrief$Capability_Code)
@@ -203,7 +203,7 @@ abortedSorties[is.na(abortedSorties$medCodeFltDur),]$diff <- pmax(0,abortedSorti
 
 (missingHrs <- sum(abortedSorties$diff))
 # by tail number
-abortedSortiesByTNsomeAborts <- group_by(abortedSorties, Serial_Number, Mission_Class) %>% summarise(missedHours = sum(diff))
+abortedSortiesByTNsomeAborts <- group_by(abortedSorties, Serial_Number, Mission_Class, Sortie_Date) %>% summarise(missedHours = sum(diff))
 missedHoursByTN <- data.frame("Serial_Number"=levels(abortedSortiesByTNsomeAborts$Serial_Number))
 missedHoursByTN <- left_join(missedHoursByTN, abortedSortiesByTNsomeAborts, by="Serial_Number")
 missedHoursByTN[is.na(missedHoursByTN$missedHours),"missedHours"]<-0 # replace NAs with 0
@@ -218,20 +218,30 @@ sortieHrs <- summarise(sortieHrs, maxFlHr = max(Flight_Duration), records = n())
 # missed / (missed+achieved) hours
 missingHrs / (missingHrs + achievedHrs) # unavailability
 
-## missed and achieved hours by debrief week:
-weekStarts <- unique(sortieHrs[sortieHrs$Sortie_DayOfWeek %in% "Sun","Sortie_Date"])
-weekEnds <- unique(sortieHrs[sortieHrs$Sortie_DayOfWeek %in% "Sat","Sortie_Date"])
-debriefWeeks <- data.frame("weekStarts"=sort(weekStarts$Sortie_Date), "weekEnds"=c(sort(weekEnds$Sortie_Date),NA))
-
 # achieved hours by tail
-achievedHrsByTN <- group_by(debrief, Sortie_Number, Sortie_Date, Serial_Number, Mission_Class, Flight_Duration) %>% summarise(achievedSortieHours = max(Flight_Duration)) %>% group_by(Serial_Number, Mission_Class) %>% summarise(achievedHours = sum(achievedSortieHours))
-flightHrsByTN <- left_join(achievedHrsByTN,missedHoursByTN,by=c("Serial_Number","Mission_Class"))
+achievedHrsByTN <- group_by(debrief, Sortie_Number, Sortie_Date, Serial_Number, Mission_Class, Flight_Duration) %>% summarise(achievedSortieHours = max(Flight_Duration)) %>% group_by(Serial_Number, Mission_Class, Sortie_Date) %>% summarise(achievedHours = sum(achievedSortieHours))
+flightHrsByTN <- full_join(achievedHrsByTN,missedHoursByTN,by=c("Serial_Number","Mission_Class","Sortie_Date"))
 # flip the data
 flightHrsByTN <- gather(flightHrsByTN,"flightType","flightHours",achievedHours:missedHours)
 (gtn <- ggplot(flightHrsByTN, aes(x=Serial_Number,y=flightHours)) + geom_bar(stat="identity", aes(fill=flightType)) + coord_flip() + labs(y="Flight Hours") + ggtitle("Flight Hours by Tail Number, Achieved or Missed"))
 ggsave(filename="tail_number_flight_hours_byMissedAchieved.svg", plot=gtn, width=14, height=10, scale=1)
 (gtn <- ggplot(flightHrsByTN, aes(x=Serial_Number,y=flightHours)) + geom_bar(stat="identity", aes(fill=Mission_Class)) + coord_flip() + labs(y="Flight Hours") + ggtitle("Flight Hours by Tail Number, Achieved or Missed"))
 
+## missed and achieved hours by debrief week:
+weekStarts <- unique(sortieHrs[sortieHrs$Sortie_DayOfWeek %in% "Sun","Sortie_Date"])
+weekEnds <- unique(sortieHrs[sortieHrs$Sortie_DayOfWeek %in% "Sat","Sortie_Date"])
+#debriefWeeks <- data.frame("weekStarts"=sort(weekStarts$Sortie_Date), "weekEnds"=c(sort(weekEnds$Sortie_Date),NA))
+debriefWeeks <- data.frame("weekStarts"=sort(weekStarts$Sortie_Date)[seq(nrow(weekStarts)-1)], "weekEnds"=sort(weekEnds$Sortie_Date))
+debriefWeeks$intervalWeek <- interval(debriefWeeks$weekStarts,debriefWeeks$weekEnds)
+# add week info to flightHrsByTN
+flightHrsByTN$Sortie_WeekStart <-  as.character(max(weekStarts$Sortie_Date)) # the final week is only a partial week
+for(ii in seq(nrow(debriefWeeks))) {
+  flightHrsByTN$Sortie_WeekStart <- ifelse(flightHrsByTN$Sortie_Date %within% debriefWeeks$intervalWeek[ii], as.character(debriefWeeks$weekStarts[ii]), flightHrsByTN$Sortie_WeekStart)
+}
+flightHrsByTN$Sortie_WeekStart <- ymd(flightHrsByTN$Sortie_WeekStart) # not sure why I have to convert to character and back to date
+flightHrsByTN <- flightHrsByTN[!is.na(flightHrsByTN$Sortie_WeekStart),] # drop the NAs
+(gtn <- ggplot(flightHrsByTN, aes(x=Serial_Number,y=flightHours)) + geom_bar(stat="identity", aes(fill=flightType)) + coord_flip() + labs(y="Flight Hours") + facet_grid(.~Sortie_WeekStart) + ggtitle("Flight Hours by Tail Number, Achieved or Missed by Week"))
+ggsave(filename="tail_number_flight_hours_byMissedAchieved_byWeek.svg", plot=gtn, width=20, height=12, scale=1)
 
 ########### gg plot adds values from rows with same factor - however, the order
 abc <- data.frame("c1" = c("a","a","b","b"), "c2"=c(1,2,3,1), "c3"=c("c","d","c","d")) # TIME ZONES ruining this
@@ -283,6 +293,7 @@ oem$How_Malfunction_Class_Ind <- as.factor(oem$How_Malfunction_Class_Ind)
 oem$AFTO_Form_350_Tag_Number <- as.factor(oem$AFTO_Form_350_Tag_Number)
 oem$Work_Center_Event_Identifier <- as.factor(oem$Work_Center_Event_Identifier)
 # add date information
+oem$Transaction_Date <- ymd(oem$Transaction_Date, tz='UTC')
 oem$Transaction_DayOfWeek <- wday(oem$Transaction_Date, label = TRUE)
 oem$Transaction_Month <- as.factor(month(oem$Transaction_Date))
 oem$Transaction_DayOfMonth <- day(oem$Transaction_Date)
