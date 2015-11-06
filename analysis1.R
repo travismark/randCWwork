@@ -71,13 +71,12 @@ qplot(debrief$Flight_Duration, fill=debrief$Sortie_DayOfWeek)
 qplot(debrief$Flight_Duration, fill=debrief$Geographic_Location)
 qplot(debrief$Flight_Duration, fill=debrief$Mission_Class)
 qplot(debrief$Flight_Duration, fill=debrief$Deviation_Code)
-(ggplot(debrief[debrief$Geographic_Location %in% "FXBM",], aes(x=Flight_Duration))+geom_histogram(aes(fill=Deviation_Code)))
-(ggplot(debrief[debrief$Mission_Class %in% "BONE",], aes(x=Flight_Duration))+geom_histogram(aes(fill=Deviation_Code)))
+(ggplot(debrief[debrief$Geographic_Location %in% "FXBM",], aes(x=Flight_Duration))+geom_histogram(aes(fill=Deviation_Code))) 
+(ggplot(debrief[debrief$Mission_Class %in% "BONE",], aes(x=Flight_Duration))+geom_histogram(aes(fill=Deviation_Code))) # not many deviations
 qplot(Flight_Duration, data=debrief[debrief$Sortie_DayOfWeek=="Sun",]) # Sunday flights are usually long
 qplot(Flight_Duration, data=debrief[debrief$Sortie_DayOfWeek=="Sat",]) # Saturday flights are often short, and sometimes long
 qplot(Flight_Duration, data=debrief[debrief$Sortie_DayOfWeek=="Wed",]) # no real insight
 qplot(debrief$Takeoff_Time/100, fill = debrief$Sortie_DayOfWeek)
-
 
 qplot(debrief$Work_Unit_Code) # all WUC
 # top ten WUCsd
@@ -179,7 +178,7 @@ missionCdMaxHrs <- arrange(missionCdMaxHrs, maxFlDur)
 # for all aborted sorties (air and ground) - calculate lost hours (scheduled - actual) 
 #  assuming scheduled hours are the average for that mission code where deviation code isn't aborted
 #  or substituted (TS) or spare (SP) or cancelled (CX) and flight duration > 0 (includes missing Deviation Codes)
-goodSortieHrs <- filter(debrief, Flight_Duration > 0, !(Deviation_Code %in% c('GA','AI','AA','TS','CX')))
+goodSortieHrs <- filter(debrief, Flight_Duration > 0, !(Deviation_Code %in% c('GA','AI','AA','TS','CX','SP')))
 goodSortieHrs <- group_by(goodSortieHrs, Sortie_Number, Sortie_Date, Mission_Code, Mission_Class, Flight_Duration, Serial_Number) %>% distinct()
 goodSortieHrs <- ungroup(goodSortieHrs) %>% select(Mission_Code, Mission_Class, Flight_Duration) #%>% summarise(avgFlHr = mean(Flight_Duration), sortieCount = n())
 medMisCodeHrs <- group_by(goodSortieHrs, Mission_Code, Mission_Class) %>% summarise(count = n(), medCodeFltDur = median(Flight_Duration))
@@ -242,6 +241,15 @@ flightHrsByTN$Sortie_WeekStart <- ymd(flightHrsByTN$Sortie_WeekStart) # not sure
 flightHrsByTN <- flightHrsByTN[!is.na(flightHrsByTN$Sortie_WeekStart),] # drop the NAs
 (gtn <- ggplot(flightHrsByTN, aes(x=Serial_Number,y=flightHours)) + geom_bar(stat="identity", aes(fill=flightType)) + coord_flip() + labs(y="Flight Hours") + facet_grid(.~Sortie_WeekStart) + ggtitle("Flight Hours by Tail Number, Achieved or Missed by Week"))
 ggsave(filename="tail_number_flight_hours_byMissedAchieved_byWeek.svg", plot=gtn, width=20, height=12, scale=1)
+
+# tail number lifetime
+achievedHrsByTN <- achievedHrsByTN[order(achievedHrsByTN$Serial_Number, achievedHrsByTN$Sortie_Date),]
+achievedHrsByTNaggHr <- group_by(achievedHrsByTNaggHr,Serial_Number) %>% mutate(acrFlHr = cumsum(achievedHours))
+(gps <- ggplot(achievedHrsByTNaggHr, aes(x=Sortie_Date,y=acrFlHr)) + geom_line() + facet_wrap(~Serial_Number) + ggtitle("Accrued Flight Hours by Tail Number"))
+ggsave(filename="tail_number_accrued_flight_hours_byDate_grid.svg", plot=gps, width=20, height=12, scale=1)
+(gps <- ggplot(achievedHrsByTNaggHr, aes(x=Sortie_Date,y=acrFlHr, colour=Serial_Number)) + geom_line(size=1) + ggtitle("Accrued Flight Hours by Tail Number"))
+ggsave(filename="tail_number_accrued_flight_hours_byDate_onePlot.svg", plot=gps, width=20, height=12, scale=1)
+
 
 ########### gg plot adds values from rows with same factor - however, the order
 abc <- data.frame("c1" = c("a","a","b","b"), "c2"=c(1,2,3,1), "c3"=c("c","d","c","d")) # TIME ZONES ruining this
@@ -355,10 +363,15 @@ qplot(as.numeric(jcnTimeSpans$daysSpan),xlim=c(0,15))
 # By Labor Hours, Occurances, and Days
 # filter out nondescript maintenance (cases with no PN)
 oemWUCDescpareto <- group_by(oem, WUC_Narrative) %>% filter(!is.na(On_Component_Part_Number)) %>% summarise(count = n(), lbrHrs = sum(Labor_Manhours))
-compareA <- oemWUCDescpareto <- group_by(oem, WUC_Narrative) %>% filter(!is.na(On_Component_Part_Number))
-compareB <- inner_join(select(oem,On_Component_Part_Number, Labor_Manhours,Job_Control_Number, Work_Unit_Code, WUC_Narrative), 
-                             select(debrief, Job_Control_Number, Deviation_Code), by="Job_Control_Number") %>% filter(!is.na(On_Component_Part_Number))
+#compareA <- oemWUCDescpareto <- group_by(oem, WUC_Narrative) %>% filter(!is.na(On_Component_Part_Number))
+#compareB <- inner_join(select(oem,On_Component_Part_Number, Labor_Manhours,Job_Control_Number, Work_Unit_Code, WUC_Narrative), 
+ #                            select(debrief, Job_Control_Number, Deviation_Code), by="Job_Control_Number") %>% filter(!is.na(On_Component_Part_Number))
 ## very different
+# filter out Special Purpose WUCs instead of null part numbers
+#specialPurposeWUCs <- c(01000,02000,03000,03100,03101,03102,03107,03111,03112,03113,03114,03115,'0311K','0311L','0311M','0311N','0311P','0311R','0311S','0311T','0311U',03121,03128,03130,03142,03156,03184,03200,03205,03209,03210,03212,03215,03220,03221,03268,03300,03305,03310,03311,03312,03313,03314,03320,03330,03336,03340,03360,03370,03380,03390,03395,03400,'0341A','0341B','0341C','0341D','0341E','0341F','0341G','0341H','0341J','0341K','0341L','0341M','0341N','0341P','0341Q','0341R','0341S','0341T','0341U','0341V','0341W','0341X','0341Y','0341Z','0342A','0342B',03510,03580,03596,03597,03600,03610,03700,03710,03711,03712,03713,03714,03720,03721,03722,03723,03724,03730,03731,03732,03750,03755,03800,03802,03803,03804,03806,03900,03999,04000,04100,04101,04110,04111,04112,04113,04114,04115,04116,04117,04118,04119,'0411A','0411B','0411C','0411D','0411E','0411H','0411J','0411K',04120,04121,04122,04123,04124,04125,04126,04127,04128,04129,'0412A','0412B','0412C','0412D','0412E','0412F','0412G','0412H','0412J','0412H','0412J','0412L','0412M','0412N','0412P','0412Q',04130,04131,04132,04133,04134,04135,04136,04137,04138,04139,'0413A','0413B','0413C','0413E','0413F','0413H','0413J','0413K','0413L','0413M','0413N','0413P',04140,04141,04142,04143,04144,04145,04146,04147,04148,04149,04150,04151,04152,'0415A','0415B','0415C',04160,04161,04162,04163,04170,04180,04181,04182,04184,04185,04186,04187,04188,04189,'0418A','0418B','0418C','0418D','0418E','0418F',04190,04199,04200,04210,04220,04221,04222,04227,04228,04270,04280,04310,04311,04313,04314,04315,04316,04317,04320,04321,04322,04324,04325,04326,04327,04330,04340,04341,04342,04343,04344,04345,04346,04347,04348,04349,04350,04351,04352,04353,04354,04355,04356,04358,04359,04360,04361,04362,04363,04364,04365,04366,04367,04370,04371,04372,04373,04400,04500,04510,04572,04573,04574,04575,04576,04577,04578,04583,04584,04610,04620,04630,04650,04660,04999,'04MD4',05000,06000,07000,08000,09000)
+#specialPurposeWUCs <- c('1000.0','1100.0','2000.0','3000.0','3100.0','3101.0','3102.0','3107.0','3111.0','3112.0','3113.0','3114.0','3115.0', '0311K', '0311L', '0311M', '0311N', '0311P', '0311R', '0311S', '0311T', '0311U','3121.0','3128.0','3130.0','3142.0','3156.0','3184.0','3200.0','3205.0','3209.0','3210.0','3212.0','3215.0','3220.0','3221.0','3268.0','3300.0','3305.0','3310.0','3311.0','3312.0','3313.0','3314.0','3320.0','3330.0','3336.0','3340.0','3360.0','3370.0','3380.0','3390.0','3395.0','3400.0', '0341A', '0341B', '0341C', '0341D', '0341E', '0341F', '0341G', '0341H', '0341J', '0341K', '0341L', '0341M', '0341N', '0341P', '0341Q', '0341R', '0341S', '0341T', '0341U', '0341V', '0341W', '0341X', '0341Y', '0341Z', '0342A', '0342B','3510.0','3580.0','3596.0','3597.0','3600.0','3610.0','3700.0','3710.0','3711.0','3712.0','3713.0','3714.0','3720.0','3721.0','3722.0','3723.0','3724.0','3730.0','3731.0','3732.0','3750.0','3755.0','3800.0','3802.0','3803.0','3804.0','3806.0','3900.0','3999.0','4000.0','4100.0','4101.0','4110.0','4111.0','4112.0','4113.0','4114.0','4115.0','4116.0','4117.0','4118.0','4119.0', '0411A', '0411B', '0411C', '0411D', '0411E', '0411H', '0411J', '0411K','4120.0','4121.0','4122.0','4123.0','4124.0','4125.0','4126.0','4127.0','4128.0','4129.0', '0412A', '0412B', '0412C', '0412D', '0412E', '0412F', '0412G', '0412H', '0412J', '0412H', '0412J', '0412L', '0412M', '0412N', '0412P', '0412Q','4130.0','4131.0','4132.0','4133.0','4134.0','4135.0','4136.0','4137.0','4138.0','4139.0', '0413A', '0413B', '0413C', '0413E', '0413F', '0413H', '0413J', '0413K', '0413L', '0413M', '0413N', '0413P','4140.0','4141.0','4142.0','4143.0','4144.0','4145.0','4146.0','4147.0','4148.0','4149.0','4150.0','4151.0','4152.0', '0415A', '0415B', '0415C','4160.0','4161.0','4162.0','4163.0','4170.0','4180.0','4181.0','4182.0','4184.0','4185.0','4186.0','4187.0','4188.0','4189.0', '0418A', '0418B', '0418C', '0418D', '0418E', '0418F','4190.0','4199.0','4200.0','4210.0','4220.0','4221.0','4222.0','4227.0','4228.0','4270.0','4280.0','4310.0','4311.0','4313.0','4314.0','4315.0','4316.0','4317.0','4320.0','4321.0','4322.0','4324.0','4325.0','4326.0','4327.0','4330.0','4340.0','4341.0','4342.0','4343.0','4344.0','4345.0','4346.0','4347.0','4348.0','4349.0','4350.0','4351.0','4352.0','4353.0','4354.0','4355.0','4356.0','4358.0','4359.0','4360.0','4361.0','4362.0','4363.0','4364.0','4365.0','4366.0','4367.0','4370.0','4371.0','4372.0','4373.0','4400.0','4500.0','4510.0','4572.0','4573.0','4574.0','4575.0','4576.0','4577.0','4578.0','4583.0','4584.0','4610.0','4620.0','4630.0','4650.0','4660.0','4999.0', '04MD4','5000.0','6000.0','7000.0','8000.0','9000.0')
+#oemWUCDescpareto <- group_by(oem, Work_Unit_Code, WUC_Narrative) %>% filter(!(Work_Unit_Code %in% specialPurposeWUCs)) %>% summarise(count = n(), lbrHrs = sum(Labor_Manhours))
+
 ##### focus on all records in OEM first
 # relevel
 oemWUCDescpareto$WUC_Narrative <- factor(oemWUCDescpareto$WUC_Narrative)
@@ -513,7 +526,22 @@ oemWUCDescparetoDC5[,lapply(oemWUCDescparetoDC5,class)=="factor"] <- lapply(oemW
 ( gb <- ggplot(oemWUCDescparetoDC5, aes(x=On_Component_Part_Number, y=count)) + ggtitle("Total Maintenance Actions for WUC SDMA & How-Malfunction Class, Joined Data") +
     geom_bar(stat="identity", aes(fill=How_Malfunction_Class_Ind)) + labs(y="Total Maintenance Actions") + scale_fill_discrete(labels=c("1 - Inherent","2 - Induced","6 - No Defect")) + coord_flip() ) 
 
+######### AWP
+awpDates <- group_by(oem, Serial_Number, Job_Control_Number, Action_Taken_Code, Transaction_Date, Work_Unit_Code, WUC_Narrative) %>% filter(Action_Taken_Code %in% c('T','U')) %>% select(Serial_Number, Job_Control_Number, Action_Taken_Code, Transaction_Date, Work_Unit_Code, WUC_Narrative)
+awpDates <- awpDates[order(awpDates$Job_Control_Number, awpDates$Transaction_Date),]
 
+
+######### attribute maintenance hours to particular sorties
+sortieHrs[1,] # has flown hours of each sortie (maybe zero)
+sortieMaint <- group_by(oem, Job_Control_Number) %>% summarise(jobLaborHrs = sum(Labor_Manhours))
+sortieMaint <- select(debrief, Job_Control_Number, Sortie_Number, Sortie_Date, Serial_Number, Deviation_Code) %>% inner_join(sortieMaint, by="Job_Control_Number") %>% group_by(Sortie_Number, Sortie_Date, Serial_Number, Deviation_Code) %>% summarise(sortieLaborHrs = sum(jobLaborHrs))
+sortieHrsAndMaint <- full_join(sortieHrs, sortieMaint, by=c("Sortie_Number", "Serial_Number", "Sortie_Date"))
+# set NAs to zero
+sortieHrsAndMaint[is.na(sortieHrsAndMaint$sortieLaborHrs),]$sortieLaborHrs <- 0
+(gd <- ggplot(sortieHrsAndMaint, aes(x=maxFlHr, y=sortieLaborHrs, colour=Mission_Class)) + geom_point(size=2.5) + labs(x="Sortie Flight Hours",y="Labor Hours From Sortie",title="Flight and Labor Hours Per Attempted Sortie"))
+ggsave(filename="sortie_flightHrs_laborHrs_byMisClass.svg", plot=gd, width=15,height=12)
+(gd <- ggplot(sortieHrsAndMaint, aes(x=maxFlHr, y=sortieLaborHrs, colour=Deviation_Code)) + geom_point(size=2.5) + labs(x="Sortie Flight Hours",y="Labor Hours From Sortie",title="Flight and Labor Hours Per Attempted Sortie"))
+ggsave(filename="sortie_flightHrs_laborHrs_byDevCd.svg", plot=gd, width=15,height=12)
 #########
 ## Work order distribution
 workOrders <- select(oem, Work_Order_Number, Geographic_Location, Transaction_Date, Labor_Manhours) %>% group_by(Work_Order_Number)
