@@ -36,6 +36,8 @@ debrief$Work_Unit_Code <- factor(debrief$Work_Unit_Code)
 debrief$Subsystem_Work_Unit_Code <- as.character(debrief$Subsystem_Work_Unit_Code)
 debrief$Subsystem_Work_Unit_Code <- gsub("\\.0","",debrief$Subsystem_Work_Unit_Code)
 debrief$Subsystem_Work_Unit_Code <- factor(debrief$Subsystem_Work_Unit_Code)
+# add system
+debrief$System <- substr(debrief$Subsystem_Work_Unit_Code,1,2)
 
 # fix mission code
 # take out spaces and hyphens
@@ -46,32 +48,45 @@ debrief$Mission_Code <- factor(debrief$Mission_Code)
 levels(debrief$Mission_Code)[3] <- "450" # change "450.0" to "450" fix the mission code in debrief
 # add mission classification
 # make some classes - ten of these including "other" done by outside help picking the top nine categories and seeing where some codes were close enough to the class to estimate
-mc <- data.frame("Mission_Code"=unique(as.character(debrief$Mission_Code)),"Mission_Class"=NA)
+mc <- data.frame("Mission_Code"=unique(as.character(debrief$Mission_Code)),"Mission_Class"=NA,"Mission_Class_2"=NA)
 # mc[grep("BONE", mc$code),]$class <- "BONE" # 1
 for (className in c("BONE","DARK","FELON","FIEND","HAWK","PUMA","SLAM","SLAYER")){
   mc[grep(className, mc$Mission_Code),]$Mission_Class <- className
 }
-# fix a few more
+for (className in c("BONE","DARK","FELON","FIEND","HAWK","PUMA","SLAM","SLAYER","DITTO","FURY","OGRE","LIGHT","RAMBO","RAZOR","SABRE")){
+  mc[grep(className, mc$Mission_Code),]$Mission_Class_2 <- className
+}
+# fix a few more, first class
 mc[grep("TH", mc$Mission_Code),]$Mission_Class <- "THUNDER"; mc[grep("DR", mc$Mission_Code),]$Mission_Class <- "THUNDER"; mc[grep("TR", mc$Mission_Code),]$Mission_Class <- "THUNDER"
 mc[grep("FN", mc$Mission_Code),]$Mission_Class <- "FIEND";
+# now class 2
+mc[grep("TH", mc$Mission_Code),]$Mission_Class_2 <- "THUNDER"; mc[grep("DR", mc$Mission_Code),]$Mission_Class_2 <- "THUNDER"; mc[grep("TR", mc$Mission_Code),]$Mission_Class_2 <- "THUNDER"
+mc[grep("FN", mc$Mission_Code),]$Mission_Class_2 <- "FIEND"; mc[grep("FU", mc$Mission_Code),]$Mission_Class_2 <- "FURY"; mc[grep("O3GZ", mc$Mission_Code),]$Mission_Class_2 <- "OGRE"
 # set NAs to class "OTHER" where code isn't null
 mc[!is.na(mc$Mission_Code) & is.na(mc$Mission_Class),]$Mission_Class <- "OTHER"
+mc[!is.na(mc$Mission_Code) & is.na(mc$Mission_Class_2),]$Mission_Class_2 <- "OTHER"
 # set to factor
-mc$Mission_Class <- factor(mc$Mission_Class)
+mc$Mission_Class <- factor(mc$Mission_Class);mc$Mission_Class_2 <- factor(mc$Mission_Class_2)
 # this classifies most of the longest (>15hr) missions as "Other", along with a few shorter missions 
-setwd("C:/Users/tbaer/Desktop/udri")
+#setwd("C:/Users/tbaer/Desktop/udri")
 #mc<-read.csv("mission_class.csv")
 debrief<-left_join(debrief,mc,by="Mission_Code")
 # add an NA
 debrief$Mission_Class<-addNA(debrief$Mission_Class)
+debrief$Mission_Class_2<-addNA(debrief$Mission_Class_2)
+#########################  END TRANSFORM ------------------------------------------------------------------------
+
 # set NAs to Other - not really a good idea
 # levels(debrief$Mission_Class)<-c(levels(debrief$Mission_Class)[1:length(levels(debrief$Mission_Class))-1],"Other")
 # input data has been reset to ten total factors, excluding "Other"
 # mission class vs geo loc (rows)
 (ggplot(debrief, aes(x=Mission_Class, fill=Geographic_Location))+geom_histogram()+coord_flip())+ylab("debrief rows")
+(ggplot(debrief, aes(x=Mission_Class_2, fill=Geographic_Location))+geom_histogram()+coord_flip())+ylab("debrief rows")
 # sorties-ish
-sts <- group_by(debrief, Sortie_Number, Sortie_Date, Mission_Class, Geographic_Location) %>% distinct()
+sts <- group_by(debrief, Serial_Number,Sortie_Number, Sortie_Date, Mission_Class, Geographic_Location) %>% distinct()
 (ggplot(sts, aes(x=Mission_Class, fill=Geographic_Location))+geom_histogram()+coord_flip())+ylab("sorties-ish")
+sts2 <- group_by(debrief, Serial_Number,Sortie_Of_Day, Sortie_Date, Mission_Class, Geographic_Location) %>% distinct()
+(ggplot(sts2, aes(x=Mission_Class, fill=Geographic_Location))+geom_histogram()+coord_flip())+ylab("sorties-ish")
 
 # main organizational data
 print("Command");table(debrief$Command);round(table(debrief$Command)/nrow(debrief),3)
@@ -94,13 +109,6 @@ qplot(Flight_Duration, data=debrief[debrief$Sortie_DayOfWeek=="Sat",]) # Saturda
 qplot(Flight_Duration, data=debrief[debrief$Sortie_DayOfWeek=="Wed",]) # no real insight
 qplot(debrief$Takeoff_Time/100, fill = debrief$Sortie_DayOfWeek)
 
-qplot(debrief$Work_Unit_Code) # all WUC
-# top ten WUCsd
-head(sort(table(debrief$Work_Unit_Code),decreasing=T),10)
-ttw<-names(tail(sort(table(debrief$Work_Unit_Code)),10))
-barplot(rev(tail(sort(table(debrief$Work_Unit_Code)),10)), main = "Top Ten WUC by Records")
-unique(debrief[debrief$Work_Unit_Code %in% ttw, "WUC_Description"])
-qplot(debrief[debrief$Work_Unit_Code %in% ttw,"Work_Unit_Code"])
 
 # What is Sortie Number?
 plot(y=debrief$Sortie_Number, x=debrief$Sortie_Date)
@@ -110,6 +118,7 @@ qplot(y=Sortie_Number, x=Sortie_Date, data = debrief, colour=Mission_Class)
 qplot(y=Sortie_Number, x=Sortie_Date, 
       data = debrief[debrief$Serial_Number %in% c(8600000119,8500000074,8500000080,8600000105,8600000097),], colour=Serial_Number)
 
+######################### SORTIE STATUS 1 ------------------------------------------------------
 ## Sorties with Aborts or Other Deviation Codes
 sortieStatuses <- group_by(debrief, Sortie_Date, Sortie_Number, Serial_Number, Geographic_Location) %>% 
   select(Sortie_Date, Sortie_Number, Serial_Number, Cause_Code, Geographic_Location) %>% distinct()
@@ -158,12 +167,12 @@ sortieStatuses$Mission_Result <- factor(sortieStatuses$Mission_Result,levels = u
   theme_bw() + labs(title="Sortie Status For June & July 2014",y="Attempted Sorties",x="") + 
   scale_fill_manual(values=c("firebrick","orange","khaki","orchid4","grey44","lightblue","palegreen2")) +
   theme(panel.border = element_blank(),axis.line = element_line(color = 'black'),panel.grid.major.y = element_blank()) )
-ggsave(filename="attempted_mission_status.svg", plot=gfs, width=8, height=2, scale=1)
+#ggsave(filename="attempted_mission_status.svg", plot=gfs, width=8, height=2, scale=1)
 ( gfs <- ggplot(sortieStatuses,aes(x=Location_Name,fill=Mission_Result)) + geom_bar(stat="bin") + coord_flip() + 
   theme_bw() + labs(title="Sortie Status For June & July 2014",y="Attempted Sorties",x="Geographic Location") + 
   scale_fill_manual(values=c("firebrick","orange","khaki","orchid4","grey44","lightblue","palegreen2")) +
   theme(panel.border = element_blank(),axis.line = element_line(color = 'black'),panel.grid.major.y = element_blank()) )
-ggsave(filename="attempted_mission_status_byGeoLoc.svg", plot=gfs, width=8, height=2, scale=1)
+#ggsave(filename="attempted_mission_status_byGeoLoc.svg", plot=gfs, width=8, height=2, scale=1)
 sortieStatusesForPlotly <- group_by(sortieStatuses, Mission_Result, Location_Name) %>% summarise(count = n())
 sortieStatusesForPlotly$Mission_Result <- factor(sortieStatusesForPlotly$Mission_Result, levels = rev(levels(sortieStatusesForPlotly$Mission_Result)) )
 pal <- RColorBrewer::brewer.pal(nlevels(sortieStatusesForPlotly$Mission_Result), "Set2")
@@ -171,7 +180,12 @@ pal <- rev(c("firebrick","orange","khaki","orchid4","grey44","lightblue","palegr
 ( gfsp <- plot_ly(sortieStatusesForPlotly, y=Location_Name,x=count,color=Mission_Result, colors=pal, type="bar",orientation="h") %>% 
   layout(barmode="stack",margin=list("l"=160,"r"=0,"t"=0,"b"=60),
          xaxis=list(title="Attempted Sorties"), yaxis=list(title="")) )
-plotly_POST(gfsp,filename="sortieDeviation",world_readable=FALSE,fileopt="overwrite")
+#plotly_POST(gfsp,filename="sortieDeviation",world_readable=FALSE,fileopt="overwrite")
+
+( gfs <- ggplot(sortieStatuses,aes(x=Sortie_Date,fill=Mission_Result)) + geom_bar(stat="identity") + 
+  theme_bw() + labs(title="Sortie Status For June & July 2014",y="Attempted Sorties",x="") + 
+  scale_fill_manual(values=c("firebrick","orange","khaki","orchid4","grey44","lightblue","palegreen2")) +
+  theme(panel.border = element_blank(),axis.line = element_line(color = 'black'),panel.grid.major.y = element_blank()) )
 ## Deviations by Cause Code - each sortie has only a single cause code
 # take first two digits of cause code - these all MT, GA, and AI are maintenance-related)
 sortieStatuses$Cause_Code <- substr(sortieStatuses$Cause_Code,1,2)
@@ -216,7 +230,7 @@ gb
 gp <- ggplot(discSystemSummary, aes(y=Discrepancy_Narrative_System, x=count)) + 
   geom_point(stat="identity")
 gp
-ggsave(filename="system_from_debrief_discrepancy_narrative.svg", plot=gp, scale=2)
+#ggsave(filename="system_from_debrief_discrepancy_narrative.svg", plot=gp, scale=2)
 # Is the discrepancy narrative system different than the wuc subsystem?
 narSysCount <- group_by(debrief, Discrepancy_Narrative_System) %>% summarise(narSysCount = n())
 subSysCount <- group_by(debrief, Subsystem_WUC_Description) %>% summarise(subSysCount = n())
@@ -251,6 +265,7 @@ geo_locs<-data.frame(name,lat,long)
 map(database = "usa")
 # ?
 
+########################################### run this code to get life times etc ----------------------
 ## achieved vs. scheduled flight hours
 missionCdHrs <- group_by(debrief, Mission_Code, Mission_Class)
 missionCdMaxHrs <- summarise(missionCdHrs, maxFlDur = max(Flight_Duration))
@@ -295,7 +310,7 @@ missedHoursByTN[is.na(missedHoursByTN$missedHours),"missedHours"]<-0 # replace N
 # could color bars by air/ground, facet for two geographic locations, etc.
 
 # how many achieved hours?
-sortieHrs <- group_by(debrief, Sortie_Number, Serial_Number, Sortie_Date, Sortie_DayOfWeek, Mission_Code, Mission_Class) # includes aborted, cancelled, tail-swap, etc. (sometimes mutliple SNs per sortie)
+sortieHrs <- group_by(debrief, Sortie_Number, Serial_Number, Sortie_Date, Sortie_DayOfWeek, Mission_Code, Mission_Class, Mission_Class_2) # includes aborted, cancelled, tail-swap, etc. (sometimes mutliple SNs per sortie)
 sortieHrs <- summarise(sortieHrs, maxFlHr = max(Flight_Duration), records = n())
 (achievedHrs <- sum(sortieHrs$maxFlHr) )
 
@@ -308,7 +323,7 @@ flightHrsByTN <- left_join(achievedHrsByTN,missedHoursByTN,by=c("Serial_Number",
 # flip the data
 flightHrsByTN <- gather(flightHrsByTN,"flightType","flightHours",achievedHours:missedHours)
 (gtn <- ggplot(flightHrsByTN, aes(x=Serial_Number,y=flightHours)) + geom_bar(stat="identity", aes(fill=flightType)) + coord_flip() + labs(y="Flight Hours") + ggtitle("Flight Hours by Tail Number, Achieved or Missed"))
-ggsave(filename="tail_number_flight_hours_byMissedAchieved.svg", plot=gtn, width=14, height=10, scale=1)
+#ggsave(filename="tail_number_flight_hours_byMissedAchieved.svg", plot=gtn, width=14, height=10, scale=1)
 (gtn <- ggplot(flightHrsByTN, aes(x=Serial_Number,y=flightHours)) + geom_bar(stat="identity", aes(fill=Mission_Class)) + coord_flip() + labs(y="Flight Hours") + ggtitle("Flight Hours by Tail Number, Achieved or Missed"))
 # pareto by missed hours, then by achieved hours
 allFlightHrsByTNwide <- group_by(flightHrsByTN, Serial_Number, flightType) %>% 
@@ -323,7 +338,7 @@ flightHrsByTN <- within(flightHrsByTN, Serial_Number <- factor(Serial_Number, le
                     values=c(rgb(3/365,132/365,173/365),"firebrick2")) + 
   theme(title=element_text(size=22),legend.title=element_text(size=20),legend.text=element_text(size=16),
         axis.text=element_text(size=12),axis.title=element_text(size=18)))
-ggsave(filename="tail_number_flight_hours_byMissedAchieved_sortByMissed.svg", plot=gtn, width=18, height=12, scale=1)
+#ggsave(filename="tail_number_flight_hours_byMissedAchieved_sortByMissed.svg", plot=gtn, width=18, height=12, scale=1)
 ### maybe ADD IN SERIAL NUMBERS WITH NO FLIGHTS
 
 ## missed and achieved hours by debrief week:
@@ -340,15 +355,15 @@ for(ii in seq(nrow(debriefWeeks))) {
 flightHrsByTN$Sortie_WeekStart <- ymd(flightHrsByTN$Sortie_WeekStart) # not sure why I have to convert to character and back to date
 flightHrsByTN <- flightHrsByTN[!is.na(flightHrsByTN$Sortie_WeekStart),] # drop the NAs
 (gtn <- ggplot(flightHrsByTN, aes(x=Serial_Number,y=flightHours)) + geom_bar(stat="identity", aes(fill=flightType)) + coord_flip() + labs(y="Flight Hours") + facet_grid(.~Sortie_WeekStart) + ggtitle("Flight Hours by Tail Number, Achieved or Missed by Week"))
-ggsave(filename="tail_number_flight_hours_byMissedAchieved_byWeek.svg", plot=gtn, width=20, height=12, scale=1)
+#ggsave(filename="tail_number_flight_hours_byMissedAchieved_byWeek.svg", plot=gtn, width=20, height=12, scale=1)
 
 #### tail number lifetime
 achievedHrsByTN <- achievedHrsByTN[order(achievedHrsByTN$Serial_Number, achievedHrsByTN$Sortie_Date),]
 achievedHrsByTNaggHr <- group_by(achievedHrsByTN,Serial_Number,Sortie_Date) %>% summarise(dayAchievedHours = sum(achievedHours)) %>% mutate(acrFlHr = cumsum(dayAchievedHours))
 (gps <- ggplot(achievedHrsByTNaggHr, aes(x=Sortie_Date,y=acrFlHr)) + geom_line() + facet_wrap(~Serial_Number) + ggtitle("Accrued Flight Hours by Tail Number"))
-ggsave(filename="tail_number_accrued_flight_hours_byDate_grid.svg", plot=gps, width=20, height=12, scale=1)
+#ggsave(filename="tail_number_accrued_flight_hours_byDate_grid.svg", plot=gps, width=20, height=12, scale=1)
 (gps <- ggplot(achievedHrsByTNaggHr, aes(x=Sortie_Date,y=acrFlHr, colour=Serial_Number)) + geom_line(size=1) + ggtitle("Accrued Flight Hours by Tail Number"))
-ggsave(filename="tail_number_accrued_flight_hours_byDate_onePlot.svg", plot=gps, width=20, height=12, scale=1)
+#ggsave(filename="tail_number_accrued_flight_hours_byDate_onePlot.svg", plot=gps, width=20, height=12, scale=1)
 
 # all days 
 achievedHrsByTNaggHr$Sortie_Date <- ymd(achievedHrsByTNaggHr$Sortie_Date)
@@ -359,9 +374,15 @@ lifetimes[is.na(lifetimes$dayAchievedHours),]$dayAchievedHours <- 0 # set to zer
 lifetimes <- group_by(lifetimes, Serial_Number) %>% mutate(acrFlHr = cumsum(dayAchievedHours))
 (gps <- ggplot(lifetimes, aes(x=Sortie_Date,y=acrFlHr, colour=Serial_Number)) + geom_line(size=1) + ggtitle("Accrued Flight Hours by Tail Number"))
 # bring in events - Remove for Cann / 
-eventsDB <- select(oem, Serial_Number, Transaction_Date, Action_Taken_Code, Work_Unit_Code, WUC_Narrative) %>% filter(Action_Taken_Code %in% c("U","T")) %>% distinct()
+eventsDB <- select(oem, Serial_Number, Transaction_Date, Action_Taken_Code, Work_Unit_Code, WUC_Narrative, Discrepancy_Narrative) %>% filter(Action_Taken_Code %in% c("U","T")) %>% distinct()
 # relevel all factors
 eventsDB[,lapply(eventsDB,class)=="factor"] <- lapply(eventsDB[,lapply(eventsDB,class)=="factor"],factor)
+# trim discrepancy narrative to only other-serial number
+#eventsDB[grep("A[5-6][0-9]{3}",eventsDB$Discrepancy_Narrative)]$Discrepancy_Narrative <- 
+
+#mc[grep("A[5-6][0-9]{3}", mc$Mission_Code),]$Mission_Class_2 
+
+
 # trim to June/July
 eventsDB <- eventsDB[eventsDB$Transaction_Date > '2014-05-31' & eventsDB$Transaction_Date < '2014-08-01',]
 # merge with flight hours data, but first add to flight hours the SNs that are in maintenance but do not fly
@@ -376,7 +397,7 @@ lifetimesWevent <- right_join(eventsDB, select(lifetimes, Serial_Number, Event_D
 ( gglife <- ggplot(lifetimesWevent, aes(x=Event_Date,y=acrFlHr,colour=Serial_Number)) + 
   geom_line() + geom_point(data=lifetimesWevent[!is.na(lifetimesWevent$Action_Taken_Code),],aes(x=Event_Date,y=acrFlHr,shape=Action_Taken_Code),cex=4) +
   scale_shape_manual(name="Action Taken",labels=c("T:Cann Removal","U:Cann Install"),values=c(16,17)))
-ggsave(filename="tail_number_lifetime_cannRems_fullFleet.svg", plot=gglife, width=20, height=12, scale=1)
+#ggsave(filename="tail_number_lifetime_cannRems_fullFleet.svg", plot=gglife, width=20, height=12, scale=1)
 ( gglifePy <- plot_ly(lifetimesWevent, x=Event_Date,y=acrFlHr, color=Serial_Number) %>%
   layout(title="Achieved Hours and Cannibalizations by Serial Number",
          xaxis=list(title="Date"),yaxis=list(title="Achieved Flight Hours")) %>%
@@ -392,6 +413,22 @@ ggsave(filename="tail_number_lifetime_cannRems_fullFleet.svg", plot=gglife, widt
 # ( ggplot(a, aes(x=Event_Date,y=acrFlHr,colour=Serial_Number)) + 
 #   geom_line() + geom_point(data=a[!is.na(a$Action_Taken_Code),],aes(x=Event_Date,y=acrFlHr,shape=Action_Taken_Code),cex=4) + 
 #   scale_shape_manual(name="Action Taken",labels=c("T:Cann Removal","U:Cann Install"),values=c(3,4)) )
+
+#### Boxplots of Mission Class 2 flight hours (all flights, including aborts and spares)
+# sortieHrs from above gives hours for each sortie
+sortieHrs[1,]
+boxplot(formula=maxFlHr~Mission_Class_2,data=sortieHrs,horizontal=TRUE)
+(gmcbx <- ggplot(sortieHrs, aes(y=maxFlHr,x=Mission_Class_2)) + geom_boxplot() + coord_flip() + theme_bw())
+# compare one against all
+sortieHrs1MC <- sortieHrs[sortieHrs$Mission_Class_2=="HAWK",]
+sortieHrs1MC$cnt <- nrow(sortieHrs1MC)
+sortieHrsB <- sortieHrs
+sortieHrsB$cnt <- nrow(sortieHrsB)
+sortieHrsB$Mission_Class_2 <- as.character(sortieHrsB$Mission_Class_2)
+sortieHrsB$Mission_Class_2 <- "All Types"
+sortieHrsB <- rbind(sortieHrsB,sortieHrs1MC)
+(gmcbx <- ggplot(sortieHrsB, aes(y=maxFlHr,x=paste0(Mission_Class_2,"\n",cnt," Sorties"))) + 
+                   geom_boxplot() + coord_flip() + theme_bw() + labs(x=NULL,y="Achieved Flight Hours") )
 
 ########### gg plot adds values from rows with same factor - however, the order
 abc <- data.frame("c1" = c("a","a","b","b"), "c2"=c(1,2,3,1), "c3"=c("c","d","c","d"))
@@ -429,6 +466,68 @@ debriefWUcsGA <- group_by(debrief, Sortie_Number, Sortie_Date, Work_Unit_Code, W
 debriefSubWUcsGA$Subsystem_Work_Unit_Code <- factor(debriefSubWUcsGA$Subsystem_Work_Unit_Code);debriefSubWUcsGA$Subsystem_WUC_Description <- factor(debriefSubWUcsGA$Subsystem_WUC_Description)
 debriefWUcsGA$WUC_Description <- factor(debriefWUcsGA$WUC_Description); debriefWUcsGA$Work_Unit_Code <- factor(debriefWUcsGA$Work_Unit_Code)
 
+##################
+# Sortie Outcomes, Marshall's categories
+# from before : sortieStatuses, but different classifications
+predSortie <- group_by(debrief,Serial_Number,Sortie_Number,Sortie_Date,Mission_Class_2,Geographic_Location) %>% summarise(flHr = max(Flight_Duration))
+devSortie <- group_by(debrief,Serial_Number,Sortie_Number,Sortie_Date,Mission_Class_2,Deviation_Code) %>% summarise()
+jcnSortie <- group_by(debrief,Serial_Number,Sortie_Number,Sortie_Date,Mission_Class_2,Job_Control_Number) %>% filter(!(is.na(Job_Control_Number))) %>% summarise()
+jcnSortieSum <- summarise(jcnSortie, countJCN = n())
+predSortie <- left_join(predSortie,jcnSortieSum)
+predSortie[is.na(predSortie$countJCN),]$countJCN <- 0
+# 1) Successful - Perfect # no deviation code, no jcn
+devSortieA <- devSortie
+devSortieA$Deviation_Bool <- 0
+devSortieA[!is.na(devSortieA$Deviation_Code),"Deviation_Bool"]<-1
+devSortieA <- summarise(devSortieA, devCodes = sum(Deviation_Bool)) %>% distinct()
+predSortie <- inner_join(predSortie,select(devSortieA,Serial_Number,Sortie_Number,Sortie_Date,devCodes))
+predSortie$Sortie_Result <- "Other"
+predSortie[predSortie$devCodes == 0 & predSortie$countJCN == 0,]$Sortie_Result <- "No Deviation No Maintenance"
+#predSortie$devCodes <- NULL
+# 2) Successful - Maintenance # no deviation code, with jcn
+predSortie[predSortie$devCodes == 0 & predSortie$countJCN > 0,]$Sortie_Result <- "No Deviation With Maintenance"
+# 3a) Successful - With Deviation & Maintenance # no abort deviation code, with jcn
+devSortieSuc <- devSortie
+devSortieSuc$Mission_Success_Int <- 0 # true
+devSortieSuc[devSortieSuc$Deviation_Code %in% c("SP","CX","TS","GA","AA","AI"),"Mission_Success_Int"] <- 1 # false
+devSortieSuc <- summarise(devSortieSuc, Mission_Success_Int = sum(Mission_Success_Int))
+devSortieSuc$Deviation_Code <- NULL
+devSortieSuc <- distinct(devSortieSuc)
+devSortieSuc$Mission_Success <- FALSE
+devSortieSuc[devSortieSuc$Mission_Success_Int == 0,]$Mission_Success <- TRUE
+devSortieSuc$Mission_Success_Int <- NULL
+predSortie <- left_join(predSortie,devSortieSuc) 
+# then update to sortie table - only update those that haven't been assigned (are named "Other")
+predSortie[predSortie$Mission_Success & predSortie$countJCN > 0 & predSortie$Sortie_Result %in% "Other",
+           "Sortie_Result"] <- "Success but Deviation With Maintenance"
+# 3b) same but has no JCN
+predSortie[predSortie$Mission_Success & predSortie$countJCN == 0 & predSortie$Sortie_Result %in% "Other",
+           "Sortie_Result"] <- "Success but Deviation No Maintenance"
+predSortie$Mission_Success <- NULL
+# Non-Successful
+# 4) Ground Abort
+devSortieNonSuc <- devSortie %>% filter(Deviation_Code %in% c("AI","AA","GA","TS","SP")) # no duplicates b/c either or but not both (late landing etc. causes duplicates)
+predSortie <- left_join(predSortie,devSortieNonSuc)
+predSortie[predSortie$Deviation_Code %in% "GA",]$Sortie_Result <- "Ground Abort"
+# 5) Air Abort
+predSortie[predSortie$Deviation_Code %in% c("AA","AI"),]$Sortie_Result <- "Air Abort"
+# 6) Aircraft Swap (deviation code TS or SP)
+predSortie[predSortie$Deviation_Code %in% c("SP","TS"),]$Sortie_Result <- "A/C Swap"
+predSortie$Deviation_Code <- NULL
+# 7) Cancelled
+devSortieNonSuc <- devSortie %>% filter(Deviation_Code %in% c("CX")) # need to add this later b/c adding with others gives a duplicate
+predSortie <- left_join(predSortie,devSortieNonSuc)
+predSortie[predSortie$Deviation_Code %in% "CX" & predSortie$Sortie_Result %in% "Other",]$Sortie_Result <- "Canceled"
+predSortie$Deviation_Code <- NULL
+predSortie$Sortie_Result <- factor(predSortie$Sortie_Result)
+# table
+table(predSortie$Sortie_Result,predSortie$Mission_Class_2,predSortie$Geographic_Location)
+prop.table(table(predSortie$Sortie_Result,predSortie$Geographic_Location),2)
+# summary for one mission
+table(predSortie[predSortie$Mission_Class_2 %in% "BONE","Sortie_Result"])
+table(predSortie[predSortie$Mission_Class_2 %in% "RAZOR","Sortie_Result"])
+prop.table(table(predSortie[predSortie$Mission_Class_2 %in% "RAZOR","Sortie_Result"]))
+
 #########################################################################################################
 ## On Equipment Maintenance Data
 oem <- sqlQuery(udri, "SELECT * FROM on_equipment_maintenance")
@@ -463,7 +562,18 @@ oem$Work_Unit_Code[grep("e",oem$Work_Unit_Code)] <- gsub("e\\+100","E99",oem$Wor
 # add a zero to the 4-digit wucs
 oem$Work_Unit_Code[grep("^[A-Z0-9]{4}$",oem$Work_Unit_Code)] <- paste0("0",oem$Work_Unit_Code[grep("^[A-Z0-9]{4}$",oem$Work_Unit_Code)])
 oem$Work_Unit_Code <- factor(oem$Work_Unit_Code)
-#################### / LOAD & TRANSFORM DATA END
+oem$WUC_Group <- substr(oem$Work_Unit_Code,1,2)
+oem$Column_for_Asterisks <- NULL # remove some unnecessary data to save memory
+oem$Record_Identifier <- NULL;oem$Record_Type <- NULL
+oem$Type_Equipment <- NULL;oem$Standard_Reporting_Designator <- NULL
+oem$Equipment_Designator <- NULL;oem$Off_Work_Order_Key <- NULL
+oem$Off_Maint_Action_Key <- NULL;oem$Off_Component_Part_Number <- NULL
+oem$Off_Component_Serial_Number <- NULL;oem$Federal_Supply_Classification <- NULL
+# system info
+wucSys <- sqlQuery(udri, "SELECT * FROM work_unit_code where length(code)=2")
+names(wucSys)[1] <- "System"
+wucSys$System <- as.character(wucSys$System)
+########################################## / LOAD & TRANSFORM DATA END
 
 # date histogram
 qplot(Transaction_Date, data = oem, fill=Geographic_Location)
@@ -685,8 +795,8 @@ ggsave(filename="wuc_maint_days_byType_pareto_oem_top20.svg", plot=gb, width=10,
 # mix oem with debrief for deviation code
 # 2a) for all flights
 # 2b) only for aborts
-oemDebWUC_SNJCN <- inner_join(select(oem,Labor_Manhours,Job_Control_Number, Work_Unit_Code, WUC_Narrative,Serial_Number, Transaction_Date, How_Malfunction_Class_Ind), 
-                                 select(debrief, Job_Control_Number, Deviation_Code, Subsystem_WUC_Description, Serial_Number), by=c("Job_Control_Number","Serial_Number"))
+oemDebWUC_SNJCN <- inner_join(select(oem,Labor_Manhours,Job_Control_Number, Work_Unit_Code, WUC_Narrative,Serial_Number, Transaction_Date, How_Malfunction_Class_Ind, WUC_Group), 
+                                 select(debrief, Job_Control_Number, Deviation_Code, System,Subsystem_Work_Unit_Code, Subsystem_WUC_Description, Serial_Number), by=c("Job_Control_Number","Serial_Number"))
 oemDebWUC_SNJCN <- group_by(oemDebWUC_SNJCN, Work_Unit_Code, WUC_Narrative, Deviation_Code, Subsystem_WUC_Description, Transaction_Date, How_Malfunction_Class_Ind) %>% summarise(count = n(), lbrHrs = sum(Labor_Manhours))
 # find order & plot
 oemDebWUC_SNJCN[,lapply(oemDebWUC_SNJCN,class)=="factor"] <- lapply(oemDebWUC_SNJCN[,lapply(oemDebWUC_SNJCN,class)=="factor"],factor)
@@ -830,7 +940,7 @@ awpDates$Serial_Number <- factor(awpDates$Serial_Number)
 awpTotSec/60/60/24/365.25/62 # years per TN
 awpTotSec/60/60/24/(30+31)/62 # fraction of two months that TN is down for awp (overlapping)
 # 5) How many AWP days? group by UWC
-convert to intervals with an install and removal date
+# convert to intervals with an install and removal date
 # get rid of WWYK ones for now
 awpIntervals <- awpDates[awpDates$actCtPerJCN == 2,]
 awpIntervals1 <- awpIntervals[awpIntervals$Action_Taken_Code %in% "U",c(1,2,4,5,8)]
@@ -848,9 +958,10 @@ awpIntervalsByWUC <- within(awpIntervalsByWUC, Replaced_WUC <- factor(awpInterva
                                          levels=awpIntervalsByWUC[order(awpIntervalsByWUC$totalAWPDays,decreasing=FALSE),]$Replaced_WUC))
 awpIntervalsByWUC50 <- awpIntervalsByWUC[awpIntervalsByWUC$Replaced_WUC %in% tail(levels(awpIntervalsByWUC$Replaced_WUC),50),]
 (gpWawp <- ggplot(awpIntervalsByWUC50, aes(x=Replaced_WUC,y=as.numeric(totalAWPDays))) +
-  geom_bar(stat="identity",fill="lightblue") + labs(x="Replacement Work Unit Code",y="Total B1 Days Awaiting Work Unit Code, OEM Data",title="Work Unit Code Drivers of Awaiting Parts Days, June/July 2014") + 
+  geom_bar(stat="identity",fill="lightblue") + labs(x="Replacement Work Unit Code",y="Total B1 Days Awaiting Work Unit Code, OEM Data",title="Work Unit Code Drivers of Awaiting Parts Days from Cannibalizations, June/July 2014") + 
   coord_flip() + geom_text(cex=4,aes(hjust=0,x=Replaced_WUC,y=0,label=paste(WUC_Narrative))) + theme_bw() +
   theme(panel.border = element_blank(),axis.line = element_line(color = 'black'),panel.grid.major.y = element_blank()) )
+#ggsave(filename="wuc_awp_allData_top50.svg", plot=gpWawp, width=15,height=12)
 
 # 6) How many days was each SN AWP?
 # bring in that big SN/Day table to assign SNs to either AWP or not
@@ -858,7 +969,30 @@ head(lifetimes)
 SNDate<-lifetimes[,c(1,2)]
 SNDate$awp<-FALSE
 
+# mission classes are unique to a location except for Bone
+a <- group_by(debrief, Mission_Class, Geographic_Location) %>% summarise(count = n())
+
+
 ######### Parts requirement (Action Taken R - remove and replace with like item)
+sparesReq <- group_by(oem,Work_Unit_Code,WUC_Narrative) %>% filter(Action_Taken_Code %in% "R") %>% summarise(count = n())
+sparesReqOrder <- rev(as.character(sparesReq[order(sparesReq$count,decreasing=TRUE),"Work_Unit_Code"]$Work_Unit_Code))
+sparesReq <- within(sparesReq, Work_Unit_Code <- factor(Work_Unit_Code, levels = sparesReqOrder) )
+( gRpl <- ggplot(sparesReq[sparesReq$Work_Unit_Code %in% tail(levels(sparesReq$Work_Unit_Code),50),]
+               , aes(y=count, x=Work_Unit_Code)) + geom_bar(stat="identity",fill="lightblue") + coord_flip() +
+  ggtitle("Spares Required by WUC (Action Taken = R, Remove & Replace with Like Item)") + 
+  geom_text(cex=4,aes(hjust=0,x=Work_Unit_Code,y=0,label=paste(WUC_Narrative))) + 
+  theme_bw() + labs(y="Replacement Count",x="Work Unit Code") + 
+  theme(panel.border = element_blank(),axis.line = element_line(color = 'black'),panel.grid.major.y = element_blank()) )
+ggsave(filename="wuc_replacements_allData_top50.svg", plot=gRpl, width=15,height=12)
+# color AWP pareto by total number of replacements
+awpIntervalsByWUC50 <- merge(awpIntervalsByWUC50,select(sparesReq,Work_Unit_Code,count),all.x=TRUE,all.y=FALSE,by.x="Replaced_WUC",by.y="Work_Unit_Code")
+(gpWawp <- ggplot(awpIntervalsByWUC50, aes(x=Replaced_WUC,y=as.numeric(totalAWPDays),fill=count)) + 
+  scale_fill_continuous(low = "#d4ffea", high = "#01d4ab",na.value="#E7E3E4",name="Replace with\nSpare Actions") +
+  geom_bar(stat="identity",colour="grey") + labs(x="Replacement Work Unit Code",y="Total B1 Days Awaiting Work Unit Code, OEM Data",title="Work Unit Code Drivers of Awaiting Parts Days from Cannibalizations, June/July 2014") + 
+  coord_flip() + geom_text(cex=4,aes(hjust=0,x=Replaced_WUC,y=0,label=paste(WUC_Narrative))) + theme_bw() +
+  theme(panel.border = element_blank(),axis.line = element_line(color = 'black'),panel.grid.major.y = element_blank()) )
+ggsave(filename="wuc_awp_byReplace_allData_top50.svg", plot=gpWawp, width=15,height=12)
+
 
 ######### attribute maintenance hours to particular sorties
 sortieHrs[1,] # has flown hours of each sortie (maybe zero)
@@ -1086,3 +1220,71 @@ ggsave("subsystem_wuc_ground_aborted_sorties_pareto_debrief.svg",scale=2)
 #   factorValueOrder <- as.character(factorValueOrder$factorCol)
 #   df <- within(factorValueOrder, factorCol <- factor(factorCol, levels = rev(factorValueOrder)))
 # }
+
+
+########### Joel's code - I made a few edits------------------------for prediction dashboard---------
+
+labor_hrs <- oem %>% group_by(Serial_Number, Job_Control_Number, Work_Unit_Code, WUC_Narrative, WUC_Group, Action_Taken_Code) %>%
+  select(Labor_Manhours) %>% summarise(records_in_on_eq_mnt = n(),
+    total_Labor_Manhours = round(sum(Labor_Manhours, na.rm = TRUE),1)) %>% as.data.frame()
+
+merged_data <-  inner_join(select(debrief,Serial_Number, Job_Control_Number, System, Subsystem_Work_Unit_Code, Subsystem_WUC_Description, Sortie_Date, Sortie_Number, Flight_Duration, Mission_Class_2),
+                          labor_hrs,by = c("Job_Control_Number", "Serial_Number"))
+
+#Now I have to group the labor hours within in an individual flight; I don't care about JCN (that was only needed to link the tables)
+full_labor_hour_split <- merged_data %>%
+  group_by(System, Mission_Class_2, Work_Unit_Code, WUC_Narrative, WUC_Group, Serial_Number, Sortie_Date, Sortie_Number, Flight_Duration) %>%
+  select(records_in_on_eq_mnt, total_Labor_Manhours) %>% summarise(
+    records_in_on_eq_mnt = sum(records_in_on_eq_mnt), total_Labor_Manhours = round(sum(total_Labor_Manhours, na.rm = TRUE),1)) %>% as.data.frame()
+
+#Create a count of the number of records per grouping in the dataset
+counts <- full_labor_hour_split %>% group_by(System, Mission_Class_2, Work_Unit_Code, WUC_Narrative, WUC_Group) %>%
+  select(total_Labor_Manhours) %>% summarise(records = n()) %>% as.data.frame()
+
+#Now merge
+full_labor_hour_split <-  inner_join(full_labor_hour_split, counts,
+                               by = c("System", "Mission_Class_2", "Work_Unit_Code", "WUC_Narrative", "WUC_Group")) %>% as.data.frame()
+rm(counts)
+
+#Now repeat that process, but use a subset of merged data that includes only R Action_Taken_Codes to determine how many of the on_eq_mnt records have an action code of R
+full_labor_hour_split_r_only <- merged_data[which(merged_data$Action_Taken_Code=="R"),] %>%
+  group_by(System, Mission_Class_2, Work_Unit_Code, WUC_Narrative, WUC_Group, Serial_Number, Sortie_Date, Sortie_Number, Flight_Duration) %>%
+  select(records_in_on_eq_mnt, total_Labor_Manhours) %>%
+  summarise(r_records_in_on_eq_mnt = sum(records_in_on_eq_mnt)) %>% as.data.frame()
+
+#Now merge so that we can have both the number of records from on_eq_mnt AND the number of those records that had an Action_Code of R.
+full_labor_hour_split <-  left_join(full_labor_hour_split, full_labor_hour_split_r_only,
+                               by = c("System", "Mission_Class_2", "Work_Unit_Code", "WUC_Narrative", "WUC_Group", "Serial_Number", "Sortie_Date", "Sortie_Number", "Flight_Duration"))
+
+#Replace all NAs with 0s for the merged file in the r_records field. No idea why it has to be this tough.
+full_labor_hour_split[["r_records_in_on_eq_mnt"]][is.na(full_labor_hour_split[["r_records_in_on_eq_mnt"]])] = 0
+#full_labor_hour_split$Flight_Duration = round(full_labor_hour_split$Flight_Duration,1)
+
+#Bring in the Sortie Grouping created above
+full_labor_hour_split <-  left_join(full_labor_hour_split, ungroup(predSortie) %>% 
+                                      select(Sortie_Number,Sortie_Date,Serial_Number,Geographic_Location,countJCN,devCodes,Sortie_Result),
+                               by = c("Serial_Number", "Sortie_Date", "Sortie_Number")) %>% left_join(wucSys) %>%
+  group_by(System, Sortie_Result, Serial_Number, Sortie_Number, Sortie_Date) 
+rm(merged_data)
+## FIRST PIECE - GROUP BY SYSTEM AND SORTIE RESULT - COUNT NUMBER OF SORTIES
+# if mission class and geo loc, then : display top five system & outcome combo
+# testing
+
+full_labor_hour_split_subset <- full_labor_hour_split[full_labor_hour_split$Mission_Class_2 %in% "BONE",] # geo loc later - & full_labor_hour_split$Geographic_Location %in% "FNWZ",]
+full_labor_hour_split_subset_Agg <- group_by(full_labor_hour_split_subset,System,description,Sortie_Result) %>% 
+  summarise(records_in_on_eq_mnt = sum(records_in_on_eq_mnt), r_records_in_on_eq_mnt = sum(r_records_in_on_eq_mnt), 
+            countJCN = sum(countJCN), total_Labor_Manhours = sum(total_Labor_Manhours))
+full_labor_hour_split_subset_Agg$propOfGrp <- full_labor_hour_split_subset_Agg$total_Labor_Manhours/sum(full_labor_hour_split_subset_Agg$total_Labor_Manhours)
+full_labor_hour_split_subset_Agg <- full_labor_hour_split_subset_Agg[order(full_labor_hour_split_subset_Agg$propOfGrp,decreasing=TRUE),]
+full_labor_hour_split_subset_Agg <- head(full_labor_hour_split_subset_Agg,5) # limit to five
+full_labor_hour_split_subset_Sortie <- group_by(full_labor_hour_split_subset,System,description,Sortie_Result,Serial_Number,Sortie_Number,Sortie_Date) %>% 
+  filter(System %in% full_labor_hour_split_subset_Agg$System & Sortie_Result %in% full_labor_hour_split_subset_Agg$Sortie_Result) %>%
+  summarise(records_in_on_eq_mnt = sum(records_in_on_eq_mnt), r_records_in_on_eq_mnt = sum(r_records_in_on_eq_mnt), 
+            countJCN = sum(countJCN), total_Labor_Manhours = sum(total_Labor_Manhours))
+full_labor_hour_split_subset_Sortie <- left_join(full_labor_hour_split_subset_Sortie,select(full_labor_hour_split_subset_Agg,System,Sortie_Result,propOfGrp))
+(ggbx <- ggplot(full_labor_hour_split_subset_Sortie,
+                aes(x=paste("System",System,"\n",description,"\n",Sortie_Result,"\n",paste0(100*round(propOfGrp,3),"%")),
+                    y=total_Labor_Manhours)) + geom_boxplot() + coord_flip() + labs(x=NULL,y="Sortie Labor Hours") )
+
+#full_labor_hour_split_subset_Agg[,lapply(full_labor_hour_split_subset_Agg,class)=="factor"] <- 
+ # lapply(full_labor_hour_split_subset_Agg[,lapply(full_labor_hour_split_subset_Agg,class)=="factor"],as.character)

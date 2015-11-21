@@ -14,7 +14,6 @@ ConnectToDB = function(db.name,user.name,pwd,driver.name='MySQL ODBC 5.3 ANSI Dr
 }
 ConnectToDB(db.name="udri_demo",user.name="tbaer",pwd="tbaer1",server="onion")
 
-# udri <- odbcConnect(dsn="onion-udri",uid="tbaer",pw="tbaer1") # created through the Data Sources (ODBC) window described above
 ## Debrief Data
 #system.time(debrief <- sqlQuery(udri, "SELECT * FROM debrief")) # 0.57 seconds
 #format(object.size(debrief),units="Mb") # 1.2 megs
@@ -65,10 +64,10 @@ system.time(oem <- sqlQuery(udri, "SELECT Geographic_Location, Serial_Number, Jo
 format(object.size(oem),units="Mb") # 8 megs
 
 oem$Serial_Number <- as.factor(oem$Serial_Number)
-oem$Discrepancy_Narrative <- as.character(oem$Discrepancy_Narrative)
+#oem$Discrepancy_Narrative <- as.character(oem$Discrepancy_Narrative)
 #oem$Corrective_Narrative <- as.character(oem$Corrective_Narrative)
-oem$How_Malfunction_Code <- as.factor(oem$How_Malfunction_Code)
-oem$How_Malfunction_Class_Ind <- as.factor(oem$How_Malfunction_Class_Ind)
+#oem$How_Malfunction_Code <- as.factor(oem$How_Malfunction_Code)
+#oem$How_Malfunction_Class_Ind <- as.factor(oem$How_Malfunction_Class_Ind)
 oem$Transaction_Date <- ymd(oem$Transaction_Date, tz='UTC')
 #oem$Transaction_DayOfWeek <- wday(oem$Transaction_Date, label = TRUE)
 #oem$Transaction_Month <- as.factor(month(oem$Transaction_Date))
@@ -101,21 +100,24 @@ lifetimesWevent <- right_join(eventsDB, select(lifetimes, Serial_Number, Event_D
 
 shinyServer(function(input, output) {
   dataSubset <- reactive(
-    lifetimesWevent[lifetimesWevent$Serial_Number %in% input$tns,]
+    lifetimesWevent[lifetimesWevent$Serial_Number %in% input$tns 
+                    & lifetimesWevent$Event_Date >= as.POSIXct(input$dts[1],origin="1970-01-01") & 
+                      lifetimesWevent$Event_Date <= as.POSIXct(input$dts[2],origin="1970-01-01") ,]
   )
-#   output$plot1 <- renderPlot({
-#     ( ggplot(dataSubset(), aes(x=Event_Date,y=acrFlHr,colour=Serial_Number)) + 
-#         geom_line() + geom_point(data=dataSubset()[!is.na(dataSubset()$Action_Taken_Code),],aes(x=Event_Date,y=acrFlHr,shape=Action_Taken_Code),cex=4) +
-#         scale_shape_manual(name="Action Taken",labels=c("T: Cann Removal","U: Cann Install"),values=c(16,17)) +
-#         labs(x="Date",y="Achieved Flight Hours") + theme_bw() + theme(panel.border = element_blank(),axis.line = element_line(color = 'black'))
-#       )
-#   })
+  output$dataForDownload <- downloadHandler(
+    filename = 'lifetimes.csv',
+    content = function(file) {
+      write.csv(dataSubset(), file, row.names=FALSE)
+    }
+  )
+  
   output$timelinePlot <- renderPlotly({
-    p <- plot_ly(dataSubset(), x=Event_Date,y=acrFlHr, group=Serial_Number) %>%
+    p <- plot_ly(dataSubset(), x=Event_Date,y=acrFlHr, group=Serial_Number,hoverinfo="none") %>%
       layout(xaxis=list(title="Date"),yaxis=list(title="Achieved Flight Hours")) %>%  # had to use two traces to get different colors    
       add_trace(data=dataSubset()[dataSubset()$Action_Taken_Code %in% "U",],x=Event_Date,y=acrFlHr,opacity=0.6,hoverinfo="x+y+text",
                 name="Cannibalization<br>Install",mode="markers",marker=list(color="blue", size=10),text=paste0("SN: ",Serial_Number,"<br>Work Unit Code: ",Work_Unit_Code,"<br>",WUC_Narrative)) %>%
       add_trace(data=dataSubset()[dataSubset()$Action_Taken_Code %in% "T",],x=Event_Date,y=acrFlHr,opacity=0.6,hoverinfo="x+y+text",
                 name="Cannibalization<br>Removal",mode="markers",marker=list(color="red", size=11),text=paste0("SN: ",Serial_Number,"<br>Work Unit Code: ",Work_Unit_Code,"<br>",WUC_Narrative))
     })
+  output$dateRangeText <- renderText(input$dts)
   })
