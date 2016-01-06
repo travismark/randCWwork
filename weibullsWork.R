@@ -13,15 +13,16 @@ setwd(scriptPath)
 
 #setwd("C:/Users/tbaer/Desktop/cbm/october redo weibulls/R work")
 #weibulls_initial<-read.csv("newTOW_LOC.csv",header=TRUE)
-weibulls_initial<-read.csv("./newTOW_LOC.csv"),header=TRUE)
+weibulls_initial<-read.csv("./newTOW_LOC.csv",header=TRUE)
 
-source("./weibulls.R")
-weibullPN_info<-read.csv("./tblWUCinfo.csv",header=TRUE)
+source("./weibull_functions.R")
+#weibullPN_info<-read.csv("./tblWUCinfo.csv",header=TRUE)
+wucnames<-read.csv("./wucnames.csv",header=TRUE)
 
-system.time(allweibulls<- gatherallweibulls(weibulls_initial,
-                                            plot=FALSE,modkm=TRUE,plotdir="./plots/")) #ALL THE WEIBULL
+system.time(allweibulls<- gatherallweibulls(weibulls_initial,verbose=TRUE,
+                                            plot=TRUE,modkm=TRUE,plotdir="./plots/")) #ALL THE WEIBULL
 write.csv(allweibulls,file="Apache Weibulls.csv",quote=FALSE)
 
-source("./stattest.R")
-system.time(alltests<-testallweibulls(allweibulls,weibulls_initial,doAllGroups=FALSE))
+source("./stattest_functions.R")
+system.time(alltests<-testallweibulls(allweibulls,weibulls_initial,verbose=TRUE,doAllGroups=TRUE))
 write.csv(alltests,file="Apache Tests.csv",quote=FALSE)
