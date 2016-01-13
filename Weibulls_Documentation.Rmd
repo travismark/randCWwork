@@ -1,13 +1,14 @@
 Calculate Weibulls From Data
 ========================================================
-How I use R to fit scale/shape weibulls for ATLAST models:
+How I use R to fit weibulls for ATLAST models:
 --------------------------------------------------------
 **Travis Baer 
-Winter 2013 
+Winter/Spring 2013 
 Clockwork**  
 
+R 2.15.3
 
-This is only one step of many to get to the ultimate goal of a complete *URR ATLAST table.
+This code uses the MLE method to fit scale/shape two-parameter weibulls for removal data grouped into different specific classifier buckets.  This is only one step of many to get to the ultimate goal of a complete *URR ATLAST table.
 What must preceed this step:
 
 - clean 2410
@@ -15,10 +16,12 @@ What must preceed this step:
 
 What must follow this step:
 
+- Run the statistical tests R code to run log-likelihood ratio tests and determine how similar are groups of removal data
+- Fit weibulls for more complex combinations of classifiers, like two of three part numbers or two of three locations.  This step is an optional one within the code that performs the statistical tests. * may not be necessary
 - Choose the weibulls you want to use and put them in the [Weibulls] table in ATLAST
 - Run the macro to include these in the *URR table
 
-The following classifiers should be included as inputs.  Only some have been implemented.
+The following classifiers should be included as inputs.  Not all are required for every analysis, but the utility requires at least a placeholder column in the all removal input data classifier columns; you can use the same term for each row, like "AH-64."
 
 - WUC
 - Location
@@ -31,11 +34,15 @@ The time-to-event and censoring indicator, delta, are other essential inputs.  A
 
 A delta value of:
 
-+ 0: censoring
+- 0: censoring (suspension)
+- 1: event (causal)
+- 0 or 1: removal
 
-+ 1: event
+The user can define "censoring" and "event" when building the input data.  For example, an event could be any removal, or a removal leading to a repair, or a removal with certain F Codes, etc.  
+Additionally, some censorings are not removals: they occur at the end of the time period when some parts are still installed.  Yet I still refer to each row as a removal.
+The MLE maximization algorithm treats suspensions and causal events separately to estimate the paramters, and so this classification of removals into censorings and events is critical. 
 
-+ 0 or 1: removal
+The MLE maximization returns parameter standard errors as the square root of the diagonals of the observed Fisher Information Matrix.  Also, from the package's vignette: "By default direct optimization of the log-likelihood is performed using optim, with the 'Nelder-Mead' method for distributions characterized by more than one parameter and the 'BFGS' method for distributions characterized by only one parameter."
 
 The following output values are included with each weibull:
 
@@ -44,47 +51,54 @@ The following output values are included with each weibull:
 - Shape Standard Error
 - Scale Standard Error
 - Mean Time to Removal
-- Number of Events that in that specific classification
-- Number of Censored Events
-- Beta Test p-value (likelihood ratio test. insufficient but intermediate step towards Wald)
-- Weibull statistics for four distributions:
+- Number of Events that are in that specific classification
+- Number of Censored Removals
+- Beta Test p-value (likelihood ratio test)
+- Anderson Darling Adjusted statistics for four distributions:
   - Weibull
   - Exponential
   - Lognormal
   - Normal
 - A weibull plot of the fit with a histogram of the events overlaid
 
-If there are just zero or one events for a certain combination of classifiers the output will show the classifiers and the event and censored counts along with NAs to indicate that no weibull was fit.
+If there are just zero or one events for a certain combination of classifiers the output will show the classifiers and the events and censoring counts along with NAs to indicate that no weibull was fit.
 Weibulls are produced for all combinations of the classifiers.  This includes an "ALL" option for each (except WUC) that puts no restriction on that classifier for fitting the weibull.
 
-Critical missing steps include statistical tests to determine which weibulls are alike.  These statistical tests will help the user decide which weibulls to include in the ATLAST model.  Currently I am stuck on the Wald tests to compare two weibulls and have not implemented any other statistical tests for management's insistence on the Wald test. 
-
-There are many analyst decision points in the calculation of removal rates from start to finish.  The R code allows three trival ones:  
+There are many analyst decision points in the calculation of removal rates from start to finish.  The R code allows four trival ones:  
 
 - identify the source xml
 - decide whether the code should produce the graphs;  Producing hundreds of graphs takes a little time and the user has the option of skipping this step.  By default the plotting will be done. 
+- decide whether the code should find the modified Kaplan Meier values and thus the Anderson Darling Adjusted statistics.  These take a significant amount of time and can be avoided.  Skipping this option requires one to skip the plotting.
 - identify the destination folder and filename for the csv and plots
 
 The following R packages are required:
 
-- fitdistrplus (to fit a weibull with censored data.  Survival may be better but I can't get standard errors yet)
+- fitdistrplus (to fit a weibull with censored data.  Survival package may be slightly more accurate but I can't get standard errors to convert from location-scale to scale-shape)
 - plyr (to group input data according to each possible combination of classifier)
-- XML (to load the input data)
+- XML (to load the input data and output the weibull fits)
+
+A few more notes to consider:
+
+- The order of the columns in the input removal data does not matter except: 
+  - WUC MUST be 1st
+  - Must be six classifier columns, including WUC
+  - the columns are arranged to the correct order in calloneDDply()
+- The names of the columns in the input removal data DO matter: they must be in the set defined at the start of gatherallweibulls() as "classcolnames"
 
 The program proceeds in three simple steps. Step two involves the bulk of the work and includes many functions to be explained shortly along with sample data.
 
 1. Load the required packages and input data
-3. Fit the weibulls (also saves the plots as the code is run)
-4. Save the weibull output as a csv
+2. Fit the weibulls (also saves the plots as the code is run)
+3. Save the weibull output as csv or xml 
 
 ### Step 1
 
 Load the required packages:
 
 ```
-library("fitdistrplus")
-library("plyr")
-library("XML")
+library("fitdistrplus") # vs (1.0-0)
+library("plyr") # vs (1.8)
+library("XML") # vs (3.96-0.1)
 ```
 These must be previously installed with 
 >install.packages("plyr")
@@ -106,7 +120,7 @@ Second load the input data:
 ```
 weibulls_initial<-xmlToDataFrame("generic_file.xml",colClasses=c("character","integer","integer","integer"),collectNames=FALSE)
 ```
-A sample of this data follows.  The first **6** columns are classifiers, "SumOfTOW" is the time-to-event for weibull fitting, and the DeltaCens classifies each failure as an event (1) or suspension (0).
+A sample of this data follows.  The first **6** columns are classifiers, "SumOfTOW" is the time-to-event for weibull fitting, and the DeltaCens classifies each removal as an causal event (1) or censored removal (0).
 
 ```{r inputsample, echo=2}
 weibulls_initial<-read.csv("newTOW_LOC.csv",header=TRUE)
@@ -116,7 +130,7 @@ head(weibulls_initial)
 ### Step 2
 
 start by hard-coding the names of some WUCs.  these will be used for the plot headers
-```{r}
+```{r partnames}
 part.names<-data.frame(WUC=c("06A","06ELH","06ERH","06G01","06F","15B","15B05"),
                        name=c("Main Transmission","Left Hand Nose Gearbox",
                               "Right Hand Nose Gearbox","Tail Rotor Gearbox",
@@ -125,10 +139,10 @@ part.names<-data.frame(WUC=c("06A","06ELH","06ERH","06G01","06F","15B","15B05"),
 
 The rest of this step is contained in the following call to a custom function:
 ```{r demogatherall, eval=FALSE}
-allweibulls<- gatherallweibulls(weibulls_initial,plot=FALSE,modkm=TRUE)
+allweibulls<- gatherallweibulls(weibulls_initial,plot=FALSE,modkm=TRUE,plotdir=getwd())
 ```
 
-plot and modkm (modified kaplan meier) parameters are TRUE when the user wants to produce plots for every weibull and calculate the anderson darling statistics, respectively.  The plots require the modkm values, and so giving plot TRUE and modkm FALSE returns an error.
+plot and modkm (modified kaplan meier) parameters are TRUE when the user wants to produce plots for every weibull and calculate the anderson darling statistics, respectively.  The plots require the modkm values, and so giving plot TRUE and modkm FALSE returns an error.  plotdir is the directory to where weibull plots are saved as pngs.
 
 My explanation of the custom functions and their interactions will work backwards from here.  ***Gatherallweibulls()*** makes one call to calloneDDPLY() for each classifier set and then returns a combined total output dataframe with the columns for all classifiers and outputs.  One call, for example, would include the **classifier set:**
 >WUC=specific, Location=specific, PN=ALL, Platform=ALL, LastRepair=ALL, adjRepInt= ALL
@@ -150,7 +164,7 @@ And so on for the remaining WUCs (6 total right now x 3 Locations = 18 rows)
 
 Each call to calloneDDPLY() outputs weibulls and associated numbers for each classifier row.  Most contain many more rows than eighteen.
 
-Each classifier set and call to calloneDDPLY() breaks the total input data frame apart on a specific classifier ("specific") or imposes no restrictions ("ALL").  For example, the first row above includes all removals with the 06A (main transmission) wuc whose part spent most (most as defined when the data was defined in the access/sqlserver/xslt routine) of its time in Not South West Asia (NSWA).  All repair intervals, platform types, last repair types, and part numbers are included are included in the data set to fit the weibull.
+Each classifier set and call to calloneDDPLY() breaks the total input data frame apart on a specific classifier ("specific") or imposes no restrictions ("ALL").  For example, the first row above includes all removals with the 06A (main transmission) wuc whose part spent most (most as defined when the data was defined in the access/sqlserver/xslt routine) of its time in Not South West Asia (NSWA).  All repair intervals, platform types, last repair types, and part numbers are included in the data set to fit the weibull.
 
 
 The total quantity of classifier sets depends on the number of classifier columns.  For now there are six, but "WUC" is always included, and so there are effectively five when counting possible combinations:  5choose5 + 5choose4 + 5choose3 + 5choose2 + 5choose1 or, in R terms:
@@ -176,7 +190,7 @@ Finally, after calling calloneDDPLY(), the inner for loop stiches together the w
 
 
 ```{r defgatherall, cache=TRUE}
-gatherallweibulls <- function(weibulls_table,plot=FALSE,modkm=FALSE){
+gatherallweibulls <- function(weibulls_table,plot=FALSE,modkm=FALSE,plotdir=getwd()){
   if(plot==TRUE & modkm==FALSE) {stop("modified kaplan meier statistics are required for plotting")}
   # Six classifier columns including WUC, which is always specified/included
   # Total of 5 Choose 5:0 combinations for a total of 32 calls to calloneddply()
@@ -192,12 +206,12 @@ gatherallweibulls <- function(weibulls_table,plot=FALSE,modkm=FALSE){
     mat<-combn(cls:2,ii) # gives all the ways to choose 'ii' digits out of quantity of classifier columns less one [b/c wuc is always in]
     for(jj in seq_len(dim(mat)[2])) {
       # call calloneddply() once per column of the combn output
-      weibs1<-calloneDDPLY(weibulls_table,include=sort(c(1,mat[,jj])),plots=plot,classcolnames,numcolnames,modkm)
+      weibs1<-calloneDDPLY(weibulls_table,include=sort(c(1,mat[,jj])),plots=plot,classcolnames,numcolnames,modkm,plotdir)
       if(first==1) {
         weibs<-weibs1 # create
         first<-0
       } else {
-        weibs<-rbind(weibs,weibs1)
+        weibs<-rbind(weibs,weibs1) # append
       } # end else
     } # end inner for
   } # end outer for
@@ -234,14 +248,14 @@ Any classifiers marked all (and thus ignored by ddply()) will not be included in
 calloneDDPLY<-function(weibulls_table,include,plots,classifiernames,numericalnames,modkm) {
   includenames<-classifiernames[include]
   excludenames<-classifiernames[-include]
-  print(includenames)
-  # Define classifiers as one long string: (for loop is a fail, but I'm stumped)
+  print(includenames) # lets user track the progression of the code - delete if you want
+  # Define classifiers as one long string:
   classifiers<-as.character("") # initialize
   for (ii in seq(include)) {
     classifiers<-paste(classifiers,includenames[ii],sep="")
   }
   # Call the ddply
-  weibs<-ddply(weibulls_table,includenames,getWeibullsFromDF,plot=plots,catgs=classifiers,modkm)
+  weibs<-ddply(weibulls_table,includenames,getWeibullFromDF,plot=plots,catgs=classifiers,modkm,plotdir)
   # Add the "ALL" description columns to the end of the data frame
   for (ii in seq(excludenames)) {
     weibs[,length(weibs)+1]<-"ALL"
@@ -253,7 +267,7 @@ calloneDDPLY<-function(weibulls_table,include,plots,classifiernames,numericalnam
 } # end calloneDDPLY
 ```
 
-***getWEibullsFromDF()*** takes in the subest of input data passed from ddply(), calculates all the required numbers, and optionally plots a weibull curve and event histogram.
+***getWeibullsFromDF()*** takes in the subest of removal input data passed from ddply(), calculates all the required numbers, and optionally plots a weibull curve and event histogram.
 
 It first tests if there are enough data to fit a weibull.  Two events are enough.  If there are too few data the function outputs a row of all NAs save the number of events and censorings.  No plot is generated.
 
@@ -272,7 +286,7 @@ CensUncens <- function(df) {
 } # end CensUncens
 ```
 
-The function then passes the output of this function to fitdistcens() and fits a weibull that returns parameters and standard errors.  
+The function then passes the output of this function to fitdistcens() that fits a weibull and returns parameters and standard errors.  
 
 To plot the required data and find anderson darling coeffecients the modified kaplan meier heights must be calculated with a call to my function, getModKM().  I will discuss this and the plotting performed with getPlotFromDF() at length below.
 
@@ -292,16 +306,22 @@ calcADAvals() finds Anderson Darling adjusted statistics for the weibull, expone
 From these numbers the function fills in the output row to send back to ddply() and names the columns.  It fills in:
 
 -two parameters: Shape, Scale
+
 -two standard errors of the parameters, ShapeSE, ScaleSE
--the mean time to failure (calculated from parameters): Mean
+
+-the mean time to event (calculated from parameters): Mean
+
 -the number of uncensored and censored removals: Events, Censored
+
 -the p value of the beta==1 test: BetaTestPval
+
 -the negative log-likelihood of the weibull fit: NLogLik
+
 -the four anderson darling statistics: AD*weib, AD*expo, AD*logn, AD*norm
 
 ```{r definegetweibullsfromdf}
-getWeibullsFromDF <- function(df, plot=0, catgs="",modkm)  {
-  #make sure the passed data frame has enough data: at least two failure/removal/events
+getWeibullFromDF <- function(df, plot=0, catgs="",modkm)  {
+  #make sure the passed data frame has enough data: at least two events
   #      (anything less gives errors in fitting the weibull with mle method)
   if(length(df[df$DeltaCens==1,8])<2) {
     # with too little data:  report the number of events and give NAs for everything else   
@@ -329,7 +349,7 @@ getWeibullsFromDF <- function(df, plot=0, catgs="",modkm)  {
     } else {ADstats<-data.frame(NA,NA,NA,NA)} # finding modkm is slow so option out. 
     #save a plot of the weibull; this requires modkm
     if (plot) {
-      getPlotFromDF(rankedpoints, head(df), weib[[1]], catgs) #ranked points, sample of input data, break-out categories
+      getPlotFromDF(rankedpoints, head(df), weib[[1]], catgs, plotdir) #ranked points, sample of input data, break-out categories
     }
     
     # save the scale and shape parameters & their standard errors 
@@ -363,7 +383,7 @@ $p_i^'=1-\prod_{j=1}^i\frac{(n-j)^{\delta_j}}{(n-j+1)^{\delta_j}}$  and  $p_0^'=
 
 and $\delta_j$ is the censoring value (1 is an event, 0 is censoring), n is the total number of removals for this weibull, and i and j are the index for one removal:  one row/removal has one specific i, while all previous remnovals (here, j) are used to calculate $p^'$  
 
-The function produces a sorted dataframe with rows for each removal event and:
+The function takes as input the output from CensUncens(), a two-column dataframe with TOW for each removal.  It returns a sorted dataframe with rows for each removal event and:
 
 - TOW: time on wing for removal
 - rank: between 1 and n, number of events; lowest TOW first
@@ -388,7 +408,6 @@ getModKM <- function(towtimes,params) {
   # calculate Modified Kaplan-Meier rank (just the non-censored events) with two for-loops
   for(jj in 1:length(both$tow)) { # find intermediate value
     both$p_intmd[jj]<-((length(both$tow)-jj)^both$cens[jj])/((length(both$tow)-jj+1)^both$cens[jj])
-    #if(b==1){print(jj);b<-1000}else{b<-b-1}
   } # end make p intermediate
   for(jj in 1:length(both$tow)) { # calculate p rank (y-axis value)
     both$p_prime[jj]<-1-prod(both$p_intmd[1:jj]) # p prime
@@ -402,12 +421,11 @@ getModKM <- function(towtimes,params) {
 } # end getModKM
 ```
 
-Anderson darling adjusted statistics are used to compare the weibull fit to other distribution fits where small values coorespond to better fits (The adjusted denotes censored values).  If the weibull AD* statistic is much higher than another fit it may make sense to abandon the weibull distribution for that one fit.
+Anderson darling adjusted statistics are used to compare the weibull fit to other distribution fits where small values coorespond to better fits (The adjusted denotes some censored values).  If the weibull AD* statistic is much higher than another fit it may make sense to abandon the weibull distribution for that one fit.
 
-**calcADAvals()** finds four anderson darling adjusted statistics for each row in the weibull output, comparing: weibull, lognormal, normal, and exponential distribution.  It requires the modified kaplan meier values for each (uncensored) event as well as the original TOW values for fitting new distributions.  The final input is the exponential parameter found during the Beta=1 test.
+**calcADAvals()** finds four anderson darling adjusted statistics for each row in the weibull output, comparing: weibull, lognormal, normal, and exponential distribution.  It requires the modified kaplan meier values for each event as well as the original TOW values for passing to fitdistcens() and fitting new distributions (both inputs are for all events, so the same length).  The final input is the exponential parameter found during the Beta==1 test.
 
-Each distribution needs three values for each uncensored point:  Time on Wing, Modified Kaplan Meier
-
+The function fits the two distributions that have not yet been fit (normal and lognormal), reduces the event data with the modified kaplan meier values to just the uncensored ones, recalculates the rank, and then calls getOneADStat() for each of the four distributions.
 
 ```{r defineadstats}
 calcADAvals<-function(rankedpts, origTOW, expoparam) {
@@ -436,19 +454,698 @@ calcADAvals<-function(rankedpts, origTOW, expoparam) {
 } # end calculate anderson darling statistics function
 ```
 
+**getOneADStat()** calculates the anderson darling statistics for one distribution.  It takes in the kaplan causal event removal data frame with kaplan meier and cdf values for the TOW. It returns one value: the AD statistic for the fit to the removal data.  Because the cdf fit to the estimated parameter(s) has been calculated as a column in the input data frame, the function does not depend on the type of distribution or fit.
+
+The Anderson Darling Adjusted statistic is a sum of many terms involving each data point's (indexed as $i$) fit to the parametric distribution, $Z_i$ , and the nonparametric estimate of the CDF (the Kaplan Meier fit), $F_n(Z_i)$.  This definition comes from the D'Agostino and Stephens book, Goodness of Fit Techniques (1986), originally, and adapted by Minitab in the document here:
+http://www.minitab.com/support/documentation/Answers/AdjustedAD.pdf
+
+It is calculated as follows:
+
+$AD^*=n*\sum_{i=1}^{n+1}(A_i+B_i+C_i)$
+
+where $n$ is the number of removal data points,
+
+- $A_i=-Z_i-ln(1-Z_i)+Z_{i-1}+ln(1-Z_{i-1})$
+
+- $B_i=2ln(1-Z_i)F_n(Z_{i-1})-2ln(1-Z_{i-1})F_n(Z_{i-1})$
+
+- $C_i=ln(Z_i)F_n(Z_{i-1})^2-ln(1-Z_i)F_n(Z_{i-1})^2-ln(z_{i-1})F_n(Z_{i-1})^2+ln(1-Z_{i-1})F_n(Z_{i-1})^2$
+
+and $Z_0$=0, $F_n(Z_0)$=0, and $Z_{n+1}=1-(1*10^{-12})$, or very near 1
 
 
 
-or this one `r getwd()` always works
-
-```{r echo=2} 
-weibulls_initial<-read.csv("newTOW_LOC.csv",header=TRUE)
-head(weibulls_initial)
+```{r defgetoneadstat,cache=TRUE}
+getOneADstat<-function(rankedpts) {
+  lgth<-length(rankedpts$p)
+  # use the findArow function to get A values of each row, then add the n+1th row A value
+  A<-sum(apply(X=as.matrix(rankedpts),MARGIN=1,FUN=findArow,fitprob=rankedpts$fitprob)) - (1-1E-12) - log(1-(1-1E-12)) +
+    rankedpts$fitprob[lgth] + log(1-rankedpts$fitprob[lgth])
+  B<-sum(apply(X=as.matrix(rankedpts),MARGIN=1,FUN=findBrow,fitprob=rankedpts$fitprob,nonpar=rankedpts$p)) +
+           2*log(1-(1-1E-12))*rankedpts$p[lgth] - 2*log(1-rankedpts$fitprob[lgth])*rankedpts$p[lgth]
+  C<-sum(apply(X=as.matrix(rankedpts),MARGIN=1,FUN=findCrow,fitprob=rankedpts$fitprob,nonpar=rankedpts$p)) +
+           log(1-(1E-12))*rankedpts$p[lgth]^2 -
+           log(1-(1-(1E-12)))*rankedpts$p[lgth]^2 -
+           log(rankedpts$fitprob[lgth])*rankedpts$p[lgth]^2 +
+           log(1-rankedpts$fitprob[lgth])*rankedpts$p[lgth]^2
+  out<-lgth*(A+B+C)
+}
 ```
+
+getOneADStat() calls three functions for each row/causal event:  findArow, findBrow, and findCrow.  To prevent running a for loop across each row I use the apply function, which runs once per row thanks to MARGIN=1.
+
+```{r defgetABCrow, cache=TRUE}
+findArow<-function(input,fitprob) {
+  if (input[4]==1) { # first row is special
+    out<- (-input[2]) - log(1-input[2]) + 0 + log(1-0)
+  } else { # not the first row
+    out<- (-input[2]) - log(1-input[2]) + fitprob[input[4]-1] + log(1-(fitprob[input[4]-1]))
+  } # end not the first row
+} # end find A
+# returns a column for the "both" data frame: B in the AD* calculation
+findBrow<-function(input,fitprob,nonpar) {
+  if (input[4]==1) { # first row is special
+    out<- 0
+  } else { # not the first row
+    out<- 2*log(1-input[2])*nonpar[input[4]-1] - 2*log(1-fitprob[input[4]-1])*nonpar[input[4]-1] 
+  } # end not the first row
+} # end find B
+# returns a column for the "both" data frame: C in the AD* calculation
+findCrow<-function(input,fitprob,nonpar) {
+  if (input[4]==1) { # first row is special
+    out<- 0
+  } else { # not the first row
+    out<- log(input[2])*nonpar[input[4]-1]^2 - log(1-input[2])*nonpar[input[4]-1]^2 - 
+      log(fitprob[input[4]-1])*nonpar[input[4]-1]^2 + log(1-fitprob[input[4]-1])*nonpar[input[4]-1]^2
+  } # end not the first row
+} # end find C
+```
+
+The final task in this set of functions remains plotting the weibull curve.  I immitate the Weibull++ style as well as include a histogram of the censored events.  A sample of the style follows:
+
+```{r samplePlot, echo=FALSE, results='markup',fig.height=4.54, fig.width=5.96}
+# must define these functions here
+weibplot <- function(x,y,log='xy',...,forceylim=c(0,0),forcexlim=c(0,0))
+{
+  x <- log(x,10)
+  y <- log(-log(1-y))
+  xlg = TRUE # hard-coded for now
+  ylg = TRUE
+  yl <- ifelse(forceylim==c(0,0),range(y),forceylim)
+  xl <- ifelse(forcexlim==c(0,0),range(x),forcexlim)
+  plot(x,y,...,axes=FALSE,ylim=yl,xlim=xl)
+  if(xlg){drawlogaxis(1,xl)}else{axis(1,at=pretty(xl),labels=pretty(xl))}
+  if(ylg){drawweibaxis()}else{axis(2,at=pretty(yl),labels=pretty(yl))}
+  box()
+}
+# draw the axes:
+drawlogaxis <- function(side,range)  {
+  par(tck=0.02)
+  mlog <- floor(min(range))
+  Mlog <- ceiling(max(range))
+  SeqLog <- c(mlog:Mlog)
+  Nlog <- (Mlog-mlog)+1
+  axis(side,at=SeqLog,labels=10^SeqLog)
+  ats <- log(seq(from=2,to=9,by=1),10)
+  mod <- NULL
+  for(i in SeqLog)
+  {
+    mod <- c(mod,rep(i,length(ats)))
+  }
+  ats <- rep(ats,Nlog)
+  ats <- ats+mod
+  par(tck=0.02/3)
+  axis(side,at=ats,labels=NA)
+}
+drawweibaxis <- function()  {
+  par(tck=0.02)
+  SeqWeib <- c(.001,.003,.01,.02,.05,.1,.25,.5,.75,.9,.96,.99,.999)
+  axis(2,labels=SeqWeib,at=(log(-log(1-SeqWeib))),las=2)
+}
+#
+
+op <- par()  # save the plot parameters
+library(fitdistrplus)
+data(salinity)
+salinweib<-fitdistcens(salinity,distr="weibull")
+salinLD<-getModKM(salinity,salinweib[[1]])
+par(mar = c(3.6, 4, 4, 2) + 0.1)  # push the plot down a little
+weibplot(salinLD$tow[which(salinLD$cens == 1)], salinLD$p[which(salinLD$cens == 1)], 
+         forcexlim = c(0.9, log10(max(salinLD$tow)) + 0.02), forceylim = c(-7, 0), 
+         xlab = "", ylab = "Percent", col = rgb(255/255, 0/255, 0/255), pch = 16, 
+         main = paste("Salinity: Time to Event"))
+title(sub = "Some metric", line = 2)
+abline(h = c(log(-log(1 - c(0.001, 0.01, 0.1)))), v = c(c(seq(-1, 3))), col = rgb(1, 0, 0))  # Red
+abline(h = c(log(-log(1 - c(0.003, 0.02, 0.05, 0.25, 0.5, 0.75, 0.9, 0.96, 
+                            0.99, 0.999)))), col = rgb(38/255, 201/255, 38/255))
+abline(v = c(log10(seq(7, 9)), log10(seq(20, 90, 10)), log10(seq(200, 900, 
+              100)), log10(seq(2000, 9000, 1000))), col = rgb(38/255, 201/255, 38/255))  # Green
+# fitted line
+line.41 <- qweibull(seq(1e-04, 0.99, 5e-04), salinweib[[1]][1], salinweib[[1]][2], log.p = F)
+lines(x = log10(line.41), y = log(-log(1 - seq(1e-04, 0.99, 5e-04))))
+# legend
+legend(x = "topleft", legend = c(paste("Shape:", round(salinweib[[1]][1], digits = 3)), 
+                                 paste("Scale:", round(salinweib[[1]][2], digits = 3)), paste("Mean:", 
+                                 round(salinweib[[1]][2] * gamma(1 + 1/salinweib[[1]][1]), digits = 3)), 
+                                 paste("Observed:", length(salinLD$p[which(salinLD$cens == 1)])),
+                                 paste("Censored:", length(salinLD$p[which(salinLD$cens == 0)]))), 
+                                 cex = 0.85, ncol = 1, inset = c(-0.05, -0.03), bg="white")
+# plot the histogram
+par(new = T, mar = c(3.14, 4.1, 4.1, 2.1))  #5.96 x 4.54 to line up the histogram to the bottom of the plot area
+histholder <- hist(log10(salinLD$tow[which(salinLD$cens == 0)]), breaks = "Sturges", 
+                     plot = F)  # to get the bin heights and counts
+histplot <- hist(log10(salinLD$tow[which(salinLD$cens == 0)]), breaks = "Sturges", 
+                   xlim = c(0.9, log10(max(salinLD$tow)) + 0.02), ylim = c(0, max(histholder$counts) * 
+                   2.2), border = 1, col = rgb(149/255, 184/255, 251/255), ylab = NULL, 
+                   xlab = NULL, main = NULL, labels = T, axes = F, plot = T)
+```
+
+Sometimes the plot doesn't look right because of the data.  I hard-coded some of the axis parameters for the TOW for the weibull parts (in the low thousands of hours), which especially don't tranlsate well to these low time-to-events here.  It's an area for improvement.
+
+**getPlotFromDF()** takes two data frames:  both: the time-on-wing, rank, and modified kaplan meier data frame for all events, and df: a sample of the input removal data to pull descriptive information.  It also takes params, the two weibull parameters, catgs, a string of any classifier names that are "ALL" (unrestricted in the input data), and plotdir, the directory 
+
+The function outputs a plot in a given folder as defined by the original call to gatherallweibulls().
+
+```{r defgetPlotFromDF, cache=TRUE}
+getPlotFromDF<- function(both, df, params, catgs, plotdir) {
+  # assign titles for the plot
+  title.WUC<-df$WUC[1]
+  title.name<-as.character(part.names[part.names$WUC==title.WUC,2])
+  title.Loc<-ifelse(strsplit(catgs,"Loc")==catgs,"ALL",as.character(df$Loc[1]))
+  title.Loc<-ifelse(title.Loc=="N/A","NA",title.Loc) # png name can't have a slash in it
+  title.PN<-ifelse(strsplit(catgs,"PN")==catgs,"ALL",as.character(df$PN[1]))
+  title.aRI<-ifelse(strsplit(catgs,"adjRepInt")==catgs,"ALL",as.character(df$adjRepInt[1]))
+  
+  # Plot
+  op<-par() # save the plot parameters
+  #dots
+  png(file = paste(plotdir,"WeibullPlot._WUC_",title.WUC,";Loc_",title.Loc,";PN_",title.PN,";RepInt_",
+                   title.aRI,".png",sep=""), width=5.96, height=4.54, units="in", res=144)
+  par(mar=c(3.6, 4, 4, 2) + 0.1) # push the plot down a little
+  weibplot(both$tow[which(both$cens==1)],both$p[which(both$cens==1)],forcexlim=c(.9,log10(max(both$tow))+.02),
+           forceylim=c(-7,0), xlab="",ylab="Percent",col=rgb(255/255,0/255,0/255),pch=16,
+           main=paste("Weibull Removal Plot\n",
+                      title.name,
+                      ifelse(title.Loc=="ALL"," - All Locations",ifelse(title.Loc=="NA"," - No Majority Location",paste(" - ",title.Loc))),
+                      "\n",ifelse(title.PN=="ALL","All Part Numbers - ",paste("PN ",title.PN," - ")),
+                      ifelse(title.aRI=="ALL","All Removal Intervals",paste("Removal Interval ",title.aRI))))
+  title(sub="Flight Hours",line=2)
+  abline(h=c(log(-log(1-c(.001,.01,.1)))),v=c(c(seq(-1,3))),col=rgb(1,0,0)) # Red
+  abline(h=c(log(-log(1-c(.003,.02,.05,.25,.5,.75,.9,.96,.99,.999)))),col=rgb(38/255,201/255,38/255))
+  abline(v=c(log10(seq(7,9)),log10(seq(20,90,10)),log10(seq(200,900,100)),log10(seq(2000,9000,1000))),col=rgb(38/255,201/255,38/255)) # Green
+  #fitted line
+  line.41<-qweibull(seq(0.0001,.99,.0005),params[1],params[2],log.p=F)
+  lines(x=log10(line.41),y=log(-log(1-seq(.0001,.99,.0005))))
+  #legend
+  legend(x="topleft",legend=c(paste("Shape:",round(params[1],digits=3)),paste("Scale:",round(params[2],digits=3)),
+                              paste("Mean:",round(params[2]*gamma(1+1/params[1]),digits=3)),
+                              paste("Observed:", length(both$p[which(both$cens==1)])),
+                              paste("Censored:",length(both$p[which(both$cens==0)]))),cex=.85,ncol=1,inset=c(-0.05,-0.03))
+  #histogram (if there are censored values)
+  if(length(both$p[which(both$cens==0)])==0) { # just plot a zero at median of non-censored hours
+    text(x=log10(median(both$tow[which(both$cens==1)])),y=-7,labels="0")
+  } else { # plot the histogram
+  par(new=T,mar=c(3.14,4.1,4.1,2.1)) #5.96 x 4.54 to line up the histogram to the bottom of the plot area
+  histholder<-hist(log10(both$tow[which(both$cens==0)]),breaks="Sturges",plot=F) # to get the bin heights and counts
+  histplot<-hist(log10(both$tow[which(both$cens==0)]),breaks="Sturges",xlim=c(.9,log10(max(both$tow))+.02),ylim=c(0,max(histholder$counts)*2.2),border=1,col=rgb(149/255,184/255,251/255),ylab=NULL,xlab=NULL,main=NULL,labels=T,axes=F,plot=T)
+  } # end if there is enough data to plot the histogram
+  options(warn=-1)
+  par(op)
+  options(warn=0)
+  invisible(dev.off())
+} # end plot Function
+```
+
+A weibull plot requires a unique transformation of the x and y axes.  The x axis displays the Time on Wing, and is log base-10 scale.  The y axis displays the modified kaplan meier quantiles for reliability: it is from 0 to 1 and increases at a slowing rate like the log base 10 scale but slightly different.  These points, on a 0 to 1 scale, are transformed with $ln(-ln(1-y))$ to fit on the new axis, which goes from about -7 to 0 on a normal axis but displays as 0 to 1 after modifying the axis labels.
+
+getPlotFromDF() first builds the title of the plot and of the file name from the "catgs" parameter, a text string.  It uses png() to open a connection to the specified folder and begins the multistep process to create the plot:
+
+- Points and Axes: using the custom function weibplot(), shown below.  This function transforms the x and y inputs, gives a header, and, with calls to two more functions, plots and labels the axes.
+- Subtitle: for text below the plot, using title()
+- Axes lines:  Three calls to abline() create the red and green vertical and horizontal lines at major tick marks.  The red lines mark the weibull's 0.01 and 0.1 horizontals and TOW's 10, 100 and 1000 verticals.
+-  Fitted line plot:  The MLE fit is plotted as a line calculated with qweibull() and the parameters - it is not always the line of best fit on the weibull plot.  The line must be calculated and stored as an object, then transformed to fit on the axes and plotted with lines().
+-  Legend: the legend goes in the top-left of the graph, and hopefully does not cover any details.  It uses legend()
+- Histogram:  The histogram must also be calculated and stored as an object prior to display: the height of the bars must be restricted so as not to interfere much with the points or line.  It is wrapped with an if statement that will just plot a zero if there are no censored data points.
+
+```{r defweibplotsupport, cache=TRUE}
+weibplot <- function(x,y,log='xy',...,forceylim=c(0,0),forcexlim=c(0,0))
+{
+  x <- log(x,10)
+  y <- log(-log(1-y))
+  xlg = TRUE
+  ylg = TRUE
+  yl <- ifelse(forceylim==c(0,0),range(y),forceylim)
+  xl <- ifelse(forcexlim==c(0,0),range(x),forcexlim)
+  plot(x,y,...,axes=FALSE,ylim=yl,xlim=xl)
+  if(xlg){drawlogaxis(1,xl)}else{axis(1,at=pretty(xl),labels=pretty(xl))}
+  if(ylg){drawweibaxis()}else{axis(2,at=pretty(yl),labels=pretty(yl))}
+  box()
+}
+# draw the axes:
+drawlogaxis <- function(side,range)  {
+  par(tck=0.02)
+  mlog <- floor(min(range))
+  Mlog <- ceiling(max(range))
+  SeqLog <- c(mlog:Mlog)
+  Nlog <- (Mlog-mlog)+1
+  axis(side,at=SeqLog,labels=10^SeqLog)
+  ats <- log(seq(from=2,to=9,by=1),10)
+  mod <- NULL
+  for(i in SeqLog)
+  {
+    mod <- c(mod,rep(i,length(ats)))
+  }
+  ats <- rep(ats,Nlog)
+  ats <- ats+mod
+  par(tck=0.02/3)
+  axis(side,at=ats,labels=NA)
+}
+drawweibaxis <- function()  {
+  par(tck=0.02)
+  SeqWeib <- c(.001,.003,.01,.02,.05,.1,.25,.5,.75,.9,.96,.99,.999)
+  axis(2,labels=SeqWeib,at=(log(-log(1-SeqWeib))),las=2)
+}
+```
+
+Here is an example of the Weibull++ graph style I immitated:
+
+http://www.reliasoft.com/Weibull/examples/rc3/index.htm
+
+I borrowed heavily from the log-scale example I found through r-bloggers and posted here:
+
+http://rtricks.wordpress.com/2009/10/30/decimal-log-scale-on-a-plot/
+
+The transformations for the x and y axes come from a few resources:
+
+http://www.itl.nist.gov/div898/handbook/eda/section3/eda33u.htm
+
+http://www.reliasoft.com/newsletter/2q2001/classic_weibull.htm
+
+http://www.stat.washington.edu/fritz/Reports/weibullplotting.pdf (page 3)
+
+Another good source of Weibull and Reliability information is here:
+
+http://www.reliawiki.org/index.php/The_Weibull_Distribution
+
+### Step 3
+
+Save the output data
+
+Try something like this, which creates a new .csv in your working folder:
+>write.csv(allweibulls,file="Apache Weibulls.csv",quote=FALSE)
+
+
+
+Perform hypothesis tests on the similarity of different removal data/weibull fits
+---------------------------------------------------------------------------------
+
+This code does two things:
+1) Log likelihood tests to check the hypotheses that groups of removal data can share the same weibull distribution
+
+2) Fit additional weibulls and run hypotheses tests for groups of classifiers, like 2 out of 3 Locations or 4 out of 5 PN.  This second part is incomplete:  it can lead to huge numbers of weibulls to fit and so I hard-code in some restrictions and an an option-out.  There are also several combinations that I have not implemented.
+
+
+> $MTTF=\frac{1}{\lambda}\Gamma(1+\frac{1}{\kappa})=\frac{1}{\lambda\kappa}\Gamma(\frac{1}{\kappa})$
+
+$lamda=\frac{\Gamma(1+\frac{1}{\kappa})}{MTTF}$
+
+Fulfilling both of these tasks requires outputting several columns: 23 in total.  It lists the classifier set of one removal data set/weibull and how the second one is different along with shape, scale, and mean time to fail of both individual and the combined data set.
+
+- WUC (of the first removal data set)
+- Loc
+- PN
+- Platform
+- Last Repair
+- Repair Interval
+- C2Class:  Which classifier will be different in the second set of removal data, e.g. Location
+- C2Spec: specific classifier for the second removal data set, e.g. NSWA.  This is never "ALL."  Only specific classifiers are compared.
+- chi2stat: chi squared statistic for the log-likelihood ratio test
+- pvalue: p value for the log-likelihood ratio test:  low values mean the populations are likely different
+
+There are two of the following five columns: one for each removal population.  
+
+- Events
+- Censored
+- Shape
+- Scale
+- Mean
+
+And finally three for the combined data set:
+
+- Shape
+- Scale
+- Mean
+
+
+Additional rows show test results for grouping sets of classifiers.  These are tested against plotting individual population individually, for example:  PN -101, -102, and -103 individually vs. one large population (and weibull) encompassing them all.  The following stand out for these rows:
+
+- C2spec will include multiple (at least three) specific classifiers, which are all for the C2class
+- The C2class classifier will state "independently" in the cooresponding column within the first six.  This notifies the user of the different type of test being displayed within this same output data frame.
+- Events and Censored will be teh same for both 1 and 2; this is by definition
+- Shape, Scale, and Mean 1 and 2 are NA:  there are too many individual plots to display so none are displayed
+
+All individual combinations of classifier sets are tested except for across different WUCs.  This means the code may test some groups of data that are unrealistic, for example the first repair interval to the fifth.
+
+Process:
+
+The code proceeds similarly to the weibull fitting procedure, with one funciton calling a few other functions for each of many combinations of different data groups.  It runs ddply() over the weibulls output table instead of the removal data, but still requires the removal data.  No additional packages are required.
+
+**testallweibulls()** calls testoneset() once per classifer set and groups them together into one data frame.  Classifier set is defined as before: it defines which of the six classifier columns will be specific and which will be unrestricted, or All.  An example set is: 
+>WUC=06A, Location=NSWA PN=ALL, Platform=ALL, LastRepair=ALL, adjRepInt= ALL
+
+testoneset(), called within this function, takes the identity of the specified columns (as integers) as input. As in gatherallweibulls(), calling this function the correct number of times requires two for loops:  once per quantity of columns to include, and once for each combination of the classifier columns possible.  For example, if the first for loop was 4, the second for loop would consist of the following possibilities:
 
 ```{r}
-subdf<-weibulls_initial[weibulls_initial$WUC=="06A" & weibulls_initial$PN=="7-311310001-43" ,]
-subdf<-droplevels(subdf)
-censsubdf<-CensUncens(subdf)
-head(censsubdf)
+combn(6:2,3)
 ```
+
+The wuc is always included, and so the integer 1 must be added to each column.  This is the
+
+A few bookkeeping tasks remain:  define a binary variable, first, to trigger adding a new set of data to the already-existing tests data frame that holds all the output.  And return some of the output columns in test as factors with a call to as.factor().
+
+
+```{r deftestallweibulls, cache=TRUE}
+testallweibulls<-function(allweibulls,allremovals,doAllGroups=FALSE) {
+  allweibullsNONA<-allweibulls[is.na(allweibulls$shape)==FALSE,]
+  classcolnames<-c("WUC","Loc","PN","Platform","LastRepair","adjRepInt")
+  # specify the columns to include and those to exclude
+  cls<-length(classcolnames) # number of classifier columns, including WUC
+  first <- TRUE # initialize a dummy binary variable to start or append to a data frame
+  tests<-data.frame()  #  initialize an empty data frame to hold output
+  for(ii in seq(from=1,to=(cls-1))) { # loop once per classifier column [except wuc] 
+    # call combn() one time during an interation of this outer loop
+    mat<-combn(cls:2,ii) # gives all the ways to choose 'ii' digits out of quantity of classifier columns less one [b/c wuc is always in]
+    for(jj in seq_len(dim(mat)[2])) {
+      # call testoneset() once per column of the combn output
+      tests1<-testoneset(allweibullsNONA,include=sort(c(1,mat[,jj])),classcolnames,allremovals,doAllGroups)
+      if(first) {
+        tests<-tests1 # create
+        print(dim(tests))
+        first<-FALSE
+      } else {
+        tests<-rbind(tests,tests1)
+        print(dim(tests))
+      } # end else
+    } # end inner for
+  } # end outer for
+  # convert description columns to factors
+  for (jj in seq(from=2,to=length(classcolnames))){
+    tests[,jj]<-factor(tests[,jj])
+  }
+  (tests)
+} # end testallweibulls
+```
+
+**testoneset()** pares down the weibull input table and uses ddply to make successive calls to testoneSubset().  It requires:
+
+- the full weibull input data frame passed to testallweibulls()
+- a vector of integers specifying which classifier columns 
+- a vector of characters with names for each classifier column
+- the full removal data input data frame
+- a logical determining whether to run additional tests and weibull fittings
+
+First the function splits the classifier vector into ones that will be included (specified in "include") and those that will be excluded.  It then pares down the weibull data by excluding any ALLs from the included classifier columns and only including the ALLs for the excluded columns (named as exclude).  For example, if PN, the third column, is a part of the include vector each weibull row marked ALL in the PN column will be tossed out.
+
+testoneset() calls ddply once per number in "include," excluding 1, or WUC - we don't want to test across WUCs.  ddply() will break apart the weibullset further so that each resulting data frame passed to testoneSubset() has just one class for each "include" classifier column EXCEPT FOR the loop index, ii (this time WUC is included b/c we want to separate out by WUC).
+
+For example, if "include" has WUC, PN, and Location the paring down from weibullsout to weibullSet will reduce the weibull data frame to ALL for the other classifiers and remove the ALL classifiers for PN and Location.  
+ddply() will be called twice: once for PN and once for Location.  The first time it is called ddply breaks apart weibullSet even further into a data frame with just one WUc and one Location but all part numbers. Each possible combination that follows this pattern is sent to a new instance of testoneSubset(). The second time called, ddply() will break apart the original weibullSet with just one WUC and one Part Number but all Locations.
+
+
+```{r deftestoneset, cache=TRUE}
+testoneset<-function(weibullsout,include,classcolnames,removalin,doAllGroups) {
+  includenames<-classcolnames[include] # include WUC in this
+  # runs every test for that combination of classifiers
+  exclude<-classcolnames[-include] # find the excluded weibull classifiers
+  #exclude<-exclude[-1] # leave out WUC from exclude
+  # pare down weibull data
+  weibullSet<-weibullsout
+  for(ii in exclude) {weibullSet<-weibullSet[weibullSet[,ii]=='ALL',]} # pare down the weibull output set
+  for(ii in include) {weibullSet<-weibullSet[weibullSet[,ii]!='ALL',]} # reference to column number or name both work
+  print(classcolnames[include]) # just to track the progress
+  first <- TRUE # initialize a dummy binary variable to start or append to a data frame
+  # call a ddply once per included classifier (excluding WUC, so start at 2); 
+     # break down on it and WUC (always 2 classifiers)
+  for(jj in seq(from=2,to=length(include))) {
+    if(first) { # create new df or append 
+    tests<-ddply(weibullSet,includenames[-jj],testOneSubset,include[-jj],includenames[jj],removalin,doAllGroups)
+    first <- FALSE}
+    else {tests1<-ddply(weibullSet,includenames[-jj],testOneSubset,include[-jj],includenames[jj],removalin,doAllGroups)
+    tests<-rbind(tests,tests1)} # end check on first
+  }
+  (tests)
+} # end testOneSet
+```
+
+**testoneSubset()** finds pairs of removal populations to test and sends them to testonepair() and will call testonemany() to fit additional weibulls to populations for groups of specific classifiers.  It's inputs are:
+
+- someweibulls: subset of the weibulls dataframe
+- otherclassdigits: vector of integers: specifies which classifier columns are specific and should have just one value in the resulting someweibulls dataframe
+- classifier: the one classifier that will be used to compare removal data populations, as a character
+- revm_set:  the full removals dataframe that was passed to gatherallweibulls()
+- doAllGroups: the logical that decides whether to fit additional weibulls and perform more tests
+
+An if statement first checks to make sure there are at least two rows in this subset of the weibull data to test.  It returns NULL if there are not.
+
+The removal data is then pared down to only include data that match the other specific classifiers for this small subset of the data.  The held-out classifiers, kept ALL, will remain as including all the removal data.  The code pulls the specific value to use for each classifier from the first row of someweibulls, which will be the same value for all rows of someweibulls.
+
+testonepair() must be called for every possible combination of two rows within someweibulls.  combn() is again used to find these, and a for loop runs across each possible combination and calls testonepair().  This function finally gets to the math involved in the hypothesis test, and I will explain it below.
+
+testoneSubset() finally calls testonemany() several times if the user has specified a desire.  There are a few additional weibulls to fit and hypothesis tests to run besides the ones hence performed: one-to-one comparisons.  They can be classed into the following categories:
+
+-  Groups of classifiers against fitting each one individually where the group is something less than all
+ - Ex:  test whether grouping PNs -41, -43, and -45 (but not -47) together is statistically different than assigning each off the three PNs its own weibull
+ - Implemented here
+-  Groups of classifiers against non-overlapping groups of classifiers
+ -  Ex:  test whether the grouping of PNs -41 and -43 is statistically different than the grouping of -45 and -47
+ - Not implemented
+- Groups of classifiers against some subset of the group
+ - Ex: test whether the grouping of PNs -41, -43, and -45 is statistically different than the grouping of -41
+ - Not implemented
+ - is this the same as the first one? maybe sometimes
+ 
+I may be missing some, and some of these may never be useful.
+
+The sheer scale of some of the potential groups of weibulls to fit and test make this process laborious for a computer running in-memory calculations and the current non-optimised version of the code.  Consider a WUC with 11 part numbers: testing every combination of two PNs against every other combination of two PNs requires `r dim(combn(11,4))[2]` tests.  
+>dim(combn(11,4))[2]
+
+These must be duplicated for each location, repair interval, etc, although lack of data will likely prevent many of these tests.  Then consider every combination of two against every non-overlapping combination of three: `r dim(combn(11,5))[2]`
+>dim(combn(11,5))[2]
+
+I believe each of these combinations can be further divided into four possible combinations by switching out which PNs are in the group with two and which are in the group with three.  See:
+```{r}
+combn(11,5)[,1:5]
+```
+
+The case that I implement requires something in the magnitude of 2^n tests, where n is the number of specific classifiers.  The correct number is something like:
+```{r}
+b<-0
+for(ii in 2:(11-1)) {
+  b<-b+dim(combn(11,ii))[2]
+} 
+print(b)
+```
+While 2^11 is `r 2^11`
+
+It gets especially large when dealing with engine removal intervals, but an easy case could be made that only subsequent and antecedent removal intervals should ever be grouped together and the possible groups to compare could be reduced.  But enough.
+
+I currently restrict the current additional testing performed to the classifier cases that have six or fewer specific classifiers:  a set (someweibulls in this testonesubset() function) with 7 removal intervals (if removal interval is the specific "classifier" in an instance of this funciton) is skipped, and a vague message sent to the final dataframe warning the user that this occurs.  It remains easy to include with a few changes to the code if the user requires.
+
+***explain how I run the grouped classifier code***
+
+Within the if statement to check if the user decides to perform the additional tests, the first statement is another if testing the number of rows in the someweibulls table are greater than six.  If so, it prints the warning message with the one specific classifier and the other specific classifiers.  Additionally, if someweibulls has just two rows it will be skipped.  Cases with just two rows are already checked in the code leading up to this when comparing two rows.
+
+Two for loops are required to test every possible combination of the rows in someweibulls.  First loop through an integer defining how many rows to combine, from three to the full length of the table (marked as mm).  Then loop across all possible combinations using mm rows, which are found with a combn() call and looping across columns, nn.  Each column of the combn() define which rows of someweibulls to choose and are passed to testOnemany().
+
+```{r deftestonesubset, cache=TRUE}
+testOneSubset<- function(someweibulls,otherclassdigits,classifier,remv_set,doAllGroups) {
+  # Compares each weibull passed to it (a subset of the total) to every other weibull passed to it.
+  # Focuses on one classifier, like PN.  Other classifiers may be specified or "ALL."  PNs, for example,
+  # are compared to eachother within the same location, platform type, etc.
+  if(length(someweibulls[,1])<2) { # if there's only one row in the subset no comparison is possible
+    (NULL) }   # return nothing    
+  else {
+    for(kk in otherclassdigits) { # ddply gives this fn a df with one factor per specific 'other classifier.'
+      # this loop cuts down the removal data to only include ones whose 'other classifier' matches
+      remv_set<-remv_set[as.character(remv_set[,kk])==as.character(someweibulls[1,kk]),]
+      remv_set<-droplevels(remv_set)
+       } # end for
+  mat<-combn(length(someweibulls[,1]),2) # gives all the ways to choose 2 digits out of quantity of rows in subset to test
+  for(jj in seq_len(dim(mat)[2])) { # pick two rows and test them
+    if(jj==1){test<-testOnePair(rows=mat[,jj],someweibulls,classifier,remv_set)
+    } else {test1<-testOnePair(rows=mat[,jj],someweibulls,classifier,remv_set)
+    test<-rbind(test,test1)}
+    } # end for 
+  ### if more combinations are desired, go through the following: (e.g. mix 3 PN out of 5 together)
+  if(doAllGroups) {
+    if(length(someweibulls[,1])>4) { # number of combinations grow exponentially: 2^(number of rows)
+      # skip this instance and put in a row that alerts the user
+      test<-rbind(test,c("TOO","MANY","COMBINATIONS:","SKIPPING",classifier,"within","classifiers",names(someweibulls)[otherclassdigits]))
+    } else if(length(someweibulls[,1])==2 | length(someweibulls[,1])==3) { # if only two rows in the subset the testOnePair() will take care of it
+      # If only 3 rows the 3-row case is already calculated - the "ALL" case
+      ### Do Nothing 
+      } else { # call a function to test the groupings
+        # must find all combinations, which requires two combn()s
+        for (mm in seq(from=3,to=length(someweibulls[,1])-1)) { # combine mm number of rows together for each (2 has already been done; start on 3)
+              #  don't want all combinations either because that's already been calculated; subtract one from length(someweibulls)
+          for (nn in seq_len(dim(combn(length(someweibulls[,1]),mm))[2])) { # for each column (specific combination of rows)
+            test<-rbind(test,testOneMany(rows=combn(length(someweibulls[,1]),mm)[,nn],someweibulls,classifier,remv_set))
+          } # end looping across columns (nn)
+        } # end looping across that number of things to combine (mm)
+      } # end checking if there are the right number of rows to run this testing
+    } # end checking if the user wants to run all these extra groupings and tests
+  (test)
+  } # end check on enough data
+} # end testOneSubset  
+```
+
+
+explain testonePair() and the math
+
+testonepair() performs the hypothesis tests and gathers the outputs into a dataframe row.  The null hypothesis states that the two samples of removal data (say, coming from SWA and NSWA) share the same weibull parameters, $\Theta_0$.  The alternate hypothesis states that the parameters are different.
+
+$H_0:\Theta_1=\Theta_2=\Theta_0 vs. H_A:\Theta_1\neq\Theta_2$
+
+This is performed with a chi-squared test statistic at a confidence level that's up to the user.  
+
+$2(L(t_i,\theta_0)/\prod^{j}{L(t_{k,j},\theta_j)})\overset{D}{\to}\chi^2_{2J-2}$
+
+where the i index is every event across all data samples, the j index specifies the data sample, the k index is the event index within a j sample, and J is the total number of indices, j.  The degrees of freedom in the chi squared distribution are the difference between free parameters in the restricted and nonrestricted cases: 2 * the number of independent samples (2 for eta and beta), and 2 for the two parameters in the restricted case.  For testonepair() J is always two, and so the degrees of freedom will be two.  As the degrees of freedom increase, the test requires more evidence to reject the null hypothesis: a lower chi-squared statistic.
+
+I calculate the chi squared test statistic from a ratio of two likelihoods, which converges in distribution to chi squared with J - the number of distinct data samples - degrees of freedom as n - the number of data points - approaches infinity.  The test is similar to both a Wald test, which Minitab uses, and a Lagrange multiplier test.
+
+While fitting a distribution, the maximum likelihood method maximises the likelihood of a sample of data
+subject to the data points and an assumed distribution.  Comparing likelihoods across different assumed distributions or other distribution restrictions is logical.  Comparing across different data sets is not, becuase likelihood is heavily influenced by the data.
+
+The two likelihoods to compare are the restricted case, the numerator, and the unrestricted case, the denominator.  The restricted case will never be larger than the unrestricted case, and therefore the ratio will be in the range of (0,1].  The restriction is forcing the two samples of data to share the same parameters (eta and beta), while the unrestricted case is allowing them to have different sets of paraemters.  Two distributions will fit the data at least as good as just one.  The restricted case likelihood is the one likelihood from the fit, while the unrestricted case likelihood is the sum of the two individual fits.
+
+The likelihood for life data with censored and uncensored requires multiplying the pdf of uncensored events - those that fail - and the survivor function of censored events - those that do not fail:
+
+$L(x,\theta)=\prod_{i=1}^{n}f(x_i,\theta)^{\delta_i}S(x_i,\theta)^{1-\delta_i}=\prod_{i\in U}f(t_i,\theta)\prod_{i\in C}S(c_i,\theta)$
+
+where C is the set of censored data, U is the set of uncensored data, t is the failure time, c is the censored time, and n is the total number of censored and uncensored events.
+
+For a weibull distribution these two functions are:
+
+$f:\beta/\eta(t/\eta)^{\beta-1}e^{-(t/\eta)^\beta}$
+
+$S:e^{-(t/\eta)^\beta}$
+
+where beta is the shape parameter and eta is the scale parameter.  A reminder: the survivor function can be found by integrating the probability distribution function from t to infinity: it starts at 1 and decreases while the pdf starts at 0.
+
+fitdistcens() calculates negative log likelihood each time it fits a distribution (natural log).  The negative log likelihood is easier to calculate and optimzie than the likelihood, and will be minimized in the optimization routine.  Using these values, the likelihood ratio test becomes the "log-likelihood difference test," as the log of a ratio is the log of the numerator less the log of the denominator.
+
+The weibulls output database (an input to this function) already includes the indivual negative log likelihoods of the unrestricted values.  All that remains is summing them up.  The restricted case, however, must be fit, and so it is necessary to pass the removal data all the way down to this function.
+
+testonePair() first reduces the someweibulls table down to just the two desired rows, then structures the output row, out.  It transfers the relevant classifiers and the current classifier type and specific value to that row.  To fit the required restricted-case weibull it gathers the relevant removal data into a superset dataframe, supset.  
+
+The log likelihood test statistic becomes:
+
+$2((x_{k,1},\theta_1)+l(x_{j,2},\theta_2))-l(x_i,\theta_0)$
+
+where k in K is the index for the K data points in population 1, j in J is the index for the J data points in population 2, and i in I is the index for the total data points: J + K
+
+```{r deftestonepair, cache=TRUE}
+testOnePair<- function(rows,someweibulls,classifier,remv_small) {
+# Tests for equal shape and scale weibull parameters for one pair of weibulls
+# use with apply();  passed just two rows of the allweibulls table
+twoweibulls<-someweibulls[rows,]
+#print(twoweibulls)
+# initialize the data frame to hold the results
+out<-data.frame("","","","","","","","",NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,stringsAsFactors=FALSE)
+colnames(out)<-c("WUC","Loc","PN","Platform","LastRepair","adjRepInt","C2class","C2spec","Events1",
+                 "Censored1","chi2stat","pvalue","Events2","Censored2","Shape1","Scale1","Mean1",
+                 "Shape2","Scale2","Mean2","Shape1&2","scale1&2","Mean1&2")
+for(ii in 1:6) {out[1,ii]<-as.character(twoweibulls[1,ii])}  # Colon notation isn't working for some reason
+#out[1,1:6]<-as.character(twoweibulls[1,1:6]) # transfer the classifier columns
+out[1,7]<-classifier # transfer the one specific classifier type
+out[1,8]<-as.character(twoweibulls[2,classifier]) # transfer the specific classifier of the second row
+out[1,9:10]<-twoweibulls[1,12:13] # transfer the removal numbers of first row
+NLLspec1<-twoweibulls$NLogLik[1] # two negative log likelihoods
+NLLspec2<-twoweibulls$NLogLik[2]
+# table already has two of the required log-likelihoods.  to find the third:
+#   first get the superset of removal data from both classifier sets together
+supset<-remv_small[remv_small[,classifier]==as.character(twoweibulls[1,classifier]) | 
+                     remv_small[,classifier]==as.character(twoweibulls[2,classifier]),] 
+supset<-droplevels(supset)
+censsupdf<-CensUncens(supset)
+options(warn=-1) # NANs in the fitting produce warnings
+weibsupdf<-fitdistcens(censsupdf,"weibull")  # second, fit the data to a weibull
+options(warn=0)
+NLLcomb<-weibsupdf$loglik # negative log likelihood of the combined fit
+teststat<-2*((NLLspec1+NLLspec2)-NLLcomb) # chi squared test statistic for:
+pval<-pchisq(teststat,2,lower.tail=FALSE) # hypothesis test: null: shape=shape & scale=scale
+out[1,11]<-teststat
+out[1,12]<-pval
+out[1,13:14]<-twoweibulls[2,12:13] # transfer the removal numbers of the second weibull/row
+out[1,15:17]<-twoweibulls[1,c(7,8,11)] # transfer first parameters
+out[1,18:20]<-twoweibulls[2,c(7,8,11)] # transfer second parameters
+out[1,21:23]<-c(weibsupdf[[1]][1],weibsupdf[[1]][2],weibsupdf[[1]][2]*gamma(1+1/weibsupdf[[1]][1])) # transfer parameters from combining the two populations
+(out)
+} # end testOnePair()
+```
+
+explain testonemany()
+
+TestOneMany fits additional weibulls and performs statistical tests.  Currently it runs for one class of data, described above: Groups of classifiers against fitting each one individually where the group is something less than all.
+
+Arguments:
+  rows: the row of someweibulls to group together
+  someweibulls: a subset of the allweibulls table, the output from gatherallweibuls()
+  classifier: the classifier type
+  remv_small: a subset of the removal input, the input to gatherallweibulls()
+  
+Output:
+  a row of the final output data for testallweibulls()
+  
+The function works simililarly to testonepair().  It first creates and fills in some of the output row, then gathers the negative log likelihood of the individual fits, "NLLsumofindiv."  It reduces remv_small to just the superset of the classifier matches on study, fits the best distribution, and tests uses the resulting negative log likelihood in the hypothesis test.  Finally, it puts the the last few data into the output row and returns it.
+
+
+```{r deftestonemany, cache=TRUE}
+testOneMany<-function(rows,someweibulls,classifier,remv_small) {
+  manyweibulls<-someweibulls[rows,]
+  manyweibulls[,1:6]<-droplevels(manyweibulls[,1:6])
+  # initialize the data frame to hold the results
+  out<-data.frame("","","","","","","","",NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,stringsAsFactors=FALSE)
+  colnames(out)<-c("WUC","Loc","PN","Platform","LastRepair","adjRepInt","C2class","C2spec","Events1",
+                   "Censored1","chi2stat","pvalue","Events2","Censored2","Shape1","Scale1","Mean1",
+                   "Shape2","Scale2","Mean2","Shape1&2","scale1&2","Mean1&2")
+  #out[1,1:6]<-as.character(twoweibulls[1,1:6]) # transfer the classifier columns
+  # Paste the held-out data: can be as few as one row
+  for(ii in 1:6) {out[1,ii]<-as.character(manyweibulls[1,ii])}  # Colon notation isn't working for some reason
+  EXgroupedtogether<-unique(as.character(someweibulls[-rows,classifier]))
+  out[1,classifier]<-"independently" # specific classifiers for held-out sample.  one of columns 2:6
+  out[1,7]<-classifier # transfer the one specific classifier type
+  # Paste the grouped data: can be as few as three rows
+  groupedtogether<-unique(as.character(manyweibulls[,classifier]))
+  z<-groupedtogether[1]
+  for(bb in 2:length(groupedtogether)){z<-paste(z,groupedtogether[bb])} # transfer the specific classifier of the second row
+  out[1,8]<-z
+  #out[1,9:10]<- # the information for group one and group two don't mean much when we have more than two groups
+  # table already has the individual log-likelihoods; calculate:  
+  NLLsumofindiv<-sum(manyweibulls$NLogLik)
+  # find the log-likelihood of the combined data set fit:
+  #   first get the superset of removal data from all classifiers of this set together:
+  #       start with the first subset
+  supset<-remv_small[remv_small[,classifier]==as.character(levels(manyweibulls[,classifier])[1]),]
+  #       then add the remaining ones (2:the end)
+  for (dd in 2:length(manyweibulls[,classifier])){supset<-rbind(supset,
+            remv_small[remv_small[,classifier]==as.character(levels(manyweibulls[,classifier])[dd]),])}
+  supset<-droplevels(supset) # drop unused factor levels
+  censsupdf<-CensUncens(supset) # and prepare for fitting
+  options(warn=-1) # NANs in the fitting produce warnings
+  weibsupdf<-fitdistcens(censsupdf,"weibull")  # second, fit the data to a weibull
+  options(warn=0)
+  out[1,c(9,13)]<-length(censsupdf$right)-sum(is.na(censsupdf$right)) # events.  same in both
+  out[1,c(10,14)]<-sum(is.na(censsupdf$right)) # censorings
+  NLLcomb<-weibsupdf$loglik # negative log likelihood of the combined fit
+  teststat<-2*(NLLsumofindiv-NLLcomb) # chi squared test statistic for:
+  pval<-pchisq(teststat,2*length(manyweibulls[,classifier])-2,lower.tail=FALSE) # hypothesis test: null: shape=shape & scale=scale
+  out[1,11]<-teststat
+  out[1,12]<-pval
+  # leave the columns describing the "two" weibull inputs NA
+  # but transfer parameters from combining the two populations
+  out[1,21:23]<-c(weibsupdf[[1]][1],weibsupdf[[1]][2],weibsupdf[[1]][2]*gamma(1+1/weibsupdf[[1]][1]))
+  (out)
+} # end testOneMany
+```
+
+and it's over
+
+Other:
+--------
+
+Possible ways to speed up the code:  
+- eliminate for loops (use apply(), lapply(), sapply(), etc. when possible)
+ - the use of for loops with combn() is not a big deal
+ - the use of for loops calculating modified kaplan meier statistics is the slowest part of the code (getModKM)
+- pre-allocate memory when creating data frames
+ - this crops up like everywhere
+ 
+Other things to do next:
+- instead of 
+- add additional combination possibilities:
+  -
+ 
+ 
+ 
