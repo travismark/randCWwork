@@ -30,7 +30,7 @@ getWeibullFromDF <- function(df, plot=FALSE, catgs="",modkm, plotdir,unbug)  {
   #          determines whether to calculate anderson darling statistics
   #   plotdir: directory to store plots
   #   unbug: boolean if unbug remarks should be printed to console
-  # Out:
+  # Returns:
   #   out: a row with weibull & exponential paramaters and goodness of fit info for one set of classifiers 
   #        ddply will append this to the classifiers columns to make a row of the final output
   #   calls getPlotFromDF to make a plot, if option is on
@@ -98,9 +98,14 @@ getWeibullFromDF <- function(df, plot=FALSE, catgs="",modkm, plotdir,unbug)  {
 } # end getWeibullFromDF function
 
 
-# Find the p value of the test comparing the weibull fit to the exponential fit
-# takes as inputs: censored and uncensored times and the negative log likelihood of the weibull fit
 BetaTest<-function(input,weibnll) {
+  # Find the p value of the test comparing the weibull fit to the exponential fit
+  # Args: 
+  #  input: censored and uncensored times 
+  #  weibnll: negative log likelihood of the weibull fit for these times
+  # Returns:
+  #  list with pvalue from chi squared test and the exponential fit mean parameter
+  
   expofit<-fitdistcens(input,"weibull",start=list(scale=median(input$left)),fix.arg=list(shape=1)) # most likely expo fit to work
   teststat<-2*(weibnll-expofit$loglik)
   pvalue<-1-pchisq(teststat,1)
@@ -119,23 +124,35 @@ mergeWeibInput <- function(reliability_parameter,reliability_interval,reliabilit
   # Returns:
   #   out: an interval table with age and group id information
 
-  # drop unnecessary information
-  reliability_interval_parameter <- reliability_interval_parameter[,-1] # drop reliability interval parameter's id
-  reliability_interval <- reliability_interval[,c(1:6)] # drop consequence, nrts, and removal type info
+  ## drop unnecessary information
+  reliability_interval_parameter$id <- NULL # drop reliability interval parameter's id
+  # drop consequence, nrts, and removal type info
+  reliability_interval$consequence  <- NULL 
+  reliability_interval$nrts         <- NULL 
+  reliability_interval$removal_type <- NULL 
+  # drop parameters that aren't possible for calculating weibulls
+  reliability_parameter <- reliability_parameter[reliability_parameter$removal_rate==1,]
+  # then the remaining fields
+  reliability_parameter$removal_rate   <- NULL
+  reliability_parameter$consequence    <- NULL
+  reliability_parameter$nrts           <- NULL
+  reliability_parameter$do_not_combine <- NULL
   
   ## merge tables together
   # rename id fields to facilitate joining
-  colnames(reliability_interval)[1] <- colnames(reliability_interval_parameter)[1] # rename id field to match - reliability_interval_id (i.e. the interval id)
-  colnames(reliability_parameter)[1] <- colnames(reliability_interval_parameter)[2] # rename id field to match - reliability_parameter_id
+  #colnames(reliability_interval)[1] <- colnames(reliability_interval_parameter)[1] # rename id field to match - reliability_interval_id (i.e. the interval id)
+  #colnames(reliability_parameter)[1] <- colnames(reliability_interval_parameter)[2] # rename id field to match - reliability_parameter_id
   # merge
-  reliability_interval_parameter <- left_join(reliability_interval_parameter,reliability_parameter,by="reliability_parameter_id")
-  # drop reliability_parameter_id and do-not-combine
-  reliability_interval_parameter <- reliability_interval_parameter[,c(-2,-5)]
+  reliability_interval_parameter <- left_join(reliability_interval_parameter,reliability_parameter,
+                                              by=c("reliability_parameter_id" = "id"))
+  # drop reliability_parameter_id
+  reliability_interval_parameter$reliability_parameter_id <- NULL
   # de-normalize reliability_interval_parameter table and use group names as field names
   reliability_interval_parameter <- spread(data=reliability_interval_parameter,key=name,value=value)
   # merge
-  out <- left_join(reliability_interval_parameter,reliability_interval,by=colnames(reliability_interval)[1])
-  return(out[,-1]) # drop id field
+  out <- left_join(reliability_interval_parameter,reliability_interval,by=c("reliability_interval_id"="id"))
+  out$reliability_interval_id <- NULL # drop id field
+  return(out) 
 } # end mergeWeibInput
 
 # this will always break out by all classifiers (must give it classifier names)
@@ -340,7 +357,7 @@ calcADAvals<-function(rankedpts, origIntervalValues, expoparam) {
   
   #only take the plot (noncensored) points
   rankedpts<-rankedpts[rankedpts$cens==1,] 
-  rankedpts$rank<-seq_len(length(rankedpts[,1]))#recalculate the rank
+  rankedpts$rank<-seq_len(length(rankedpts[,1])) # recalculate the rank
   
   #find AD for the weibull distribution
   weibAD<-getOneADstat(rankedpts)
@@ -444,4 +461,58 @@ drawweibaxis <- function()  {
   par(tck=0.02)
   SeqWeib <- c(.001,.003,.01,.02,.05,.1,.25,.5,.75,.9,.96,.99,.999)
   axis(2,labels=SeqWeib,at=(log(-log(1-SeqWeib))),las=2)
+}
+### end plotting functions ###
+
+# 
+matchDistToInterval <- function(allweibulls,allevents,parameter_table) {
+  # Builds a 2-d binary matrix whether a particular removal is included in a particular weibull
+  # Will be used by the optimization model as constants for the constraints 
+  #   - event must be included in one and only one weibull
+  #  includes both causal and suspension events
+  # Args:
+  #   allweibulls: calculated weibull distribution
+  #   allevents: the full events/interval table
+  #   parameter_table: 
+  # Returns:
+  #   data frame of zeros or ones - only for the weibulls that have fit a distribution (could this be a matrix?)
+  
+  # get the classifier group names - first sort by whether they can be grouped across (e.g. removals from two WUCs shouldn't be combined)
+  parameter_table <- parameter_table[order(parameter_table$do_not_combine,decreasing=TRUE),]
+  classColNames <- unlist(parameter_table$name) # unlist to get a vector #c("WUC","LOCATION","PN","NHA_PN","LAST_REPAIR","REPAIR_COUNT")
+  classColType <- unlist(parameter_table$do_not_combine) # whether data from multiple values in the field can be combined into the same weibull
+  classCountToIgnore <- sum(classColType) # number of always-specific classifier fields - a constant throughout
+  
+  # drop weibulls that did not fit b/c too few data
+  weibullTable <- allweibulls[!is.na(allweibulls$NLogLik),]
+  
+  # drop unnecessary fields - only need the valid combinations of classifier / parameter fields
+  # also make sure the fields are in the same order
+  weibullTable <- weibullTable[,classColNames]
+  eventTable <- allevents[,classColNames]
+  # add id fields
+  weibullTable$wId <- 1:nrow(weibullTable)
+  eventTable$eId <- 1:nrow(eventTable)
+  
+  # loop over the weibulls, build a vector of 0/1 if the event is included in this weibull, and then bind it together
+  first <- TRUE
+  for (ii in seq(nrow(weibullTable))) {
+    oneVector <- rep(1,nrow(eventTable)) # initialize to 1 - assume event is in weibull
+    # loop over classifier fields and pare down data (ignore those with "ALL")
+    spCatg <- weibullTable[ii,-ncol(weibullTable)] # ignore the id
+    for (jj in colnames(spCatg)) {
+      if (!spCatg[1,jj] %in% "ALL") {
+        # set to zero those events that are not included
+        oneVector[-which(eventTable[,jj] %in% spCatg[1,jj])] <- 0
+      }
+    }
+    if(first){
+      oneMatrix <- oneVector
+      first <- FALSE
+    } else {
+      oneMatrix <- c(oneMatrix,oneVector)
+    }
+  }
+  # convert "matrix" vector to an actual matrix by splitting into a column per weibull
+  oneMatrix <- matrix(oneMatrix,ncol=nrow(weibullTable),nrow=nrow(eventTable),byrow=FALSE)
 }
