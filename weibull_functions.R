@@ -139,10 +139,6 @@ mergeWeibInput <- function(reliability_parameter,reliability_interval,reliabilit
   reliability_parameter$do_not_combine <- NULL
   
   ## merge tables together
-  # rename id fields to facilitate joining
-  #colnames(reliability_interval)[1] <- colnames(reliability_interval_parameter)[1] # rename id field to match - reliability_interval_id (i.e. the interval id)
-  #colnames(reliability_parameter)[1] <- colnames(reliability_interval_parameter)[2] # rename id field to match - reliability_parameter_id
-  # merge
   reliability_interval_parameter <- left_join(reliability_interval_parameter,reliability_parameter,
                                               by=c("reliability_parameter_id" = "id"))
   # drop reliability_parameter_id
