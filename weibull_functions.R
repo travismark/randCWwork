@@ -1,9 +1,110 @@
 ### Fit many weibulls and produce weibull plots
 
-# Define Functions: #
+# Load packages
+
+library("fitdistrplus", quietly = TRUE)
+library("plyr", quietly = TRUE)
+library("dplyr", quietly = TRUE)
+library("tidyr", quietly = TRUE)
+
+# Define Functions: 
+
+MergeRemovalRateInput <- function(parameter, parameter_value, interval, interval_set_map) {
+  # Converts Parameter Information (set, set_map, parameter, set_parameter) and Interval tables into 
+  #   a single table for use in gatherAllWeibulls()
+  #   Drops consequence and NRTS information
+  #   Keeps parameter ids - no need to use names (ignores parameter_value table)
+  # Args:
+  #   parameter: WUC, PN, etc.
+  #   parameter_value: specific values of those parameters
+  #   interval: age intervals with consequence
+  #   interval_set_map: connects sets of parameter values to their intervals (many to many, so intervals can share sets)
+  # Returns:
+  #   interval_parameter_value: a dataframe with parameter values (ids) and interval information
+  
+  ## Make sure all interval data have the same number of parameter values
+  if (length(unique(table(interval_set_map$interval_parameter_set_id))) > 1) {
+    stop(paste("Analysis requires the same quantity of parameter values for each interval. Currently intervals have:",
+               paste(unique(table(interval_set_map$interval_parameter_set_id)),collapse=", ")))
+  }
+  
+  ## drop unnecessary information
+  interval_set_map$id          <- NULL
+  interval$consequence         <- NULL
+  interval$nrts                <- NULL
+  interval$interval_type       <- NULL
+  interval$interval_start_date <- NULL
+  interval$interval_end_date   <- NULL
+  interval$tenant_project_id   <- NULL
+  # drop parameters that aren't possible for calculating weibulls
+  parameter <- parameter[parameter$removal_rate==1,]
+  # then the remaining fields
+  parameter$removal_rate   <- NULL
+  parameter$consequence    <- NULL
+  parameter$nrts           <- NULL
+  parameter$do_not_combine <- NULL
+  parameter_value$value    <- NULL
+  
+  ## merge three tables together to make one
+  interval_parameter_value <- inner_join(interval_set_map, parameter_value,
+                                        by=c("parameter_value_id" = "id")) %>% 
+    inner_join(parameter,by=c("parameter_id" = "id")) %>% 
+    inner_join(interval,by=("interval_parameter_set_id"))
+
+  # de-normalize interval_parameter_value table and use parameter names as field names
+  interval_parameter_value$parameter_id <- NULL # drop parameter id
+  interval_parameter_value <- spread(data=interval_parameter_value, key=name, value=parameter_value_id)
+  interval_parameter_value$id <- NULL # drop interval id (used to distinguish intervals in previous call)
+  interval_parameter_value <- interval_parameter_value[,c( # move interval value and causal to the end
+    colnames(interval_parameter_value)[!(colnames(interval_parameter_value) %in% c("interval_value","causal"))],
+    c("interval_value","causal"))]
+  return(interval_parameter_value)
+} # end MergeRemovalRateInput
+
+CalculateOneRemovalDistribution <- function(df, distribution_type="weibull"){
+  # Returns a distribution fit, or NA if not enough data
+  # Args:
+  #  df: subset of the de-normalized interval dataframe - only interval_value and causal fields
+  #  distribution_type: string - either exponential or weibull
+  # Returns:
+  #  a distribution fit object
+  
+  # Make sure distribution type is useful
+  if(!distribution_type %in% c("weibull","exponential","exp","expo")) {
+    stop("Distribution type must be one of weibull or exponential")
+  }
+  # Set to standard form of exponential
+  if(distribution_type %in% c("exp","expo")) {
+    distribution_type <- "exponential"
+  }
+  
+  # Drop the non-positive interval times
+  df <- df[df$interval_value > 0,]
+  # If too little data, then return NA
+  if(sum(df$causal == 1)<3) {return(NA)}
+  # If all causal events are the same number then no distribution can be fit; return NA
+  if(length(unique(df[df$causal == 1 ,]$interval_value))==1) {return(NA)}
+  
+  # If enough good data, then fit a distribution
+  df_for_fits <- CensUncens(df)
+  
+  options(warn=-1)
+  if(distribution_type %in% "weibull"){
+    distribution_fit <- fitdistcens(df_for_fits,"weibull")
+  }
+  else{
+    distribution_fit <- fitdistcens(df_for_fits,"weibull",start=list(scale=median(df_for_fits$left)),fix.arg=list(shape=1))
+    # distribution_fit <- fitdistcens(df_for_fits,"exp") # - this typicaly fails to converge
+    # print(dim(df_for_fits));print(mean(df_for_fits$left))
+    # distribution_fit <- fitdistcens(df_for_fits,"exp", start = list(rate=1/median(df_for_fits$left)), optim.method = "Nelder-Mead" )
+  }
+  options(warn=0)
+  
+  return(distribution_fit)
+} # end CalculateOneRemovalDistribution
 
 CensUncens <- function(df) {
-  # Transforms a subset of the repair/removals interval value (TOW) data into a format digestible for fitdistcens() functions
+  # Transforms a subset of the interval data into a format digestible for fitdistcens() functions
   # Args:
   #   df: a subset of the repair/removals data as broken down by a ddply() call according to specific and general classifiers
   # Out:
@@ -18,6 +119,40 @@ CensUncens <- function(df) {
   newdf<-rbind(censdf,uncensdf)
   (newdf)
 } # end CensUncens
+
+# Based on broom's tidy method
+#  one row for each parameter
+tidy.fitdistcens <- function(x, ...){
+  data.frame(parameter_name   = names(x$estimate), 
+             parameter_value  = unname(x$estimate),
+             standard_error   = unname(x$sd),
+             stringsAsFactors = FALSE)
+}
+
+# Based on broom's glance method
+#  one row for each distribution
+glance.fitdistcens <- function(x, ...){
+  if(class(x) %in% "fitdistcens"){
+    censored_or_not <- x$censdata
+    data.frame("distribution_type"       = x$distname,
+               "negative_log_likelihood" = x$loglik,
+               "distribution_mean"       = CalculateDistMean.fitdistcens(x),
+               stringsAsFactors          = FALSE)
+  } else {
+    data.frame("distribution_type" = NA,
+               "negative_log_likelihood" = NA,
+               "distribution_mean" = NA)
+  }
+}
+
+# Calculate distribution mean
+CalculateDistMean.fitdistcens <- function(x){
+  if(x$distname %in% "weibull"){
+    return(x$estimate[2]*gamma(1+1/x$estimate[1]))
+  } else if (x$distname %in% "exp"){
+    return(1/x$estimate[1])
+  }
+}
 
 
 getWeibullFromDF <- function(df, plot=FALSE, catgs="",modkm, plotdir,unbug)  {
@@ -98,6 +233,105 @@ getWeibullFromDF <- function(df, plot=FALSE, catgs="",modkm, plotdir,unbug)  {
 } # end getWeibullFromDF function
 
 
+# this will always break out by all classifiers (must give it classifier table)
+# uses GetWeibullsFromDF and CensUncens functions
+# previously gatherallweibulls
+GatherReliabilityDistributions <- function(interval_table, parameter_table, verbose=FALSE, unbug=FALSE, plots=FALSE, modkm=FALSE, plotdir=getwd()){
+  # 
+  # Args:
+  #  interval_table: de-normalized interval data - includes classifiers
+  #  parameter_table: classifier parameters table straight from database
+  # Returns: a list of data frames for saving to the output: 
+  #  interval_parameter_set, interval_parameter_set_map, and reliability_distribution
+  if(plots==TRUE & modkm==FALSE) {stop("modified kaplan meier statistics are required for plotting")}
+  if(verbose==FALSE) {print("Please Wait")}
+  # Previously there were Six classifier columns including WUC, which is always specified/included - 
+  #  it cannot be grouped across (removals from two WUCs shouldn't be combined)
+  # Now there could be any number
+  # Say there are n classifier columns total and m of them CAN be grouped (included in an ALL category)
+  # Total of n-m Choose (n-m):0 combinations and calls to calloneddply()
+  # previously this was sum(5 choose 5:0) or 32
+  
+  # get the classifier group names - first sort by whether they can be grouped across (e.g. removals from two WUCs shouldn't be combined)
+  parameter_table <- parameter_table[order(parameter_table$do_not_combine,decreasing=TRUE),]
+  class_col_names <- unlist(parameter_table$name) # unlist to get a vector #c("WUC","LOCATION","PN","NHA_PN","LAST_REPAIR","REPAIR_COUNT")
+  class_col_types <- unlist(parameter_table$do_not_combine) # whether data from multiple values in the field can be combined into the same weibull
+  class_count_dnc <- sum(class_col_types) # quantity of always-specific classifier fields - a constant throughout (dnc = do not combine)
+  class_count_tot <- length(class_col_names) # quantity of classifier columns, including those that cannot be combined (e.g. WUC)
+  class_count_cbn <- class_count_tot - class_count_dnc
+  
+  reliability_distribution_list   <- list()  #  initialize an empty list to hold distribution data frames
+  interval_parameter_set_map_list <- list()  #  initialize an empty list to hold int_param_set_map data frames
+  max_interval_parameter_set_id <- 0 # for making these ids unique in the distribution tables
+  
+  # there's a field 'causal' that is 0/1 for suspension or causal
+  # there's a field 'interval_value' that is the accrued age in that interval
+  # these are both last in the interval data frame
+  
+  for(ii in seq(from=0,to=(class_count_cbn))) { # loop once per quantity of classifier columns to specify (quantity of combinable/defaulatble fields) # 0 through 5
+    # e.g. 0 is specify only the do-not-combine classifiers
+    # e.g. 1 is specify the do-not-combine classifiers plus one additional classifier
+    # get all the possible combinations with a single call to combn() during this outer loop
+    classifier_combo_table <- combn(class_count_tot:(1+class_count_dnc),ii) # gives all the ways to choose 'ii' digits out of quantity of defaulatable classifier columns (others are always specific)
+    for(jj in seq_len(ncol(classifier_combo_table))) { # once per possible way to choose the classifier columns
+      include_param_names <- class_col_names[sort(c(seq(class_count_dnc),classifier_combo_table[,jj]))]
+      # call CalcDistOneParamCombo() once per column of the combn output
+      intmd_dists <- CalcDistOneParamCombo(interval_table,
+                                  include_param_names, # break-out (specify) these fields
+                                  plots,modkm,plotdir,verbose,unbug) # options [TODO maybe get rid of plots and modkm here]
+      # add integers to the interval_parameter_set_id to make unique
+      intmd_dists$interval_parameter_set_id <- intmd_dists$interval_parameter_set_id + max_interval_parameter_set_id
+      max_interval_parameter_set_id <- max_interval_parameter_set_id + nrow(intmd_dists) # increase the max count
+      # create the interval_paramter_set_map table:
+      #   copy off the interval_parameter_set_id and parameter ids
+      #   gather into key/value pairs for each, then drop the keys because the values are unique ids
+      intmd_param_set_map <- intmd_dists[,seq(1+length(include_param_names))] %>%
+        gather(key, parameter_value_id, -interval_parameter_set_id) %>% dplyr::select(-key)
+      # delete the parameter fields from the distribution table - not needed anymore (keep int_param_set_id)
+      intmd_dists <- intmd_dists[,-seq(from=2,to=1+length(include_param_names))]
+      # save the data frames in the list
+      interval_parameter_set_map_list <- append(interval_parameter_set_map_list, list(intmd_param_set_map))
+      reliability_distribution_list   <- append(reliability_distribution_list, list(intmd_dists)) # append to list 
+      # TODO optimize this appending by preallocating? or something here: https://stackoverflow.com/questions/2436688/append-an-object-to-a-list-in-r-in-amortized-constant-time
+    } # end inner for
+  } # end outer for
+  return(list(reliability_distribution_list, interval_parameter_set_map_list))
+} # end GatherReliabilityDistributions
+
+# previously calloneDDPLY
+CalcDistOneParamCombo <- function(interval_table,include_param_names,plots,modkm,plotdir,verbose,unbug) {
+  # Takes the weibulls_initial table and calls ddply to split, apply, and combine
+  # Args:
+  #   interval_table: the full weibulls_initial interval table
+  #   include: vector of field numbers to break apart a classifier into its specific values
+  #   plots: whether plots should be produced - simple passed through to next function
+  #   classifiernames: vector of strings of all classifier field names
+  #   numericalnames: vector of strings of all numerical field names (hardcoded in prior step)
+  #   modkm: option to calculate modkm - passed through
+  #   plotdir: directory in which to save weibull plots
+  #   verbose: option to print calculation progress
+  #   unbug: option to print debug statements - passed through
+  # Returns:
+  #   final calculated weibulls for this combination of specific and default classifiers
+  if(verbose){print(include_param_names)}
+
+  # group by with a vector of string names
+  # https://stackoverflow.com/questions/21208801/group-by-multiple-columns-in-dplyr-using-string-vector-input
+  # 1) use symbols (list) then use group_by_ (with an underscore at the end)
+  include_param_names <- lapply(include_param_names, as.symbol)
+  
+  # Nest data, then calculate and save distribution
+  distributions_nested <- group_by_(interval_table, .dots=include_param_names) %>% 
+                nest() %>% # store the data in the data frame as a 1-element list with a dataframe inside
+                mutate(dist_fit_w = purrr::map(data, ~ CalculateOneRemovalDistribution( # map returns a 1-element list of the fit
+                  data.frame("interval_value"=.$interval_value, "causal"=.$causal),"weibull")),
+                  dist_fit_e = purrr::map(data, ~ CalculateOneRemovalDistribution( # map returns a 1-element list of the fit
+                    data.frame("interval_value"=.$interval_value, "causal"=.$causal),"exp"))) %>%
+    add_rownames(var = "interval_parameter_set_id")
+  distributions_nested$interval_parameter_set_id <- as.integer(distributions_nested$interval_parameter_set_id)
+  return(distributions_nested)
+} # end CalcDistOneParamCombo
+
 BetaTest<-function(input,weibnll) {
   # Find the p value of the test comparing the weibull fit to the exponential fit
   # Args: 
@@ -111,137 +345,6 @@ BetaTest<-function(input,weibnll) {
   pvalue<-1-pchisq(teststat,1)
   (list(pval=pvalue,param=expofit[[1]]))
 }
-
-
-## create new datatable from new schema tables to closely resemble old schema
-mergeWeibInput <- function(reliability_parameter,reliability_interval,reliability_interval_parameter) {
-  # Converts three Group Category and Interval tables into a single table for use in gatherAllWeibulls()
-  #   Drops consequence and NRTS information
-  # Args:
-  #   reliability_parameter: WUC, PN, etc.
-  #   reliability_interval: age intervals, consequence
-  #   reliability_interval_parameter: group id and names for each interval
-  # Returns:
-  #   out: an interval table with age and group id information
-
-  ## drop unnecessary information
-  reliability_interval_parameter$id <- NULL # drop reliability interval parameter's id
-  # drop consequence, nrts, and removal type info
-  reliability_interval$consequence  <- NULL 
-  reliability_interval$nrts         <- NULL 
-  reliability_interval$removal_type <- NULL 
-  # drop parameters that aren't possible for calculating weibulls
-  reliability_parameter <- reliability_parameter[reliability_parameter$removal_rate==1,]
-  # then the remaining fields
-  reliability_parameter$removal_rate   <- NULL
-  reliability_parameter$consequence    <- NULL
-  reliability_parameter$nrts           <- NULL
-  reliability_parameter$do_not_combine <- NULL
-  
-  ## merge tables together
-  reliability_interval_parameter <- left_join(reliability_interval_parameter,reliability_parameter,
-                                              by=c("reliability_parameter_id" = "id"))
-  # drop reliability_parameter_id
-  reliability_interval_parameter$reliability_parameter_id <- NULL
-  # de-normalize reliability_interval_parameter table and use group names as field names
-  reliability_interval_parameter <- spread(data=reliability_interval_parameter,key=name,value=value)
-  # merge
-  out <- left_join(reliability_interval_parameter,reliability_interval,by=c("reliability_interval_id"="id"))
-  out$reliability_interval_id <- NULL # drop id field
-  return(out) 
-} # end mergeWeibInput
-
-# this will always break out by all classifiers (must give it classifier names)
-# uses GetWeibullsFromDF and CensUncens functions
-gatherallweibulls <- function(weibulls_table, parameter_table, verbose=FALSE, unbug=FALSE, plot=FALSE, modkm=FALSE, plotdir=getwd()){
-  if(plot==TRUE & modkm==FALSE) {stop("modified kaplan meier statistics are required for plotting")}
-  if(verbose==FALSE) {print("Please Wait")}
-  # Previously there were Six classifier columns including WUC, which is always specified/included - 
-  #  it cannot be grouped across (removals from two WUCs shouldn't be combined)
-  # now there could be any number
-  # Say there are n classifier columns total and m of them CAN be grouped (include an ALL category)
-  # Total of n-m Choose (n-m):0 combinations and calls to calloneddply()
-  # previously this was sum(5 choose 5:0) or 32
-  
-  # get the classifier group names - first sort by whether they can be grouped across (e.g. removals from two WUCs shouldn't be combined)
-  parameter_table <- parameter_table[order(parameter_table$do_not_combine,decreasing=TRUE),]
-  classColNames <- unlist(parameter_table$name) # unlist to get a vector #c("WUC","LOCATION","PN","NHA_PN","LAST_REPAIR","REPAIR_COUNT")
-  classColType <- unlist(parameter_table$do_not_combine) # whether data from multiple values in the field can be combined into the same weibull
-  classCountToIgnore <- sum(classColType) # number of always-specific classifier fields - a constant throughout
-  numcolnames <- c("shape", "scale", "shapeSE", "scaleSE", "DistMean", "Events", "Censored", 
-                 "NLogLik","BetaTestPval", "AD*weib", "AD*expo", "AD*logn","AD*norm","ExpoScale") # can be hardcoded
-  cls <- length(classColNames) # number of classifier columns, including those that cannot be combined (e.g. WUC)
-  first <- TRUE # initialize a dummy binary variable to start or append to a data frame
-  weibs <- data.frame()  #  initialize an empty data frame to hold output
-  
-  # assume there's a field 'causal' that is 0/1 for suspension or causal
-  # assume tehre's a field 'interval_value' that is the accrued age in that interval
-  
-  # rearrange the weibulls table so that the do-not-combine columns are first 
-  weibulls_table <- weibulls_table[,c(
-    parameter_table$name, # rearrange classifier fields
-    colnames(weibulls_table[,seq(ncol(weibulls_table)-3,ncol(weibulls_table))]))] # last four fields stay the same - the interval details
-  
-  for(ii in seq(from=0,to=(cls-classCountToIgnore))) { # loop once per quantity of classifier columns to specify (quantity of combinable/defaulatble fields) # 0 through 5
-    # e.g. 0 is specify only the do-not-combine classifiers
-    # e.g. 1 is specify the do-not-combine classifiers plus one additional classifier
-    # get all the possible combinations with a single call to combn() during this outer loop
-    mat<-combn(cls:(1+classCountToIgnore),ii) # gives all the ways to choose 'ii' digits out of quantity of defaulatable classifier columns (others are always specific)
-    for(jj in seq_len(ncol(mat))) { # once per possible way to choose
-      # call calloneddply() once per column of the combn output
-      weibs1 <- calloneDDPLY(weibulls_table,
-                             include=sort(c(seq(classCountToIgnore),mat[,jj])), # break-out (specify) these fields
-                             plots=plot,classColNames,numcolnames,modkm,plotdir,verbose,unbug)
-      if(first) {
-        weibs <- weibs1 # initial create
-        first <- FALSE
-      } else {
-        weibs <- rbind(weibs,weibs1)
-      } # end else
-    } # end inner for
-  } # end outer for
-  # convert description columns to factors
-  for (jj in seq(from=2,to=length(classColNames))){
-    weibs[,jj] <- factor(weibs[,jj])
-  }
-  (weibs)
-} # end gatherallweibulls
-
-
-calloneDDPLY<-function(weibulls_table,include,plots,classifiernames,numericalnames,modkm,plotdir,verbose,unbug) {
-  # Takes the weibulls_initial table and calls ddply to split, apply, and combine
-  # Args:
-  #   weibulls_table: the full weibulls_initial interval table
-  #   include: vector of field numbers to break apart a classifier into its specific values
-  #   plots: whether plots should be produced - simple passed through to next function
-  #   classifiernames: vector of strings of all classifier field names
-  #   numericalnames: vector of strings of all numerical field names (hardcoded in prior step)
-  #   modkm: option to calculate modkm - passed through
-  #   plotdir: directory in which to save weibull plots
-  #   verbose: option to print calculation progress
-  #   unbug: option to print debug statements - passed through
-  # Returns:
-  #   final calculated weibulls for this combination of specific and default classifiers
-  includenames<-classifiernames[include]
-  excludenames<-classifiernames[-include]
-  if(verbose){print(includenames)}
-  # Define classifiers as one long string: (for loop is a fail, but I'm stumped)
-  classifiers<-as.character("") # initialize
-  for (ii in seq(include)) {
-    classifiers<-paste(classifiers,includenames[ii],sep="")
-  }
-  # Call the ddply
-  weibs<-ddply(weibulls_table,includenames,getWeibullFromDF,plot=plots,catgs=classifiers,modkm,plotdir,unbug)
-  # Add the "ALL" description columns to the end of the data frame
-  for (ii in seq(excludenames)) {
-    weibs[,length(weibs)+1]<-"ALL"
-    names(weibs)[length(weibs)]<-excludenames[ii]
-  }
-  # Move description columns to the correct order
-  weibs<-weibs[,c(classifiernames,numericalnames)]
-  (weibs)
-} # end calloneDDPLY
-
 
 # plot a probability graph plot of the events and their fit 
 #   overlayed with a histogram of the censored values
