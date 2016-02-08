@@ -6,6 +6,9 @@ library("fitdistrplus", quietly = TRUE)
 library("plyr", quietly = TRUE)
 library("dplyr", quietly = TRUE)
 library("tidyr", quietly = TRUE)
+library("readr", quietly = TRUE)
+library("purrr", quietly = TRUE)
+library("survival", quietly = TRUE)
 
 # Define Functions: 
 
@@ -86,17 +89,20 @@ CalculateOneRemovalDistribution <- function(df, distribution_type="weibull"){
   if(length(unique(df[df$causal == 1 ,]$interval_value))==1) {return(NA)}
   
   # If enough good data, then fit a distribution
-  df_for_fits <- CensUncens(df)
+  # df_for_fits <- CensUncens(df)
+  df_for_fits <- Surv(df$interval_value,df$causal)
   
   options(warn=-1)
   if(distribution_type %in% "weibull"){
-    distribution_fit <- fitdistcens(df_for_fits,"weibull")
+    # distribution_fit <- fitdistcens(df_for_fits,"weibull")
+    distribution_fit <- survreg(df_for_fits ~ 1, dist="weibull")
   }
   else{
-    distribution_fit <- fitdistcens(df_for_fits,"weibull",start=list(scale=median(df_for_fits$left)),fix.arg=list(shape=1))
+    # distribution_fit <- fitdistcens(df_for_fits,"weibull",start=list(scale=median(df_for_fits$left)),fix.arg=list(shape=1))
     # distribution_fit <- fitdistcens(df_for_fits,"exp") # - this typicaly fails to converge
     # print(dim(df_for_fits));print(mean(df_for_fits$left))
     # distribution_fit <- fitdistcens(df_for_fits,"exp", start = list(rate=1/median(df_for_fits$left)), optim.method = "Nelder-Mead" )
+    distribution_fit <- survreg(df_for_fits ~ 1, dist="exp")
   }
   options(warn=0)
   
@@ -145,13 +151,77 @@ glance.fitdistcens <- function(x, ...){
   }
 }
 
+# Broom-like functions for the survival package
+#  one row per parameter
+tidy.survreg_1 <- function(x, ...){
+  # need to change all the parameters and names
+  if(x$dist %in% "weibull"){
+    scale <- unname(exp(x$icoef[1]))
+    shape <- unname(1/exp(x$icoef[2]))
+    x_se <- diag(x$var)
+    to_return <- data.frame(parameter_name = c("scale", "shape"), 
+                            parameter_value  = c(scale, shape),
+                            standard_error   = unname(c(sqrt(x_se[1]) * scale, sqrt(x_se[2]) * shape)),
+                            stringsAsFactors = FALSE)
+  } else if(x$dist %in% "exponential"){
+    mean_param <- exp(x$icoef)
+    to_return <- data.frame(parameter_name   = "mean",
+                            parameter_value  = mean_param,
+                            standard_error   = unname(mean_param * sqrt(x$var)),
+                            stringsAsFactors = FALSE)
+  } else {
+    to_return <- data.frame(parameter_name   = NA,
+                            parameter_value  = NA,
+                            standard_error   = NA)
+  }
+  return(to_return)
+}
+
+glance.survreg_1 <- function(x, ...){
+# Calculates the interesting distribution statistics for 
+#  survival regression of function form x ~ 1
+#  a simple probability distribution
+  if(class(x) %in% "survreg"){
+    if(modkm) {
+      # find anderson darling statistic
+      # find the modified Kaplan Meier rank and the fitted values
+      ranked_points <- CalculateModKM(x$y,x$icoef) # takes interval values & cause/not and distribution parameters
+      anderson_darling_adjusted <- CalculateADA(ranked_points,x$y)
+    } else {
+      anderson_darling_adjusted <- NA
+    }
+    if(plots) {
+      # record the plots
+      # getPlotFromDF(rankedpoints, head(df), weib[[1]], catgs, plotdir, unbug) #ranked points, sample of input data, break-out categories
+    }
+    data.frame("distribution_type"       = x$dist,
+               "negative_log_likelihood" = x$loglik[1],
+               "distribution_mean"       = CalculateDistMean.survreg_1(x),
+               stringsAsFactors          = FALSE)
+  } else { # no distribution was fit
+    data.frame("distribution_type" = NA,
+               "negative_log_likelihood" = NA,
+               "distribution_mean" = NA)
+  }
+}
+
 # Calculate distribution mean
 CalculateDistMean.fitdistcens <- function(x){
   if(x$distname %in% "weibull"){
     return(x$estimate[2]*gamma(1+1/x$estimate[1]))
-  } else if (x$distname %in% "exp"){
+  } else if (x$distname %in% "exponential"){
     return(1/x$estimate[1])
   }
+}
+
+CalculateDistMean.survreg_1 <- function(x){
+ if(x$dist %in% "weibull"){
+   scale <- exp(x$icoef[1])
+   shape <- 1/exp(x$icoef[2])
+   return(scale*gamma(1+1/shape))
+ } else if (x$dist %in% "exponential"){
+   return(exp(x$icoef))
+ }
 }
 
 
@@ -286,7 +356,8 @@ GatherReliabilityDistributions <- function(interval_table, parameter_table, verb
       #   copy off the interval_parameter_set_id and parameter ids
       #   gather into key/value pairs for each, then drop the keys because the values are unique ids
       intmd_param_set_map <- intmd_dists[,seq(1+length(include_param_names))] %>%
-        gather(key, parameter_value_id, -interval_parameter_set_id) %>% dplyr::select(-key)
+        gather(key, parameter_value_id, -interval_parameter_set_id) %>% dplyr::select(-key) %>%
+        arrange(interval_parameter_set_id, parameter_value_id)
       # delete the parameter fields from the distribution table - not needed anymore (keep int_param_set_id)
       intmd_dists <- intmd_dists[,-seq(from=2,to=1+length(include_param_names))]
       # save the data frames in the list
@@ -449,14 +520,11 @@ getModKM <- function(intervalValues,params) {
 # return a data frame with the four anderson darling adjusted statistics
 # takes "both" data frame with modified Kaplan Meier ranks (empirical dist) and weibull fit
 #     as well as original cens/uncens data and the exponential parameters
-calcADAvals<-function(rankedpts, origIntervalValues, expoparam) {
-  # calculate the two missing distributions
-  normalfit<-fitdistcens(origIntervalValues,"norm")
-  lognormalfit<-fitdistcens(origIntervalValues,"lnorm")
+CalculateADA<-function(ranked_points, origIntervalValues) {
   
   #only take the plot (noncensored) points
-  rankedpts<-rankedpts[rankedpts$cens==1,] 
-  rankedpts$rank<-seq_len(length(rankedpts[,1])) # recalculate the rank
+  ranked_points <- rankedpts[rankedpts$cens==1,] 
+  rankedpts$rank <- seq_len(length(rankedpts[,1])) # recalculate the rank
   
   #find AD for the weibull distribution
   weibAD<-getOneADstat(rankedpts)

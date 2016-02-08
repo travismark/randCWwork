@@ -3,8 +3,6 @@
 # January 2015: updated to use in the new clockworkETL
 
 library("RODBC", quietly = TRUE)
-library("readr", quietly = TRUE)
-library("purrr", quietly = TRUE)
 
 user.name <- "root"
 pw <- "password"
@@ -37,7 +35,18 @@ interval <- sqlQuery(conn, "SELECT * FROM `interval`") # could add a where tenan
 interval_set <- sqlQuery(conn, "SELECT * FROM interval_parameter_set")
 interval_set_map <- sqlQuery(conn, "SELECT * FROM interval_parameter_set_map")
 
-# Transform Data ----------------------------------------------------------
+# Transform Data: first Calc Dists -------------------------------------------
+
+# Define Standard Distribution Information
+#  hard code for now
+distribution_type <- data.frame(id               = c(1, 2), 
+                                name             = c("weibull", "exponential"),
+                                stringsAsFactors = FALSE)
+distribution_type_parameter <- data.frame(id                   = c(1, 2, 3),
+                                          distribution_type_id = c(1, 1, 2),
+                                          parameter_number     = c(1, 2, 1),
+                                          name                 = c("scale", "shape", "mean"),
+                                          stringsAsFactors     = FALSE)
 
 # merge and de-normalize the interval data
 #  exclude parameter fields that aren't useful for removal rate calculations
@@ -51,130 +60,83 @@ system.time(output_list <- GatherReliabilityDistributions(interval_data, paramet
 reliability_distribution_save <- bind_rows(output_list[[1]])
 interval_parameter_set_map <- bind_rows(output_list[[2]])
 
-# Nest data, then calculate and save distribution
-system.time(distribution_weibull_save <- group_by(interval_data, interval_parameter_set_id) %>% 
-              nest() %>% # store the data in the data frame as a 1-element list with a dataframe inside
-              mutate(dist_fit = purrr::map(data, ~ CalculateOneRemovalDistribution( # map returns a 1-element list of the fit
-                       data.frame("interval_value"=.$interval_value, "causal"=.$causal,"weibull")))) )
-
-# Turn important distribution information into fields for the reliability_distribution table
-distribution_weibull <- distribution_weibull_save %>% 
-  unnest(dist_fit %>% purrr::map(glance.fitdistcens)) %>% # order matters - must use unnest before mutate
-  mutate(causal_events = purrr::map_int(data, ~ sum(.$causal==1)), # map_int returns an integer
-         censored_events = purrr::map_int(data, ~ sum(.$causal==0))) %>%
-  select(-c(data,dist_fit)) # calculate anderson darling here, before dropping the data
-distribution_weibull$plot=NA
-distribution_weibull$anderson_darling_adjusted=NA
-
-# Calculate distribution parameters (1 row for each parameter)
-#   exclude the distributions that did not fit (filter out NAs)
-distribution_parameter <- distribution_weibull_save %>% 
-  filter(!is.na(dist_fit)) %>% unnest(dist_fit %>% purrr::map(tidy.fitdistcens))
+# use the previously-defined interval_parameter_set_ids for the last (all-parameters-specified) distributions 
+#  and adjust the rest by this quantity.  remove those from the interval_parameter_set_map table b/c already defined
+#  the interval_parameter_set_map table has set_ids with sets going from most-general to most-specific
+# 1: increment dist table
+reliability_distribution_save$interval_parameter_set_id <-  
+  reliability_distribution_save$interval_parameter_set_id + max(interval_set$id)
+first_all_specific_interval <- max(reliability_distribution_save$interval_parameter_set_id)-max(interval_set)+1
+# 2: set tail end of table to prev-defined set_ids
+reliability_distribution_save[
+  reliability_distribution_save$interval_parameter_set_id >= 
+    first_all_specific_interval,]$interval_parameter_set_id <- seq(1,max(interval_set))
+# 3: reorder distribution table by set_id
+reliability_distribution_save <- arrange(reliability_distribution_save, interval_parameter_set_id)
+# 4: remove prev-defined set_ids from set_map table (those at the end)
+first_all_specific_interval <- max(interval_parameter_set_map$interval_parameter_set_id)-max(interval_set)+1
+interval_parameter_set_map <- 
+  interval_parameter_set_map[interval_parameter_set_map$interval_parameter_set_id < first_all_specific_interval,]
+# 5: increment set_map table's set_ids
+interval_parameter_set_map$interval_parameter_set_id <-
+  interval_parameter_set_map$interval_parameter_set_id + max(interval_set)
 
 # use a glance-like function to get distribution summaries (dist mean, name, nloglik, etc.)
 # use a tidy-like function to get parameter information (one row per distribution parameter: estimate and sd)
 
-
-# Now Exponentials --------------------------------------------------------
-
-system.time(distribution_exp_save <- group_by(interval_data, interval_parameter_set_id) %>% 
-              nest() %>% # store the data in the data frame as a 1-element list with a dataframe inside
-              mutate(dist_fit = purrr::map(data, ~ CalculateOneRemovalDistribution( # map returns a 1-element list of the fit
-                data.frame("interval_value"=.$interval_value, "causal"=.$causal),"exp"))) )
-
-distribution_exp <- distribution_exp_save %>% 
-  unnest(dist_fit %>% purrr::map(glance.fitdistcens)) %>% # order matters - must use unnest before mutate
+# Build the distribution tables
+#  weibull
+distribution_weibull <- reliability_distribution_save %>%
+  unnest(dist_fit_w %>% purrr::map(glance.survreg_1)) %>% # order matters - must use unnest before mutate
   mutate(causal_events = purrr::map_int(data, ~ sum(.$causal==1)), # map_int returns an integer
-         censored_events = purrr::map_int(data, ~ sum(.$causal==0))) %>%
-  select(-c(data,dist_fit)) # calculate anderson darling here, before dropping the data
-distribution_exp$plot=NA
-distribution_exp$anderson_darling_adjusted=NA
+         censored_events = purrr::map_int(data, ~ sum(.$causal==0)),
+         plot = NA, anderson_darling_adjusted = NA) %>% #TODO add anderson darling
+  dplyr::select(-c(data, dist_fit_w, dist_fit_e))
+# exponential
+distribution_exp <- reliability_distribution_save %>%
+  unnest(dist_fit_e %>% purrr::map(glance.survreg_1)) %>% # order matters - must use unnest before mutate
+  mutate(causal_events = purrr::map_int(data, ~ sum(.$causal==1)), # map_int returns an integer
+         censored_events = purrr::map_int(data, ~ sum(.$causal==0)),
+         plot = NA, anderson_darling_adjusted = NA) %>% #TODO add anderson darling
+  dplyr::select(-c(data, dist_fit_w, dist_fit_e))
+# Combine into a single table, replace name with distribution_type_id, and add row ids
+reliability_distribution <- bind_rows(distribution_weibull,distribution_exp) %>% 
+  left_join(distribution_type, by=c("distribution_type" = "name")) %>%
+  rename(distribution_type_id = id) %>% select(-distribution_type) %>% add_rownames(var = "id")
 
-distribution_parameter <- distribution_exp_save %>% 
-  filter(!is.na(dist_fit)) %>% unnest(dist_fit %>% purrr::map(tidy.fitdistcens))
+# Calculate distribution parameters (1 row for each parameter)
+#   exclude the distributions that did not fit (filter out NAs)
+distribution_parameter_weibull <- reliability_distribution_save %>% 
+  filter(!is.na(dist_fit_w)) %>% unnest(dist_fit_w %>% purrr::map(tidy.survreg_1))
+distribution_parameter_exp <- reliability_distribution_save %>% 
+  filter(!is.na(dist_fit_e)) %>% unnest(dist_fit_e %>% purrr::map(tidy.survreg_1)) %>%
+  select(-c(data, dist_fit_w, dist_fit_e)) # since the tidy function returns a 1-row df the unnest doesn't drop the rest of these
 
+# Combine into a single table and:
+#  attach the distribution_type_id and distribution_type_parameter_id by joining to interval_parameter_set_id and distribution_type_id
+#  attach the distribution_id by matching on distribution_type_id
+distribution_id_info <- rename(distribution_type, distribution_type_id = id, distribution_type_name = name) %>% 
+  inner_join(distribution_type_parameter, by = "distribution_type_id") %>% 
+  rename(parameter_name = name, distribution_type_parameter_id = id) %>% select(-parameter_number)
 
-# old ---------------------------------------------------------------------
-
-
-distribution_weibull <- summarise(distribution_weibull_save, 
-                                  interval_parameter_set_id = interval_parameter_set_id,
-                                  distribution_type_id      = 1, # later use name then get id from join
-                                  causal_events             = c_events[[1]], 
-                                  censored_events           = s_events[[1]], 
-                                  distribution_mean         = dist_fit[1][[1]][2]*gamma(1+1/dist_fit[1][[1]][1]),
-                                  anderson_darling_adjusted = NA,
-                                  negative_log_likelihood   = dist_fit[5][[1]],
-                                  plot                      = NA) %>% 
+distribution_parameter <- bind_rows(distribution_parameter_weibull, distribution_parameter_exp) %>%
+  inner_join(distribution_id_info, by = "parameter_name") %>%
+  inner_join(select(reliability_distribution,distribution_type_id, interval_parameter_set_id, id), 
+                    by = c("distribution_type_id", "interval_parameter_set_id")) %>%
+  rename(reliability_distribution_id = id) %>% 
+  select(-c(interval_parameter_set_id, parameter_name, 
+           distribution_type_name, distribution_type_id)) %>%
   add_rownames(var = "id")
-
-distribution_parameter_weibull <- rbind(
-  summarise(distribution_weibull_save,
-            reliability_distribution_id    = interval_parameter_set_id,
-            distribution_type_parameter_id = 1, # later use name (rate), then merge to distribution_type_parameter table to get id
-            parameter_value                = dist_fit[1][[1]][2],
-            standard_error                 = dist_fit[2][[1]][2]),
-  summarise(distribution_weibull_save,
-            reliability_distribution_id    = interval_parameter_set_id,
-            distribution_type_parameter_id = 2,
-            parameter_value                = dist_fit[1][[1]][1],
-            standard_error                 = dist_fit[2][[1]][1])
-) %>% 
-  filter(!is.na(parameter_value)) %>% # remove parameters as NA for distributions that didn't fit
-  add_rownames(var = "id")
-
-
-# Define Standard Distribution Information --------------------------------
-
-## hard code some things for now
-distribution_type <- data.frame(id               = c(1, 2), 
-                                name             = c("weibull", "exponential"),
-                                stringsAsFactors = FALSE)
-distribution_type_parameter <- data.frame(id                   = c(1, 2, 3),
-                                          distribution_type_id = c(1, 1, 2),
-                                          parameter_number     = c(1, 2, 1),
-                                          name                 = c("scale", "shape", "mean"),
-                                          stringsAsFactors     = FALSE)
-
-
-# Replace Names with IDs for Database and Adjust Names -------------------------------------
-
-# Add Distribution Type to distribution
-#   left join because some distributions did not fit and have no distribution type
-#   add row names as id
-distribution_weibull <- left_join(distribution_weibull, distribution_type, by=c("distribution_type" = "name")) %>%
-  rename(distribution_type_id = id) %>% add_rownames(var = "id") %>% select(-distribution_type)
-# Add Distribution Type Parameter to Distribution Parameter
-distribution_parameter <- inner_join(distribution_parameter, 
-                                     select(distribution_type_parameter, id, name),
-                                            by=c("parameter_name" = "name")) %>% 
-  rename(distribution_type_parameter_id = id, reliability_distribution_id = interval_parameter_set_id) %>% 
-  add_rownames(var = "id") %>% select(-c(parameter_name))
+rm(distribution_id_info)
 
 # Load data to Database ---------------------------------------------------
 
 sqlSave(conn, dat = distribution_type, tablename = "distribution_type", rownames = FALSE, append = TRUE)
 sqlSave(conn, dat = distribution_type_parameter, tablename = "distribution_type_parameter", rownames = FALSE, append = TRUE)
-sqlSave(conn, dat = distribution_weibull, tablename = "reliability_distribution", rownames = FALSE, append = TRUE)
+sqlSave(conn, dat = reliability_distribution, tablename = "reliability_distribution", rownames = FALSE, append = TRUE)
 sqlSave(conn, dat = distribution_parameter, tablename = "reliability_distribution_parameter", rownames = FALSE, append = TRUE)
 
 
-# all specific weibulls
-distribution_expo_save <- group_by(interval, interval_parameter_set_id) %>% 
-  do(c_events = sum(.$causal==1), s_events = sum(.$causal==0),
-     dist_fit = CalculateOneRemovalDistribution(data.frame("interval_value"=.$interval_value,
-                                                           "causal"=.$causal,"expo")))
-distribution_expo <- summarise(distribution_weibull_save, interval_parameter_set_id = interval_parameter_set_id, 
-                               causal_events = c_events[[1]], censored_events = s_events[[1]],
-                               p1 = dist_fit[1][[1]][1],
-                               p2 = dist_fit[1][[1]][2],
-                               distribution_mean = dist_fit[1][[1]][1],
-                               negative_log_likelihood = dist_fit[5][[1]])
-
-# calculate all weibulls
-system.time(allweibulls <- gatherallweibulls(weibulls_initial,reliability_parameter,verbose=TRUE,unbug=FALSE,
-                                            plot=TRUE,modkm=TRUE,plotdir="./plots/"))
-write.csv(allweibulls,file="Apache Weibulls.csv",quote=FALSE)
 # perform distribution comparison tests
 source("./stattest_functions.R")
 system.time(alltests <- testallweibulls(allweibulls,weibulls_initial,reliability_parameter,
