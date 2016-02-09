@@ -95,14 +95,14 @@ CalculateOneRemovalDistribution <- function(df, distribution_type="weibull"){
   options(warn=-1)
   if(distribution_type %in% "weibull"){
     # distribution_fit <- fitdistcens(df_for_fits,"weibull")
-    distribution_fit <- survreg(df_for_fits ~ 1, dist="weibull")
+    distribution_fit <- survreg(df_for_fits ~ 1, dist="weibull", model = TRUE, y = FALSE)
   }
   else{
     # distribution_fit <- fitdistcens(df_for_fits,"weibull",start=list(scale=median(df_for_fits$left)),fix.arg=list(shape=1))
     # distribution_fit <- fitdistcens(df_for_fits,"exp") # - this typicaly fails to converge
     # print(dim(df_for_fits));print(mean(df_for_fits$left))
     # distribution_fit <- fitdistcens(df_for_fits,"exp", start = list(rate=1/median(df_for_fits$left)), optim.method = "Nelder-Mead" )
-    distribution_fit <- survreg(df_for_fits ~ 1, dist="exp")
+    distribution_fit <- survreg(df_for_fits ~ 1, dist="exp", model = TRUE, y = FALSE)
   }
   options(warn=0)
   
@@ -177,31 +177,33 @@ tidy.survreg_1 <- function(x, ...){
   return(to_return)
 }
 
-glance.survreg_1 <- function(x, ...){
+glance.survreg_1 <- function(x, modkm = FALSE, plots = FALSE, ...){
 # Calculates the interesting distribution statistics for 
 #  survival regression of function form x ~ 1
-#  a simple probability distribution
-  if(class(x) %in% "survreg"){
-    if(modkm) {
+#  i.e. a simple probability distribution
+  source_package <- class(x)
+  anderson_darling_adjusted <- NA
+  if(source_package %in% "survreg"){ # if a distribution was fit and it was from survival package
+    if(modkm) { 
       # find anderson darling statistic
       # find the modified Kaplan Meier rank and the fitted values
-      ranked_points <- CalculateModKM(x$y,x$icoef) # takes interval values & cause/not and distribution parameters
-      anderson_darling_adjusted <- CalculateADA(ranked_points,x$y)
-    } else {
-      anderson_darling_adjusted <- NA
+      ranked_points <- CalculateModKM(x$model[[1]], x$icoef, x$dist, source_package) # takes interval values & cause/not and distribution parameters
+      anderson_darling_adjusted <- CalculateADA(ranked_points)
     }
     if(plots) {
       # record the plots
       # getPlotFromDF(rankedpoints, head(df), weib[[1]], catgs, plotdir, unbug) #ranked points, sample of input data, break-out categories
     }
-    data.frame("distribution_type"       = x$dist,
-               "negative_log_likelihood" = x$loglik[1],
-               "distribution_mean"       = CalculateDistMean.survreg_1(x),
-               stringsAsFactors          = FALSE)
+    data.frame("distribution_type"         = x$dist,
+               "negative_log_likelihood"   = x$loglik[1],
+               "distribution_mean"         = CalculateDistMean.survreg_1(x),
+               "anderson_darling_adjusted" = anderson_darling_adjusted,
+               stringsAsFactors            = FALSE)
   } else { # no distribution was fit
-    data.frame("distribution_type" = NA,
-               "negative_log_likelihood" = NA,
-               "distribution_mean" = NA)
+    data.frame("distribution_type"         = NA,
+               "negative_log_likelihood"   = NA,
+               "distribution_mean"         = NA,
+               "anderson_darling_adjusted" = NA)
   }
 }
 
@@ -489,101 +491,131 @@ getPlotFromDF<- function(both, df, params, catgs, plotdir, unbug=FALSE) {
 #   both Censored and non-Censored data
 # takes a data frame with "left" and "right" columns from CensUncens
 #   function and the weibull parameters from the fit
-getModKM <- function(intervalValues,params) {
-  cens<-data.frame(interval_value=sort(intervalValues$left[is.na(intervalValues$right)==T]),
-                   fitprob=pweibull(sort(intervalValues$left[is.na(intervalValues$right)==T]),params[1],params[2]))
-  uncens<-data.frame(interval_value=sort(intervalValues$left[is.na(intervalValues$right)==F]),
-                     fitprob=pweibull(sort(intervalValues$left[is.na(intervalValues$right)==F]),params[1],params[2]))
-  if (length(cens[,1])>0) { # combine both data frames if there are both censored and 
-  #  non-censored data points. Otherwise just use the non-censored data
-      both<-rbind(cbind(cens,cens=0),cbind(uncens,cens=1))
-      } else { both<-cbind(uncens,cens=1)} # no way there could be zero non-censored data points
-      # b/c there are tests before this function is called in the getWeibullsFromDf function
-  both<-both[order(both$interval_value),]
-  both$rank<-seq(1,length(both$interval_value)) # rank censored and uncensored data together
-  # calculate Modified Kaplan-Meier rank (just the non-censored events) with two for-loops
-  for(jj in 1:length(both$interval_value)) { # find intermediate value
-    both$p_intmd[jj]<-((length(both$interval_value)-jj)^both$cens[jj])/((length(both$interval_value)-jj+1)^both$cens[jj])
-    #if(b==1){print(jj);b<-1000}else{b<-b-1}
-  } # end make p intermediate
-  for(jj in 1:length(both$interval_value)) { # calculate p rank (y-axis value)
-    both$p_prime[jj]<-1-prod(both$p_intmd[1:jj]) # p prime
-    if (jj==1) {
-      both$p[jj]<-1-((1-both$p_prime[jj])+1)/2
-    } else {
-      both$p[jj]<-1-((1-both$p_prime[jj])+(1-both$p_prime[jj-1]))/2
-    } # end if it's the first row
-  } # end calculate p rank (y-axis value) 
-  (both) # return both
-} # end getModKM
+# previously getmodkm
+CalculateModKM <- function(interval_value, params, distribution, source_package) {
+  # re-parameterize distribution parameters
+  if(source_package %in% "survreg") {
+    if(distribution %in% "weibull") {
+      scale <- unname(exp(params[1]))
+      shape <- unname(1/exp(params[2]))
+    } else if(distribution %in% "exponential"){
+      scale <- unname(exp(params))
+      shape <- 1
+    }
+  } else if (source_package %in% "fitdistcens") {
+    if(distribution %in% "weibull") {
+      scale <- unname(params[2])
+      shape <- unname(params[1])
+    } else if(distribution %in% "exponential"){
+      scale <- unname(params)
+      shape <- 1
+    }
+  }
+  
+  # extract and sort interval data into two data frames with the distribution probability
+  causal_data <- data.frame("interval_value" = sort(interval_value[,1][interval_value[,2]==1]),
+                            "fit_probability" = pweibull(sort(interval_value[,1][interval_value[,2]==1]),shape,scale),
+                            "causal" = 1)
+  # if some suspension data exists, create the data frame
+  if(sum(interval_value[,2]==0)>0){
+    suspension_data <- data.frame("interval_value" = sort(interval_value[,1][interval_value[,2]==0]),
+                                  "fit_probability" = pweibull(sort(interval_value[,1][interval_value[,2]==0]),shape,scale),
+                                  "causal" = 0)
+  }
+  # combine and order by event time
+  # rank censored and uncensored data together
+  interval_value <- bind_rows(suspension_data, causal_data) %>% 
+    arrange(interval_value) %>% add_rownames(var = "rank") 
+  interval_value$rank <- as.integer(interval_value$rank)
+    
+  # calculate Modified Kaplan-Meier rank (just the non-censored events)
+  interval_value$p_intmd <- ((nrow(interval_value) - row(interval_value)[,1])^interval_value$causal) /
+    ((nrow(interval_value) - row(interval_value)[,1]+1)^interval_value$causal)
+  
+  # First row is unique
+  interval_value$p_prime[1] <- 1 - interval_value$p_intmd[1]
+  interval_value$p[1] <- 1-((1-interval_value$p_prime[1])+1)/2
+  
+  interval_value$p_prime[-1] <- sapply(interval_value$rank[-1], GetPPrime, interval_value$p_intmd) # still slow
+  interval_value$p[-1] <- sapply(interval_value$rank[-1], GetP, interval_value$p_prime) # still slow
+  # end calculate p rank (y-axis value) 
+  (interval_value) # return interval value table
+} # end CalculateModKM
 
-# return a data frame with the four anderson darling adjusted statistics
-# takes "both" data frame with modified Kaplan Meier ranks (empirical dist) and weibull fit
-#     as well as original cens/uncens data and the exponential parameters
-CalculateADA<-function(ranked_points, origIntervalValues) {
-  
-  #only take the plot (noncensored) points
-  ranked_points <- rankedpts[rankedpts$cens==1,] 
-  rankedpts$rank <- seq_len(length(rankedpts[,1])) # recalculate the rank
-  
-  #find AD for the weibull distribution
-  weibAD<-getOneADstat(rankedpts)
-  
-  #recalculate the fits for the exponential distribution
-  rankedpts$fitprob<-pexp(q=rankedpts$interval_value,rate=1/expoparam[1]) # takes the rate
-  #and find the AD stat for this
-  expoAD<-getOneADstat(rankedpts)
-  # do the same for Normal and Lognormal distributions
-  rankedpts$fitprob<-plnorm(rankedpts$interval_value,meanlog=lognormalfit$estimate[1],sdlog=lognormalfit$estimate[2])
-  lognormAD<-getOneADstat(rankedpts)
-  rankedpts$fitprob<-pnorm(rankedpts$interval_value,mean=normalfit$estimate[1],sd=normalfit$estimate[2])
-  normalAD<-getOneADstat(rankedpts)
-  #output all four GOF stats
-  out<-c(weibAD,expoAD,lognormAD,normalAD)
-} # end calculate anderson darling statistics function
-
-# gets an anderson darling adjusted stat
-# requires the "both" dataframe with the right fitprob for that distribution
-#     as well as the empirical modified Kaplan Meier value plot points (p)
-getOneADstat<-function(rankedpts) {
-  lgth<-length(rankedpts$p)
-  # use the findArow function to get A values of each row, then add the n+1th row A value
-  A<-sum(apply(X=as.matrix(rankedpts),MARGIN=1,FUN=findArow,fitprob=rankedpts$fitprob)) - (1-1E-12) - log(1-(1-1E-12)) +
-    rankedpts$fitprob[lgth] + log(1-rankedpts$fitprob[lgth])
-  B<-sum(apply(X=as.matrix(rankedpts),MARGIN=1,FUN=findBrow,fitprob=rankedpts$fitprob,nonpar=rankedpts$p)) +
-           2*log(1-(1-1E-12))*rankedpts$p[lgth] - 2*log(1-rankedpts$fitprob[lgth])*rankedpts$p[lgth]
-  C<-sum(apply(X=as.matrix(rankedpts),MARGIN=1,FUN=findCrow,fitprob=rankedpts$fitprob,nonpar=rankedpts$p)) +
-           log(1-(1E-12))*rankedpts$p[lgth]^2 -
-           log(1-(1-(1E-12)))*rankedpts$p[lgth]^2 -
-           log(rankedpts$fitprob[lgth])*rankedpts$p[lgth]^2 +
-           log(1-rankedpts$fitprob[lgth])*rankedpts$p[lgth]^2
-  out<-lgth*(A+B+C)
+# Used in CalculateModKM
+GetPPrime <- function(rank, p_intmd_all_rows){
+  # 1 less the product of this and all the previous p_intermediates
+  rank <- rank[[1]][1]
+  return(1 - prod(p_intmd_all_rows[1:rank]))
 }
 
-# returns a column for the "both" data frame:  A in the AD* (anderson darling adjusted) calculation. 
-# to be used in the AD* function and with apply by row;  needs the "both" data frame and the fitprob column from "both"
-findArow<-function(input,fitprob) {
-  if (input[4]==1) { # first row is special
-    out<- (-input[2]) - log(1-input[2]) + 0 + log(1-0)
+# Used in CalculateModKM
+GetP <- function(rank, p_prime_all_rows){
+  # 1 less the average of this and the previous (1-p_prime)
+  rank <- rank[[1]][1]
+  return(1 - ((1-p_prime_all_rows[rank]) + (1-p_prime_all_rows[rank-1])) / 2)
+}
+
+# return a data frame with the four anderson darling adjusted statistics
+# takes interval data frame with modified Kaplan Meier ranks (empirical dist) and weibull fit
+#     as well as original cens/uncens data and the exponential parameters
+CalculateADA<-function(ranked_points) {
+  # Args
+  #  ranked_points: interval data with modified Kaplan Meier ranks (empirical dist) and distribution fit
+  # Returns
+  #  the anderson darling adjusted statistic (a double)
+  
+  
+  #only take the plot (noncensored) points
+  ranked_points      <- ranked_points[ranked_points$causal==1,] 
+  lgth               <- nrow(ranked_points)
+  ranked_points$rank <- seq_len(lgth) # recalculate the rank
+  
+  # use the findArow function to get A values of each row, then add the n+1th row A value
+  A <- sum(apply(X=ranked_points, MARGIN=1, FUN=findArow, ranked_points$fit_probability)) - 
+    (1-1E-12) - log(1-(1-1E-12)) +
+    ranked_points$fit_probability[lgth] + log(1-ranked_points$fit_probability[lgth])
+  # B values
+  B <- sum(apply(X=ranked_points, MARGIN=1, FUN=findBrow,
+                 fit_probability=ranked_points$fit_probability,non_par=ranked_points$p)) +
+    2*log(1-(1-1E-12))*ranked_points$p[lgth] - 2*log(1-ranked_points$fit_probability[lgth])*ranked_points$p[lgth]
+  # C values
+  C <- sum(apply(X=ranked_points, MARGIN=1, FUN=findCrow,
+                 fit_probability=ranked_points$fit_probability,non_par=ranked_points$p)) +
+    log(1-(1E-12))*ranked_points$p[lgth]^2 -
+    log(1-(1-(1E-12)))*ranked_points$p[lgth]^2 -
+    log(ranked_points$fit_probability[lgth])*ranked_points$p[lgth]^2 +
+    log(1-ranked_points$fit_probability[lgth])*ranked_points$p[lgth]^2
+  ADA <- lgth*(A+B+C)
+} # end calculate anderson darling statistics function
+
+
+# returns a single numeric value:  A in the AD* (anderson darling adjusted) calculation. 
+# to be used in the AD* function and with apply by row;  needs a single row from the ranked points data frame and the entire fitprob column from "both"
+findArow <- function(input,fit_probability) {
+  # input is a matrix with named fields
+  if (input['rank']==1) { # check rank - first row is special
+    out <- (-input['fit_probability']) - log(1-input['fit_probability']) + 0 + log(1-0)
   } else { # not the first row
-    out<- (-input[2]) - log(1-input[2]) + fitprob[input[4]-1] + log(1-(fitprob[input[4]-1]))
+    out <- (-input['fit_probability']) - log(1-input['fit_probability']) + fit_probability[input['rank']-1] + log(1-fit_probability[input['rank']-1])
   } # end not the first row
 } # end find A
 # returns a column for the "both" data frame: B in the AD* calculation
-findBrow<-function(input,fitprob,nonpar) {
-  if (input[4]==1) { # first row is special
-    out<- 0
+#  like A, but also requires the non parameteric CDF value for all the points
+findBrow <- function(input,fit_probability,non_par) {
+  if (input['rank']==1) { # first row is special
+    out <- 0
   } else { # not the first row
-    out<- 2*log(1-input[2])*nonpar[input[4]-1] - 2*log(1-fitprob[input[4]-1])*nonpar[input[4]-1] 
+    out <- 2*log(1-input['fit_probability'])*non_par[input['rank']-1] - 2*log(1-fit_probability[input['rank']-1])*non_par[input['rank']-1] 
   } # end not the first row
 } # end find B
 # returns a column for the "both" data frame: C in the AD* calculation
-findCrow<-function(input,fitprob,nonpar) {
-  if (input[4]==1) { # first row is special
+findCrow <- function(input,fit_probability,non_par) {
+  if (input['rank']==1) { # first row is special
     out<- 0
   } else { # not the first row
-    out<- log(input[2])*nonpar[input[4]-1]^2 - log(1-input[2])*nonpar[input[4]-1]^2 - 
-      log(fitprob[input[4]-1])*nonpar[input[4]-1]^2 + log(1-fitprob[input[4]-1])*nonpar[input[4]-1]^2
+    out<- log(input['fit_probability'])*non_par[input['rank']-1]^2 - log(1-input['fit_probability'])*non_par[input['rank']-1]^2 - 
+      log(fit_probability[input['rank']-1])*non_par[input['rank']-1]^2 + log(1-fit_probability[input['rank']-1])*non_par[input['rank']-1]^2
   } # end not the first row
 } # end find C
 
