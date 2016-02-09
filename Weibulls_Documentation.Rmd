@@ -375,21 +375,21 @@ getWeibullFromDF <- function(df, plot=0, catgs="",modkm)  {
 
 **getModKM()** calculates the modified kaplan meier values needed for the Anderson Darling Adjusted statistics and the weibull plots.  These values are between 0 and 1 and represent the value of each uncensored event on the empirical cdf.  They are calculated as follows (sourced from Minitab reference book): 
 
-$p_i=1-\frac{(1-p_i^')+(1-p_{i-1}^')}{2}$
+$p_i=1-\frac{(1-p_i')+(1-p_{i-1}')}{2}$
 
 where
 
-$p_i^'=1-\prod_{j=1}^i\frac{(n-j)^{\delta_j}}{(n-j+1)^{\delta_j}}$  and  $p_0^'=0$
+$p_i'=1-\prod_{j=1}^i\frac{(n-j)^{\delta_j}}{(n-j+1)^{\delta_j}}$  and  $p_0'=0$
 
-and $\delta_j$ is the censoring value (1 is an event, 0 is censoring), n is the total number of removals for this weibull, and i and j are the index for one removal:  one row/removal has one specific i, while all previous remnovals (here, j) are used to calculate $p^'$  
+$p_1'$ are the normal Kaplan Meier statistics and $\delta_j$ is the censoring value (1 is an event, 0 is censoring), n is the total number of removals for this weibull, and i and j are the index for one removal:  one row/removal has one specific i, while all previous remnovals (here, j) are used to calculate $p'$  
 
 The function takes as input the output from CensUncens(), a two-column dataframe with TOW for each removal.  It returns a sorted dataframe with rows for each removal event and:
 
 - TOW: time on wing for removal
 - rank: between 1 and n, number of events; lowest TOW first
 - fitprob: cdf value for that TOW on the fitted weibull
-- p_intmd: the multiplied term in the $p^'$ definition; helps in calculating $p^'$
-- $p^'$: from the above defenition
+- p_intmd: the multiplied term in the $p'$ definition; helps in calculating $p'$
+- $p'$: from the above defenition
 - p: from the above definition; the actual Modified Kaplan Meier value
 
 ```{r defgetmodKM}
@@ -1146,6 +1146,4 @@ Other things to do next:
 - instead of 
 - add additional combination possibilities:
   -
- 
- 
  
