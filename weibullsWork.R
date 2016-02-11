@@ -2,43 +2,42 @@
 # March 1 2013:  moving all my one-off examples from weibulls.R so I can source weibulls.R (calculation functions)
 # January 2015: updated to use in the new clockworkETL
 
+# consider the lifelines python library
+# TODO: if a certain parameter field/type only has one parameter value the code calculates duplicate distributions - 
+#   # one aggregating, and one not.  but these use the same data.  check for this and don't fit distributions if so
+
 library("RODBC", quietly = TRUE)
 
 user.name <- "root"
-pw <- "password"
-server <- "localhost"
-port <- 3306
-db <- "etl_workspace_dev"
+pw        <- "password"
+server    <- "localhost"
+port      <- 3306
+db        <- "etl_workspace_dev"
 conn <- odbcDriverConnect(paste0("DRIVER={MySQL ODBC 5.3 ANSI Driver};Server=",server,";Port",port,";Database=",db,";UID=",user.name,";PWD=",pw))
 
 source("./weibull_functions.R")
-#weibullPN_info<-read.csv("./tblWUCinfo.csv",header=TRUE)
-#class_names <- read.csv("./class_names.csv",header=TRUE)
-
-# sample_tow <- read.csv('c:/work/cwetl/clockworkETL_upload/sample_tow.csv', stringsAsFactors = FALSE)
-# sample_tow_curr <- sqlQuery(conn, 'select * from etl_workspace_dev.sample_tow')
-# for(ii in seq_along(1:length(sample_tow))){
-#   sample_tow[sample_tow[,ii] %in% "\\N",ii] <- NA
-# }
-# sample_tow$INSTALL_DT <- as.Date(sample_tow$INSTALL_DT)
-# sample_tow$REMOVAL_DT <- as.Date(sample_tow$REMOVAL_DT)
-# sample_tow$CONSQ_DT <- as.Date(sample_tow$CONSQ_DT)
-# sample_tow$REMOVAL_FCODE <- as.integer(sample_tow$REMOVAL_FCODE)
-# sample_tow$CONSQ_COPY <- as.integer(sample_tow$CONSQ_COPY)
-# sqlSave(conn, dat = sample_tow, tablename = "sample_tow", rownames = FALSE, append = TRUE)
 
 # Extract Data ------------------------------------------------------------
+print("Extracting Data")
 
 parameter <- sqlQuery(conn, "SELECT * FROM parameter", stringsAsFactors = FALSE)
 parameter_value <- sqlQuery(conn, "SELECT * FROM parameter_value")
 interval <- sqlQuery(conn, "SELECT * FROM `interval`") # could add a where tenant_project = some parameter
+
+# Before loading interval_set and interval_set_map delete any data that is not tied to an interval
+sqlQuery(conn, "DELETE FROM interval_parameter_set_map 
+         WHERE interval_parameter_set_id IN 
+         (SELECT id FROM interval_parameter_set WHERE id NOT IN (SELECT interval_parameter_set_id FROM `interval`))")
+sqlQuery(conn, "DELETE FROM interval_parameter_set WHERE id NOT IN (SELECT interval_parameter_set_id FROM `interval`)")
+
 interval_set <- sqlQuery(conn, "SELECT * FROM interval_parameter_set")
 interval_set_map <- sqlQuery(conn, "SELECT * FROM interval_parameter_set_map")
 
 # Transform Data: first Calc Dists -------------------------------------------
+print("Transforming Data")
 
 # Define Standard Distribution Information
-#  hard code for now
+#  Hard code for now
 distribution_type <- data.frame(id               = c(1, 2), 
                                 name             = c("weibull", "exponential"),
                                 stringsAsFactors = FALSE)
@@ -52,15 +51,15 @@ distribution_type_parameter <- data.frame(id                   = c(1, 2, 3),
 modkm <- TRUE
 plots <- FALSE
 
-# merge and de-normalize the interval data
+# Merge and de-normalize the interval data
 #  exclude parameter fields that aren't useful for removal rate calculations
-interval_data <- MergeRemovalRateInput(parameter, parameter_value, interval, interval_set_map)
+system.time(interval_data <- MergeRemovalRateInput(parameter, parameter_value, interval, interval_set_map))
 
-# removal rates for each specific group (requires at least 2 causal intervals, otherwise will not fit distribution)
+# Removal rates for each specific group (requires at least 2 causal intervals, otherwise will not fit distribution)
 #   use nested data frames in tidy package and map functions to each nested element with purrr package
 
-# fit some dists and get the interval parameter set map
-system.time(output_list       <- GatherReliabilityDistributions(interval_data, parameter))
+# Fit distributions and get the interval parameter set map
+output_list <- GatherReliabilityDistributions(interval_data, parameter, verbose=TRUE)
 reliability_distribution_save <- bind_rows(output_list[[1]])
 interval_parameter_set_map    <- bind_rows(output_list[[2]])
 rm(output_list)
@@ -72,16 +71,20 @@ rm(output_list)
 reliability_distribution_save$interval_parameter_set_id <-  
   reliability_distribution_save$interval_parameter_set_id + max(interval_set$id)
 first_all_specific_interval <- max(reliability_distribution_save$interval_parameter_set_id)-max(interval_set)+1
+
 # 2: set tail end of table to prev-defined set_ids
 reliability_distribution_save[
   reliability_distribution_save$interval_parameter_set_id >= 
     first_all_specific_interval,]$interval_parameter_set_id <- seq(1,max(interval_set))
+
 # 3: reorder distribution table by set_id
 reliability_distribution_save <- arrange(reliability_distribution_save, interval_parameter_set_id)
+
 # 4: remove prev-defined set_ids from set_map table (those at the end)
 first_all_specific_interval <- max(interval_parameter_set_map$interval_parameter_set_id)-max(interval_set)+1
 interval_parameter_set_map <- 
   interval_parameter_set_map[interval_parameter_set_map$interval_parameter_set_id < first_all_specific_interval,]
+
 # 5: increment set_map table's set_ids
 interval_parameter_set_map$interval_parameter_set_id <-
   interval_parameter_set_map$interval_parameter_set_id + max(interval_set)
@@ -95,22 +98,25 @@ interval_parameter_set <- data.frame("id"=unique(interval_parameter_set_map$inte
 # use a glance-like function to get distribution summaries (dist mean, name, nloglik, etc.)
 # use a tidy-like function to get parameter information (one row per distribution parameter: estimate and sd)
 
+print("Calculating Kaplan Meier and Anderson Darling")
 # Build the distribution tables
 #  weibull
 #  order matters - must use unnest before mutate
-system.time(distribution_weibull <- reliability_distribution_save %>%
+distribution_weibull <- reliability_distribution_save %>%
   unnest(dist_fit_w %>% purrr::map(~ glance.survreg_1(., modkm, plots))) %>% 
   mutate(causal_events = purrr::map_int(data, ~ sum(.$causal==1)), # map_int returns an integer
          censored_events = purrr::map_int(data, ~ sum(.$causal==0)),
          plot = NA) %>%
-  dplyr::select(-c(data, dist_fit_w, dist_fit_e)))
-# exponential # > 1 min
-system.time(distribution_exp <- reliability_distribution_save %>%
+  dplyr::select(-c(data, dist_fit_w, dist_fit_e))
+
+# exponential
+distribution_exp <- reliability_distribution_save %>%
   unnest(dist_fit_e %>% purrr::map(~ glance.survreg_1(., modkm, plots))) %>% # order matters - must use unnest before mutate
   mutate(causal_events = purrr::map_int(data, ~ sum(.$causal==1)), # map_int returns an integer
          censored_events = purrr::map_int(data, ~ sum(.$causal==0)),
          plot = NA) %>%
-  dplyr::select(-c(data, dist_fit_w, dist_fit_e)))
+  dplyr::select(-c(data, dist_fit_w, dist_fit_e))
+
 # Combine into a single table, replace name with distribution_type_id, and add row ids
 reliability_distribution <- bind_rows(distribution_weibull,distribution_exp) %>% 
   left_join(distribution_type, by=c("distribution_type" = "name")) %>%
@@ -134,16 +140,17 @@ distribution_id_info <- rename(distribution_type, distribution_type_id = id, dis
 distribution_parameter <- bind_rows(distribution_parameter_weibull, distribution_parameter_exp) %>%
   inner_join(distribution_id_info, by = "parameter_name") %>%
   inner_join(select(reliability_distribution,distribution_type_id, interval_parameter_set_id, id), 
-                    by = c("distribution_type_id", "interval_parameter_set_id")) %>%
+             by = c("distribution_type_id", "interval_parameter_set_id")) %>%
   rename(reliability_distribution_id = id) %>% 
   select(-c(interval_parameter_set_id, parameter_name, 
-           distribution_type_name, distribution_type_id)) %>%
+            distribution_type_name, distribution_type_id)) %>%
   add_rownames(var = "id")
 
 rm(distribution_id_info)
 rm(reliability_distribution_save)
 
-# Load data to Database ---------------------------------------------------
+# Load -------------------------------------------------
+print("Loading Data")
 
 sqlSave(conn, dat = distribution_type, tablename = "distribution_type", rownames = FALSE, append = TRUE)
 sqlSave(conn, dat = distribution_type_parameter, tablename = "distribution_type_parameter", rownames = FALSE, append = TRUE)
@@ -166,3 +173,5 @@ conseq_initial <- mergeConsqInput(reliability_parameter,reliability_interval,rel
 # build optimization constraint matrix
 constraint_matrix <- matchDistToInterval(allweibulls,weibulls_initial,reliability_parameter)
 write.csv(constraint_matrix, file="Constraint Matrix.csv",quote = FALSE, row.names = TRUE)
+
+# https://support.sas.com/documentation/cdl/en/statug/63033/HTML/default/viewer.htm#statug_lifereg_sect023.htm#
