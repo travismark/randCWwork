@@ -8,21 +8,24 @@
 
 library("RODBC", quietly = TRUE)
 
-user.name <- "root"
+user_name <- "root"
 pw        <- "password"
 server    <- "localhost"
 port      <- 3306
 db        <- "etl_workspace_dev"
-conn <- odbcDriverConnect(paste0("DRIVER={MySQL ODBC 5.3 ANSI Driver};Server=",server,";Port",port,";Database=",db,";UID=",user.name,";PWD=",pw))
+conn <- odbcDriverConnect(paste0("DRIVER={MySQL ODBC 5.3 ANSI Driver};Server=",server,";Port",port,";Database=",db,";UID=",user_name,";PWD=",pw))
+rm(list = c("user_name", "pw", "server", "port", "db"))
 
 source("./weibull_functions.R")
 
 # Extract Data ------------------------------------------------------------
 print("Extracting Data")
 
-parameter <- sqlQuery(conn, "SELECT * FROM parameter", stringsAsFactors = FALSE)
+parameter       <- sqlQuery(conn, "SELECT * FROM parameter", stringsAsFactors = FALSE)
 parameter_value <- sqlQuery(conn, "SELECT * FROM parameter_value")
-interval <- sqlQuery(conn, "SELECT * FROM `interval`") # could add a where tenant_project = some parameter
+interval        <- sqlQuery(conn, "SELECT * FROM `interval`") # could add a where tenant_project = some parameter
+parameter_names <- sqlQuery(conn, "SELECT * FROM parameter_value", stringsAsFactors = FALSE)
+interval$interval_start_cy <- year(interval$interval_start_date)
 
 # Before loading interval_set and interval_set_map delete any data that is not tied to an interval
 sqlQuery(conn, "DELETE FROM interval_parameter_set_map 
@@ -48,24 +51,30 @@ distribution_type_parameter <- data.frame(id                   = c(1, 2, 3),
                                           stringsAsFactors     = FALSE)
 
 # options to calculate anderson darling statistic and plot
-modkm <- TRUE
-plots <- FALSE
+modkm    <- TRUE
+plots    <- FALSE
+plot_dir <- "./plots/"
+
+# exchange ids for parameter names in parameter_names
+parameter_names <- inner_join(parameter_names,select(parameter,id,plot_name),
+                              by = c("parameter_id" = "id")) %>% 
+  select(parameter_value_id = id, -parameter_id, value, parameter_name = plot_name)
 
 # Merge and de-normalize the interval data
 #  exclude parameter fields that aren't useful for removal rate calculations
-system.time(interval_data <- MergeRemovalRateInput(parameter, parameter_value, interval, interval_set_map))
+interval_data <- MergeRemovalRateInput(parameter, parameter_value, interval, interval_set_map)
 
 # Removal rates for each specific group (requires at least 2 causal intervals, otherwise will not fit distribution)
 #   use nested data frames in tidy package and map functions to each nested element with purrr package
 
 # Fit distributions and get the interval parameter set map
-output_list <- GatherReliabilityDistributions(interval_data, parameter, verbose=TRUE)
+system.time(output_list <- GatherReliabilityDistributions(interval_data, parameter, verbose=TRUE)) # 9+ seconds
 reliability_distribution_save <- bind_rows(output_list[[1]])
 interval_parameter_set_map    <- bind_rows(output_list[[2]])
 rm(output_list)
 
-# use the previously-defined interval_parameter_set_ids for the last (all-parameters-specified) distributions 
-#  and adjust the rest by this quantity.  remove those from the interval_parameter_set_map table b/c already defined
+# Use the previously-defined interval_parameter_set_ids for the last (all-parameters-specified) distributions 
+#  and adjust the rest by this quantity.  Remove those from the interval_parameter_set_map table b/c already defined
 #  the interval_parameter_set_map table has set_ids with sets going from most-general to most-specific
 # 1: increment dist table
 reliability_distribution_save$interval_parameter_set_id <-  
@@ -80,38 +89,52 @@ reliability_distribution_save[
 # 3: reorder distribution table by set_id
 reliability_distribution_save <- arrange(reliability_distribution_save, interval_parameter_set_id)
 
-# 4: remove prev-defined set_ids from set_map table (those at the end)
-first_all_specific_interval <- max(interval_parameter_set_map$interval_parameter_set_id)-max(interval_set)+1
+# 4: reset the interval_parameter_set_ids so the already-defined ids match to the current ids
+#first_all_specific_interval <- max(interval_parameter_set_map$interval_parameter_set_id)-max(interval_set)+1
+new_index_table <- data.frame("old_id"=seq(from = 1, to = max(interval_parameter_set_map$interval_parameter_set_id)),
+                              "new_id"=c(seq(from = max(interval_set) + 1, to = max(interval_parameter_set_map$interval_parameter_set_id)),
+                                         seq(from = 1, to = max(interval_set))))
+interval_parameter_set_map <- inner_join(interval_parameter_set_map,new_index_table,
+                                         by = c("interval_parameter_set_id" = "old_id")) %>%
+  select(-interval_parameter_set_id, interval_parameter_set_id = new_id, parameter_value_id)
+# save these for reference in plotting
+interval_parameter_set_map_ref <- interval_parameter_set_map 
+
+# 5: remove prev-defined set_ids from set_map table (those at the start)
 interval_parameter_set_map <- 
-  interval_parameter_set_map[interval_parameter_set_map$interval_parameter_set_id < first_all_specific_interval,]
+  interval_parameter_set_map[interval_parameter_set_map$interval_parameter_set_id > max(interval_set),]
 
-# 5: increment set_map table's set_ids
-interval_parameter_set_map$interval_parameter_set_id <-
-  interval_parameter_set_map$interval_parameter_set_id + max(interval_set)
-
-# add id and adjust to de-conflict with previous ids
-interval_parameter_set_map <- add_rownames(interval_parameter_set_map, var = "id")
-interval_parameter_set_map$id <- as.numeric(interval_parameter_set_map$id) + max(interval_set_map$id)
+# 6: add id and adjust to de-conflict with previous ids
+interval_parameter_set_map    <- add_rownames(interval_parameter_set_map, var = "id")
+interval_parameter_set_map$id <- as.integer(interval_parameter_set_map$id) + max(interval_set_map$id)
 # make the interval set table (only includes those that do not conflict)
 interval_parameter_set <- data.frame("id"=unique(interval_parameter_set_map$interval_parameter_set_id))
 
 # use a glance-like function to get distribution summaries (dist mean, name, nloglik, etc.)
 # use a tidy-like function to get parameter information (one row per distribution parameter: estimate and sd)
 
-print("Calculating Kaplan Meier and Anderson Darling")
-# Build the distribution tables
+print("Calculating Kaplan Meier and Anderson Darling; Plotting")
+# Build the parameter value name reference table for plotting and attach to baseline distribution table
+interval_parameter_set_map_ref <- inner_join(interval_parameter_set_map_ref,parameter_names,
+                                             by="parameter_value_id") %>% select(-parameter_value_id)
+
+reliability_distribution_save <- mutate(reliability_distribution_save, parameter_names = 
+                                          purrr::map(interval_parameter_set_id, ~ GetMatchingParameterNames(., interval_parameter_set_map_ref)))
+# Build the distribution tables and plots
 #  weibull
-#  order matters - must use unnest before mutate
-distribution_weibull <- reliability_distribution_save %>%
-  unnest(dist_fit_w %>% purrr::map(~ glance.survreg_1(., modkm, plots))) %>% 
+#  order matters - must use unnest before mutate # 2/11/2016 - 36 seconds for weibull; 2/12: 5 seconds; 2/18 35 seconds with plots
+system.time(distribution_weibull <- reliability_distribution_save %>%
+              unnest(dist_fit_w %>% purrr::map2(parameter_names, ~ 
+                                                  glance.survreg_1(.x, .y, modkm, plots, plot_dir))) %>%
   mutate(causal_events = purrr::map_int(data, ~ sum(.$causal==1)), # map_int returns an integer
          censored_events = purrr::map_int(data, ~ sum(.$causal==0)),
          plot = NA) %>%
-  dplyr::select(-c(data, dist_fit_w, dist_fit_e))
+  dplyr::select(-c(data, dist_fit_w, dist_fit_e, parameter_names)))
 
 # exponential
 distribution_exp <- reliability_distribution_save %>%
-  unnest(dist_fit_e %>% purrr::map(~ glance.survreg_1(., modkm, plots))) %>% # order matters - must use unnest before mutate
+  unnest(dist_fit_e %>% purrr::map2(parameter_names, ~ 
+                                      glance.survreg_1(.x, .y, modkm, plots, plot_dir))) %>%
   mutate(causal_events = purrr::map_int(data, ~ sum(.$causal==1)), # map_int returns an integer
          censored_events = purrr::map_int(data, ~ sum(.$causal==0)),
          plot = NA) %>%
@@ -120,7 +143,7 @@ distribution_exp <- reliability_distribution_save %>%
 # Combine into a single table, replace name with distribution_type_id, and add row ids
 reliability_distribution <- bind_rows(distribution_weibull,distribution_exp) %>% 
   left_join(distribution_type, by=c("distribution_type" = "name")) %>%
-  rename(distribution_type_id = id) %>% select(-distribution_type) %>% add_rownames(var = "id")
+  rename(distribution_type_id = id) %>% select(-distribution_type, -parameter_names) %>% add_rownames(var = "id")
 
 # Calculate distribution parameters (1 row for each parameter)
 #   exclude the distributions that did not fit (filter out NAs)
@@ -128,7 +151,7 @@ distribution_parameter_weibull <- reliability_distribution_save %>%
   filter(!is.na(dist_fit_w)) %>% unnest(dist_fit_w %>% purrr::map(tidy.survreg_1))
 distribution_parameter_exp <- reliability_distribution_save %>% 
   filter(!is.na(dist_fit_e)) %>% unnest(dist_fit_e %>% purrr::map(tidy.survreg_1)) %>%
-  select(-c(data, dist_fit_w, dist_fit_e)) # since the tidy function returns a 1-row df the unnest doesn't drop the rest of these
+  select(-c(data, dist_fit_w, dist_fit_e, parameter_names)) # since the tidy function returns a 1-row df the unnest doesn't drop the rest of these
 
 # Combine into a single table and:
 #  attach the distribution_type_id and distribution_type_parameter_id by joining to interval_parameter_set_id and distribution_type_id

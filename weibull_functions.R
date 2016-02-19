@@ -9,6 +9,7 @@ suppressPackageStartupMessages(library("dplyr", quietly = TRUE))
 suppressPackageStartupMessages(library("tidyr", quietly = TRUE))
 suppressPackageStartupMessages(library("readr", quietly = TRUE))
 suppressPackageStartupMessages(library("purrr", quietly = TRUE))
+suppressPackageStartupMessages(library("lubridate", quietly = TRUE))
 
 # Define Functions: 
 
@@ -39,9 +40,11 @@ MergeRemovalRateInput <- function(parameter, parameter_value, interval, interval
   interval$interval_start_date <- NULL
   interval$interval_end_date   <- NULL
   interval$tenant_project_id   <- NULL
+  interval$interval_start_cy   <- NULL
   # Drop parameters that aren't possible for calculating weibulls
   parameter <- parameter[parameter$removal_rate==1,]
   # Then the remaining fields
+  parameter$plot_name      <- NULL
   parameter$removal_rate   <- NULL
   parameter$consequence    <- NULL
   parameter$nrts           <- NULL
@@ -100,11 +103,11 @@ CalculateOneRemovalDistribution <- function(df, distribution_type="weibull"){
   options(warn=-1)
   if (distribution_type %in% "weibull") {
     # distribution_fit <- fitdistcens(df_for_fits,"weibull")
-    distribution_fit <- survreg(df_for_fits ~ 1, dist="weibull", model = TRUE, y = FALSE)
+    distribution_fit <- survreg(df_for_fits ~ 1, dist = "weibull", model = TRUE, y = FALSE)
   }
   else {
     # distribution_fit <- fitdistcens(df_for_fits,"weibull",start=list(scale=median(df_for_fits$left)),fix.arg=list(shape=1))
-    distribution_fit <- survreg(df_for_fits ~ 1, dist="exp", model = TRUE, y = FALSE)
+    distribution_fit <- survreg(df_for_fits ~ 1, dist = "exp", model = TRUE, y = FALSE)
   }
   options(warn=0)
   
@@ -203,7 +206,7 @@ tidy.survreg_1 <- function(x, ...){
   return(to_return)
 }
 
-glance.survreg_1 <- function(x, modkm = FALSE, plots = FALSE, ...){
+glance.survreg_1 <- function(x, parameter_names, modkm = FALSE, plots = FALSE, plot_dir = "./", ...){
   # Calculates the interesting distribution statistics for 
   #  survival regression of function form x ~ 1
   #  i.e. a simple probability distribution
@@ -220,13 +223,13 @@ glance.survreg_1 <- function(x, modkm = FALSE, plots = FALSE, ...){
     if (modkm) { 
       # Find the modified Kaplan Meier rank and the fitted distribution and non-parameteric values
       # TODO: Use classes to automate these calls, i.e. don't have to supply source_package: see ?class
-      ranked_points <- CalculateModKM(x$model[[1]], x$icoef, x$dist, source_package) # about 2/3 of calc time
+      ranked_points <- CalculateModKM(x$model[[1]], x$icoef, x$dist, source_package) # example: 3.22 seconds w/o ADA
       # Find anderson darling statistic
       anderson_darling_adjusted <- CalculateADA(ranked_points) # about 1/3 of calc time
     }
     if (plots) {
-      # record the plots
-      # getPlotFromDF(ranked_points, head(df), weib[[1]], catgs, plotdir, unbug) #ranked points, sample of input data, break-out categories
+      # save the plots to disk
+      CreateWeibullPlot(ranked_points, parameter_names, x$icoef, x$dist, plot_dir)
     }
     data.frame("distribution_type"         = x$dist,
                "negative_log_likelihood"   = x$loglik[1],
@@ -240,7 +243,6 @@ glance.survreg_1 <- function(x, modkm = FALSE, plots = FALSE, ...){
                "anderson_darling_adjusted" = NA)
   }
 }
-
 
 CalculateDistMean.fitdistcens <- function(x){
   # Calculate distribution mean for fitdistcens object
@@ -271,6 +273,15 @@ CalculateDistMean.survreg_1 <- function(x) {
  }
 }
 
+GetMatchingParameterNames <- function(x, set_map_ref) {
+  # Filter a interval parameter set map reference table to a single interval_parameter_set_id
+  # Args
+  #  x: an interval_parameter_set_id
+  #  set_map_ref: the interval_parameter_set_map table with names - includes all data, even the previously exisiting sets
+  # Returns
+  #  a subset of the set_map_ref table
+  set_map_ref <- filter(set_map_ref,interval_parameter_set_id==x)
+}
 
 # this will always break out by all classifiers (must give it classifier table)
 # uses GetWeibullsFromDF and CensUncens functions
@@ -301,8 +312,9 @@ GatherReliabilityDistributions <- function(interval_table, parameter_table, verb
   
   # get the classifier group names - first sort by whether they can be grouped across (e.g. removals from two WUCs shouldn't be combined)
   parameter_table <- parameter_table[order(parameter_table$do_not_combine,decreasing=TRUE),]
-  class_col_names <- unlist(parameter_table$name) # unlist to get a vector #c("WUC","LOCATION","PN","NHA_PN","LAST_REPAIR","REPAIR_COUNT")
+  class_col_names <- unlist(parameter_table$name) # unlist to get a vector
   class_col_types <- unlist(parameter_table$do_not_combine) # whether data from multiple values in the field can be combined into the same weibull
+  class_col_dnc   <- class_col_names[class_col_types]
   class_count_dnc <- sum(class_col_types) # quantity of always-specific classifier fields - a constant throughout (dnc = do not combine)
   class_count_tot <- length(class_col_names) # quantity of classifier columns, including those that cannot be combined (e.g. WUC)
   class_count_cbn <- class_count_tot - class_count_dnc # quantity of combinable classifier columns
@@ -329,11 +341,16 @@ GatherReliabilityDistributions <- function(interval_table, parameter_table, verb
     for (jj in seq_len(ncol(classifier_combo_table))) { 
       include_param_names <- class_col_names[sort(c(seq(class_count_dnc),classifier_combo_table[,jj]))]
       if (verbose) {
-        print(paste("Now calculating distributions specifying:",paste(include_param_names,collapse=", ")))
+        print(paste("Calculating distributions specifying:",paste(include_param_names,collapse=", ")))
       }
       # Calculate distributions and nest data
       intmd_dists <- CalcDistOneParamCombo(interval_table,
-                                  include_param_names) # break-out (specify) these fields
+                                  include_param_names, # break-out (specify) these fields
+                                  class_col_dnc)
+#       if (sum(class(intmd_dists) %in% "data.frame") == 0) {
+#         # this particular combination of parameters didn't yield any unique groups, so skip it
+#         next
+#       }
       # Add an integer to each interval_parameter_set_id to make unique
       intmd_dists$interval_parameter_set_id <- intmd_dists$interval_parameter_set_id + max_interval_parameter_set_id
       # Increment this max count integer
@@ -357,7 +374,7 @@ GatherReliabilityDistributions <- function(interval_table, parameter_table, verb
 } # end GatherReliabilityDistributions
 
 # previously calloneDDPLY
-CalcDistOneParamCombo <- function(interval_table, include_param_names) {
+CalcDistOneParamCombo <- function(interval_table, include_param_names, always_include_names) {
   # Calculates distributions for one set of parameter types to group by
   #   uses dplyr's group_by to split, apply, and combine
   # Args:
@@ -369,7 +386,21 @@ CalcDistOneParamCombo <- function(interval_table, include_param_names) {
   # group by with a vector of string names
   # https://stackoverflow.com/questions/21208801/group-by-multiple-columns-in-dplyr-using-string-vector-input
   # 1) use symbols (list) then use group_by_ (with an underscore at the end)
-  include_param_names <- lapply(include_param_names, as.symbol)
+  include_param_names  <- lapply(include_param_names, as.symbol)
+  always_include_names <- lapply(always_include_names, as.symbol)
+  other_names          <- include_param_names[!(include_param_names %in% always_include_names)]
+  
+  ### I commented this out because the last distributions are being removed in the weibulls-Work document - previosuly this was to deconflict with the parameter sets that already existsed
+#   # Skip this combination of grouping classifiers if they give any non-unique data (i.e. if some are the same for all data)
+#   distributions_nested <- group_by_(interval_table, .dots=include_param_names) # it's okay if these yield only one group
+#   all_groups <- n_groups(distributions_nested)
+#   for (ii in seq(other_names)) {
+#     if (n_groups(group_by_(interval_table, .dots=other_names[-ii])) == all_groups) {
+#       # If excluding a classifier yields the same number of groups as leaving them all in
+#       #  then this classifier is not useful here.  Skip this entirely. The distirbution will show up elsewhere.
+#       return(NA)
+#     }
+#   }
   
   # Nest data, then calculate and save distribution
   # Call CalculateOneRemovalDistribution twice on each group to calculate weibull and exponential distributions
@@ -385,7 +416,6 @@ CalcDistOneParamCombo <- function(interval_table, include_param_names) {
   
   return(distributions_nested)
 } # end CalcDistOneParamCombo
-
 
 # previously getmodkm
 CalculateModKM <- function(interval_value, params, distribution, source_package) {
@@ -418,6 +448,9 @@ CalculateModKM <- function(interval_value, params, distribution, source_package)
       scale <- unname(params)
       shape <- 1
     }
+  } else {
+    stop("Failed attempting to calculate kaplan meier statistics for a fit 
+         of type other than fitdistcens or survreg")
   }
   
   # Extract and sort interval data into two data frames with the distribution probability
@@ -439,251 +472,196 @@ CalculateModKM <- function(interval_value, params, distribution, source_package)
   
   # Calculate Modified Kaplan-Meier rank (just for the non-censored events)
   #  using nrow(interval_value) allows calculating reverse-rank from rank
-  interval_value$p_intmd <- ((nrow(interval_value) - row(interval_value)[, 1])^interval_value$causal) /
-    ((nrow(interval_value) - row(interval_value)[, 1] + 1)^interval_value$causal)
+  max_rank <- nrow(interval_value)
   
-  # First row has a unique formula
-  interval_value$p_prime[1] <- 1 - interval_value$p_intmd[1]
-  interval_value$p[1]       <- 1 - ((1-interval_value$p_prime[1])+1) / 2
-  
-  # Calculate remaining values
+  # Calculate:
   # p_prime - Normal Kaplan Meier statistic (matches JMP and fitsurv from survival package)
-  # p     - Modified Kaplan Meier statistic
-  interval_value$p_prime[-1] <- sapply(interval_value$rank[-1], GetPPrime, interval_value$p_intmd)
-  interval_value$p[-1]       <- sapply(interval_value$rank[-1], GetP, interval_value$p_prime)
+  # p       - Modified Kaplan Meier statistic
+  interval_value <- mutate(interval_value, 
+                           p_intmd =   (max_rank - row_number())^causal / 
+                            (max_rank - row_number() + 1)^causal,
+                           p_prime = 1 - cumprod(p_intmd), 
+                           prev_p_prime = lag(p_prime, 1L, default = 0),
+                           p = (1 - ((1 - p_prime) + (1 - prev_p_prime)) / 2)) %>%
+    select(-prev_p_prime,-p_intmd)
+  # using mutate with cumprod is much faster than vapply and prod(1:rank)
+  # other uses of mutate are mostly for elegance
   
-  return(interval_value) # return interval value table
+  return(interval_value)
 } # end CalculateModKM
-
-# Used in CalculateModKM
-GetPPrime <- function(rank, p_intmd_all_rows){
-  # 1 less the product of this and all the previous p_intermediates
-  rank <- rank[[1]][1]
-  return(1 - prod(p_intmd_all_rows[1:rank]))
-}
-
-# Used in CalculateModKM
-GetP <- function(rank, p_prime_all_rows){
-  # 1 less the average of this and the previous (1-p_prime)
-  rank <- rank[[1]][1]
-  return(1 - ((1-p_prime_all_rows[rank]) + (1-p_prime_all_rows[rank-1])) / 2)
-}
-
 
 CalculateADA <- function(ranked_points) {
   # Calculate's a distribution's anderson darling adjusted statistic
   # Args
   #  ranked_points: interval data with modified Kaplan Meier ranks (empirical dist) and distribution fit
+  #   p is modified kaplan meier statistic, p_prime is standard kaplan meier statistic
   # Returns
   #  the anderson darling adjusted statistic (a double)
   
-  # Only take the ploted (noncensored) points
+  # Only take the plotted (noncensored) points
   ranked_points      <- ranked_points[ranked_points$causal==1,] 
   lgth               <- nrow(ranked_points) # number of noncensored points
   ranked_points$rank <- seq_len(lgth) # recalculate the rank
   
-  # use the findArow function to get A values of each row, then add the n+1th row A value
-  A <- sum(apply(X=ranked_points, MARGIN=1, FUN=findArow, ranked_points$fit_probability)) - 
-    (1-1E-12) - log(1-(1-1E-12)) + 
-    ranked_points$fit_probability[lgth] + log(1 - ranked_points$fit_probability[lgth])
-  # B values
-  B <- sum(apply(X=ranked_points, MARGIN=1, FUN=findBrow,
-                 fit_probability=ranked_points$fit_probability,non_par=ranked_points$p)) +
-    2*log(1-(1-1E-12))*ranked_points$p[lgth] - 2*log(1-ranked_points$fit_probability[lgth])*ranked_points$p[lgth]
-  # C values
-  C <- sum(apply(X=ranked_points, MARGIN=1, FUN=findCrow,
-                 fit_probability=ranked_points$fit_probability,non_par=ranked_points$p)) +
-    log(1-(1E-12))*ranked_points$p[lgth]^2 -
-    log(1-(1-(1E-12)))*ranked_points$p[lgth]^2 -
-    log(ranked_points$fit_probability[lgth])*ranked_points$p[lgth]^2 +
-    log(1-ranked_points$fit_probability[lgth])*ranked_points$p[lgth]^2
+  ranked_points <- mutate(ranked_points, 
+                          prev_fit_prob = lag(fit_probability, 1L, default = 0),
+                          prev_p = lag(p, 1L, default = 0),
+                          ada_contribution = -fit_probability - log(1-fit_probability) + 
+                            prev_fit_prob + log(1-prev_fit_prob) + 
+                            2*log(1-fit_probability)*prev_p - 2*log(1-prev_fit_prob)*prev_p +
+                            log(fit_probability)*prev_p^2 - log(1-fit_probability)*prev_p^2 - 
+                            # log(0) is infinity, so must use ifelse here:
+                            ifelse(prev_fit_prob==0,0,log(prev_fit_prob)*prev_p^2) +
+                            log(1-prev_fit_prob)*prev_p^2
+  )
   
-  return(lgth*(A+B+C))
+  # the n+1th row value doesn't belong in the data frame
+  final_p <- ranked_points$p[lgth]
+  final_fit <- ranked_points$fit_probability[lgth]
+  
+  final_point <- -(1-1E-12) - log(1-(1-1E-12)) + 
+    ranked_points$fit_probability[lgth] + log(1 - final_fit) + 
+    2*log(1-(1-1E-12))*final_p - 2*log(1-final_fit)*final_p + 
+    log(1-(1E-12))*final_p^2 - log(1-(1-(1E-12)))*final_p^2 -
+    log(final_fit)*final_p^2 + log(1-final_fit)*final_p^2
+  
+  return(lgth*(sum(ranked_points$ada_contribution,final_point)))
 } # end CalculateADA
 
-## Three helper functions for calculating anderson darling statistic
-# returns a single numeric value:  A in the AD* (anderson darling adjusted) calculation. 
-# to be used in the AD* function and with apply by row;  needs a single row from the ranked points data frame and the entire fitprob column from "both"
-findArow <- function(input,fit_probability) {
-  # input is a matrix with named fields
-  if (input['rank']==1) { # check rank - first row is special
-    out <- (-input['fit_probability']) - log(1-input['fit_probability']) + 0 + log(1-0)
-  } else { # not the first row
-    out <- (-input['fit_probability']) - log(1-input['fit_probability']) + fit_probability[input['rank']-1] + log(1-fit_probability[input['rank']-1])
-  } # end not the first row
-} # end find A
-# returns a column for the "both" data frame: B in the AD* calculation
-#  like A, but also requires the non parameteric CDF value for all the points
-findBrow <- function(input, fit_probability,non_par) {
-  if (input['rank']==1) { # first row is special
-    out <- 0
-  } else { # not the first row
-    out <- 2*log(1-input['fit_probability'])*non_par[input['rank']-1] - 2*log(1-fit_probability[input['rank']-1])*non_par[input['rank']-1] 
-  } # end not the first row
-} # end find B
-# returns a column for the "both" data frame: C in the AD* calculation
-findCrow <- function(input, fit_probability,non_par) {
-  if (input['rank']==1) { # first row is special
-    out <- 0
-  } else { # not the first row
-    out <- log(input['fit_probability'])*non_par[input['rank']-1]^2 - log(1-input['fit_probability'])*non_par[input['rank']-1]^2 - 
-      log(fit_probability[input['rank']-1])*non_par[input['rank']-1]^2 + log(1-fit_probability[input['rank']-1])*non_par[input['rank']-1]^2
-  } # end not the first row
-} # end find C
-
-
-BetaTest<-function(input,weibnll) {
-  # Find the p value of the test comparing the weibull fit to the exponential fit
-  # Args: 
-  #  input: censored and uncensored times 
-  #  weibnll: negative log likelihood of the weibull fit for these times
-  # Returns:
-  #  list with pvalue from chi squared test and the exponential fit mean parameter
+MakeTitlePretty <- function(plot_title, parameter_separator, max_char) {
+  # Recursive function to add line breaks to a title for weibull plots
+  # Args:
+  #   plot_title: original or modified plot title
+  #   parameter_separator: character string with which parameters are spaced apart in the title
+  #   max_char: ideal number of characters to fit on a plot row
+  # Returns
+  #   a plot title or part of a plot title
   
-  expofit<-fitdistcens(input,"weibull",start=list(scale=median(input$left)),fix.arg=list(shape=1)) # most likely expo fit to work
-  teststat<-2*(weibnll-expofit$loglik)
-  pvalue<-1-pchisq(teststat,1)
-  (list(pval=pvalue,param=expofit[[1]]))
+  ends_vector <- gregexpr(parameter_separator, plot_title)[[1]] # where parameters end on the same line
+  # Four cases:
+  #  1) plot title is less than the character limit: return title w/o recursion
+  #  2) there's only one parameter on this so: return title w/o recursion
+  #  3) the first parameter is over the limit - split it into its own line and recurse
+  #  4) some other parameter is over the limit - make everything before this parameter its own line and recurse
+  
+  # case 1 - short line
+  if (nchar(plot_title) <= max_char) { 
+    return(plot_title)
+  }
+  
+  # case 2 - one param
+  if (ends_vector[1] == -1) { 
+    return(plot_title)
+  }
+  
+  ends_vector <- c(ends_vector,nchar(plot_title))
+  too_long_param <- which(ends_vector > max_char)[1] # first parameter after max_char characters
+  # case 3 - split is on first param
+  if(too_long_param == 1) {
+    split_this_many_before <- 0 # split the first (only) separator that's over the limit
+  } else {
+  # case 4
+    split_this_many_before <- 1
+  }
+  
+  plot_line       <- substr(plot_title, start = 1, stop = ends_vector[too_long_param-split_this_many_before]-1)
+  remaining_title <- substr(plot_title, 
+                            start = ends_vector[too_long_param-split_this_many_before] + nchar(parameter_separator), 
+                            stop = nchar(plot_title))
+  # recurse
+  plot_title <- paste(plot_line, MakeTitlePretty(remaining_title, parameter_separator, max_char),sep = "\n")
+  
+  return(plot_title)
 }
 
-getWeibullFromDF <- function(df, plot=FALSE, catgs="",modkm, plotdir,unbug) {
-  # Outputs a row with fitted weibulls and can generate a weibull plot in the specified directory
+CreateWeibullPlot <- function(ranked_points, dist_param_names, params, distribution_type, plotdir = "./") {
+  # Save a probability plot of the events and their fit
+  #   overlayed with a histogram of the censored values
+  #   uses weibull-scale log-log axes:
+  #     x is log(time)
+  #     y is log(log(1/(1-Unreliability(t))))
   # Args:
-  #   df: a subset of the removals/repair interval value/age (TOW) data as broken down by a previous call to ddply()
-  #   plot: boolean if the function should call getPlotFromDF to save a plot
-  #   catgs: text string of all the specific classifiers used in the previous steps to pass df to this function
-  #   modkm: boolean if the function should calculate the modified kaplan meier plot points; required for plotting
-  #          determines whether to calculate anderson darling statistics
-  #   plotdir: directory to store plots
-  #   unbug: boolean if unbug remarks should be printed to console
-  # Returns:
-  #   out: a row with weibull & exponential paramaters and goodness of fit info for one set of classifiers 
-  #        ddply will append this to the classifiers columns to make a row of the final output
-  #   calls getPlotFromDF to make a plot, if option is on
+  #   ranked_points: modified Kaplan Meier ranked points for all intervals
+  #   parameter_names: sample of original data frame with classifiers
+  # params: two parameters for the weibull distribution
+  # catgs: grouping categories passed to ddply to define which factors to not use "ALL"
+  # uses Modified Kaplan-Meier method for plotting uncensored and censored data
   
-  #make sure the passed data frame has enough data: at least three failure/removal/events
-  #      (anything less may give errors in fitting the weibull with mle method)
-  if(nrow(df[df$causal==1,])<3) {
-    # with too little data:  report the number of events and give NAs for everything else   
-    out<-data.frame(NA,NA,NA,NA,NA,0,0,NA,NA,NA,NA,NA,NA,NA)
-    colnames(out)<-c("shape","scale","shapeSE","scaleSE","DistMean","Events","Censored","NLogLik","BetaTestPval","AD*weib","AD*expo","AD*logn","AD*norm","ExpoScale")
-    out[1,6]<-length(df[df$causal==1,8])
-    out[1,7]<-length(df[df$causal==0,8])
-    (out) # no plot generated
-  } else {
-    #shape the intervalValue table into a two-column dataframe with time on wing and censored information for fitdistcens()
-    newdf<-CensUncens(df)
-    # make sure the causal failures are not all the same number;  otherwise the weibull is horizontal and impossible to fit
-    if(length(unique(newdf[,2][complete.cases(newdf[,2])]))==1) {
-      # with too little data:  report the number of events and give NAs for everything else   
-      out<-data.frame(NA,NA,NA,NA,NA,0,0,NA,NA,NA,NA,NA,NA,NA)
-      colnames(out)<-c("shape","scale","shapeSE","scaleSE","DistMean","Events","Censored","NLogLik","BetaTestPval","AD*weib","AD*expo","AD*logn","AD*norm","ExpoScale")
-      out[1,6]<-length(df[df$causal==1,8])
-      out[1,7]<-length(df[df$causal==0,8])
-      (out) # no plot generated 
-    } else {
-      #calculate a weibull from that new 2-column dataframe
-      if(unbug){print(df[1,])}
-      if(unbug){print(dim(newdf))}
-      options(warn=-1)
-      weib<-fitdistcens(newdf,"weibull")
-      options(warn=0)
-      #find the modified Kaplan Meier rank and the fitted values 
-      if (modkm) {
-        rankedpoints<-getModKM(newdf,weib[[1]]) # takes cens/uncens interval values (TOW) and weibull parameters
-      }
-      #find the exponential parameters and the beta = 1 p value
-      betaout<-BetaTest(newdf,weib$loglik)
-      #calculate the Anderson Darling Adjusted statistics for weibull,exponential,lognormal and normal distributions
-      if (modkm) {
-        ADstats<-calcADAvals(rankedpoints,newdf,betaout[[2]])
-      } else {ADstats<-data.frame(NA,NA,NA,NA)} # finding modkm is slow so option out
-      #save a plot of the weibull. this requires modkm
-      if (plot) {
-        getPlotFromDF(rankedpoints, head(df), weib[[1]], catgs, plotdir, unbug) #ranked points, sample of input data, break-out categories
-      }
-      
-      # save the scale and shape parameters & their standard errors
-      #   & # of events and beta-test-p-value in a dataframe
-      out<-cbind(t(data.frame(weib[1])),t(data.frame(weib[2])))
-      out<-as.data.frame(out)
-      out[1,5]<-weib[[1]][2]*gamma(1+1/weib[[1]][1]) # mean time b/w events (scale*gamma(1+1/shape))
-      out[1,6]<-length(is.na(newdf$right)[is.na(newdf$right)==F]) # uncensored events
-      out[1,7]<-length(is.na(newdf$right)[is.na(newdf$right)==T]) # censored
-      out[1,8]<-weib$loglik # negative log likelihood of the weibull fit (will be used to compare fits)
-      out[1,9]<-betaout[[1]] # get the Log-Likelihood Ratio Test p-value for Beta=1 test (approximation of Minitab Wald Test p-value)
-      out[1,10]<-ADstats[1] # weibull AD* statistic
-      out[1,11]<-ADstats[2] # exponential AD* statistic
-      out[1,12]<-ADstats[3] # lognormal AD* statistic
-      out[1,13]<-ADstats[4] # normal AD* statistic
-      out[1,14]<-betaout[[2]] # exponential scale (1/rate) parameter
-      colnames(out)<-c("shape","scale","shapeSE","scaleSE","DistMean","Events","Censored","NLogLik","BetaTestPval","AD*weib","AD*expo","AD*logn","AD*norm","ExpoScale") 
-      (out)
-    } # end if there are different values in the causal events
-  } # end if there are enough data
-} # end getWeibullFromDF function
-
-# plot a probability graph plot of the events and their fit 
-#   overlayed with a histogram of the censored values
-# called from within getweibullsfromdf
-# both: modKM-ranked points for all repairs
-# df: sample of original data frame with classifiers
-# params: two parameters for the weibull distribution
-# catgs: grouping categories passed to ddply to define which factors to not use "ALL"
-# uses Modified Kaplan-Meier method for plotting uncensored and censored data
-getPlotFromDF<- function(both, df, params, catgs, plotdir, unbug=FALSE) {
-  # assign titles for the plot
-  title.WUC<-as.character(df$WUC[1])
-  title.name<-as.character(wucnames[wucnames$WUC==title.WUC,2])
-  # this looks if the different classifiers are specific (broken out) or general (all)
-  # there is almost certainly a better way to do this, but...
-  title.Loc<-ifelse(strsplit(catgs,"LOCATION")==catgs,"ALL",as.character(df$LOCATION[1]))
-  title.Loc<-ifelse(title.Loc=="N/A","NA",title.Loc) # png name can't have a slash in it
-  # distinguishing between nha_pn and pn is more involved:  first check for nha_pn
-  title.NPN<-ifelse(strsplit(catgs,"NHA_PN")==catgs,"ALL",as.character(df$NHA_PN[1]))
-  # then split on nha_pn and check what wasn't split for PN or check both sides for PN 
-  a<-strsplit(paste0(" ",catgs," "),"NHA_PN")[[1]] # have to get the first element of the list that strsplit returns
-  b<-0
-  if(length(a)==1){ # if nha_pn not found, check catgs string
-         title.PN<-ifelse(strsplit(catgs,"PN")==catgs,"ALL",as.character(df$PN[1]))}
-  else {
-        for(ii in 1:2){ifelse(strsplit(a[ii],"PN")[[1]]==a[ii],b<-b+0,b<-b+1)}; # if b==0 then no match
-            if(b>0){title.PN<-as.character(df$PN[1])}
-            else {title.PN<-"ALL"}
-       }
-  title.RC<-ifelse(strsplit(catgs,"REPAIR_COUNT")==catgs,"ALL",as.character(df$REPAIR_COUNT[1]))
-  title.LR<-ifelse(strsplit(catgs,"LAST_REPAIR")==catgs,"ALL",as.character(df$LAST_REPAIR[1]))
+  # Extract Parameters
+  if (distribution_type %in% "weibull") {
+    params[1] <- (exp(params[1])) # scale
+    params[2] <- (1/exp(params[2])) # shape
+    params[3] <- params[1]*gamma(1+1/params[2])
+    names(params) <- c("scale", "shape", "dist_mean")
+  } else if (distribution_type %in% "exponential") {
+    params <- exp(params)
+    names(params) <- "mean"
+  } else (
+    stop("Trying to make a weibull plot from a distribution other than weibull or exponential")
+  )
+  
+  # Build the plot title as a string
+  #   hopefully there are no
+  ## TODO: find a better way to order these parameter names
+  dist_param_names    <- arrange(dist_param_names, parameter_name) # order alphabetically
+  parameter_separator <- "; "
+  plot_title <- paste(dist_param_names$parameter_name,dist_param_names$value,sep=":",collapse=parameter_separator)
+  # try to split into new lines about every 40 characters
+  plot_title <- MakeTitlePretty(plot_title, parameter_separator, max_char = 40)
+  distribution_type_title <-paste0(toupper(substr(distribution_type,1,1)),
+                                   substr(distribution_type,2,nchar(distribution_type)))
     
   # Plot
-  op<-par() # save the plot parameters
-  #dots
-  png(file = paste(plotdir,"WeibullPlot._WUC_",title.WUC,";Loc_",title.Loc,";PN_",title.PN,";RepInt_",
-                   title.RC,".png",sep=""), width=5.96, height=4.54, units="in", res=144)
+  op <- par() # save the plot parameters
+  # dots on plot
+  ## TODO: make the filename more informative
+  png(file = paste(plot_dir,"WeibullPlot_", distribution_type, "_", 
+                   dist_param_names$interval_parameter_set_id[1], ".png", sep=""), 
+      width=5.96, height=4.54, units="in", res=144)
   par(mar=c(3.6, 4, 4, 2) + 0.1) # push the plot down a little
-  weibplot(both$interval_value[which(both$cens==1)],both$p[which(both$cens==1)],forcexlim=c(.9,log10(max(both$interval_value))+.02),
-           forceylim=c(-7,0), xlab="",ylab="Percent",col=rgb(255/255,0/255,0/255),pch=16,
-           main=paste("Weibull Removal Plot\n",title.name,
-                      ifelse(title.Loc=="ALL"," - All Locations",ifelse(title.Loc=="NA"," - No Majority Location",paste(" - ",title.Loc))),
-                      "\n",ifelse(title.PN=="ALL","All Part Numbers - ",paste("PN ",title.PN," - ")),
-                      ifelse(title.RC=="ALL","All Removal Intervals",paste("Removal Interval ",title.RC))))
+  weibplot(ranked_points[ranked_points$causal==1, ]$interval_value,
+           ranked_points[ranked_points$causal==1, ]$p,
+           forcexlim=c(.9, log10(max(ranked_points$interval_value)) + .02),
+           forceylim=c(-7, 0), xlab="", ylab="Percent", col=rgb(255/255, 0/255, 0/255), pch=16,
+           main=paste0("Removal Plot with ", distribution_type_title, " Fit\n",plot_title))
   title(sub="Flight Hours",line=2)
-  abline(h=c(log(-log(1-c(.001,.01,.1)))),v=c(c(seq(-1,3))),col=rgb(1,0,0)) # Red
-  abline(h=c(log(-log(1-c(.003,.02,.05,.25,.5,.75,.9,.96,.99,.999)))),col=rgb(38/255,201/255,38/255))
-  abline(v=c(log10(seq(7,9)),log10(seq(20,90,10)),log10(seq(200,900,100)),log10(seq(2000,9000,1000))),col=rgb(38/255,201/255,38/255)) # Green
-  #fitted line
-  line.41<-qweibull(seq(0.0001,.99,.0005),params[1],params[2],log.p=F)
-  lines(x=log10(line.41),y=log(-log(1-seq(.0001,.99,.0005))))
-  #legend
-  legend(x="topleft",legend=c(paste("Shape: ",round(params[1],digits=3)),paste("Scale: ",round(params[2],digits=3)),
-                              paste("Mean: ",round(params[2]*gamma(1+1/params[1]),digits=3)),paste("Observed: ",length(both$p[which(both$cens==1)])),
-                              paste("Censored: ",length(both$p[which(both$cens==0)]))),cex=.85,ncol=1,inset=c(-0.05,-0.03))
+  abline(h=c(log(-log(1-c(.001, .01, .1)))),v=c(c(seq(-1,3))),col=rgb(1, 0, 0)) # Red
+  abline(h=c(log(-log(1-c(.003, .02, .05, .25, .5, .75, .9, .96, .99, .999)))), col=rgb(38/255, 201/255, 38/255))
+  abline(v=c(log10(seq(7, 9)), log10(seq(20, 90, 10)), log10(seq(200, 900, 100)), 
+             log10(seq(2000, 9000, 1000))), col=rgb(38/255, 201/255, 38/255)) # Green
+  # fitted line
+  if (distribution_type %in% "weibull") {
+    line.41 <- qweibull(seq(0.0001, .99, .0005), scale = params[1], shape = params[2], log.p=F)
+  } else { # exponential
+    line.41 <- qweibull(seq(0.0001, .99, .0005), scale = params[1], shape = 1, log.p=F)
+  }
+  
+  lines(x=log10(line.41), y=log(-log(1-seq(.0001, .99, .0005))))
+  # legend
+  if (distribution_type %in% "weibull") {
+    legend_text <- c(paste("Shape: ", round(params[2], digits=3)), paste("Scale: ",round(params[1], digits=3)), 
+                     paste("Mean: ", round(params[3], digits=3)), 
+                     paste("Observed: ", nrow(ranked_points[ranked_points$causal==1, ])), 
+                     paste("Censored: ", nrow(ranked_points[ranked_points$causal==0, ])))
+  } else { 
+    legend_text <- c(paste("Exponential\nMean: ", round(params[1], digits=3)), 
+                     paste("Observed: ", nrow(ranked_points[ranked_points$causal==1, ])), 
+                     paste("Censored: ", nrow(ranked_points[ranked_points$causal==0,])))
+  }
+  legend(x="topleft", legend=legend_text, cex=.85, ncol=1, inset=c(-0.05,-0.03))
+  
   #histogram (if there are censored values)
-  if(length(both$p[which(both$cens==0)])==0) { # just plot a zero at median of non-censored hours
-    text(x=log10(median(both$interval_value[which(both$cens==1)])),y=-7,labels="0")
+  if(nrow(ranked_points[ranked_points$causal==0, ])==0) { # just plot a zero at median of non-censored hours
+    text(x=log10(median(ranked_points[ranked_points$causal==1, ]$interval_value)), y=-7, labels="0")
   } else { # plot the histogram
-  par(new=T,mar=c(3.14,4.1,4.1,2.1)) #5.96 x 4.54 to line up the histogram to the bottom of the plot area
-  histholder<-hist(log10(both$interval_value[which(both$cens==0)]),breaks="Sturges",plot=F) # to get the bin heights and counts
-  histplot<-hist(log10(both$interval_value[which(both$cens==0)]),breaks="Sturges",xlim=c(.9,log10(max(both$interval_value))+.02),ylim=c(0,max(histholder$counts)*2.2),border=1,col=rgb(149/255,184/255,251/255),ylab=NULL,xlab=NULL,main=NULL,labels=T,axes=F,plot=T)
+  par(new=T, mar=c(3.14, 4.1, 4.1, 2.1)) #5.96 x 4.54 to line up the histogram to the bottom of the plot area
+  hist_holder <- hist(log10(ranked_points[ranked_points$causal==0, ]$interval_value), 
+                      breaks="Sturges",plot=F) # to get the bin heights and counts
+  hist_plot   <- hist(log10(ranked_points[ranked_points$causal==0, ]$interval_value), 
+                      breaks="Sturges", xlim=c(.9, log10(max(ranked_points$interval_value)) + .02), 
+                      ylim=c(0, max(hist_holder$counts)*2.2), border=1, 
+                      col=rgb(149/255, 184/255, 251/255), ylab=NULL, xlab=NULL, 
+                      main=NULL, labels=T, axes=F, plot=T)
   } # end if there is enough data to plot the histogram
   options(warn=-1)
   par(op)
@@ -691,16 +669,14 @@ getPlotFromDF<- function(both, df, params, catgs, plotdir, unbug=FALSE) {
   invisible(dev.off())
 } # end plot Function
 
-
 ###plotting functions###
-#fix the scale to Weibull:
+# fix the scale to Weibull:
 # draw the plot:
-weibplot <- function(x,y,log='xy',...,forceylim=c(0,0),forcexlim=c(0,0))
-{
+weibplot <- function(x, y, log='xy', ..., forceylim=c(0,0), forcexlim=c(0,0)) {
   x <- log(x,10)
   y <- log(-log(1-y))
-  xlg = TRUE # hard-coded for now
-  ylg = TRUE
+  xlg <- TRUE # hard-coded for now
+  ylg <- TRUE
   yl <- ifelse(forceylim==c(0,0),range(y),forceylim)
   xl <- ifelse(forcexlim==c(0,0),range(x),forcexlim)
   plot(x,y,...,axes=FALSE,ylim=yl,xlim=xl)
@@ -708,6 +684,7 @@ weibplot <- function(x,y,log='xy',...,forceylim=c(0,0),forcexlim=c(0,0))
   if(ylg){drawweibaxis()}else{axis(2,at=pretty(yl),labels=pretty(yl))}
   box()
 }
+
 # draw the axes:
 drawlogaxis <- function(side,range)  {
   par(tck=0.02)
