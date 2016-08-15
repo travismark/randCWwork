@@ -17,6 +17,7 @@ conn <- odbcDriverConnect(paste0("DRIVER={MySQL ODBC 5.3 ANSI Driver};Server=",s
 rm(list = c("user_name", "pw", "server", "port", "db"))
 
 source("./weibull_functions.R")
+source("./conseq_functions.R")
 
 # Extract Data ------------------------------------------------------------
 print("Extracting Data")
@@ -50,10 +51,11 @@ distribution_type_parameter <- data.frame(id                   = c(1, 2, 3),
                                           name                 = c("scale", "shape", "mean"),
                                           stringsAsFactors     = FALSE)
 
-# options to calculate anderson darling statistic and plot
+# options for user
 modkm    <- TRUE
-plots    <- FALSE
+plots    <- TRUE
 plot_dir <- "./plots/"
+min_interval_time <- 1
 
 # exchange ids for parameter names in parameter_names
 parameter_names <- inner_join(parameter_names,select(parameter,id,plot_name),
@@ -68,7 +70,7 @@ interval_data <- MergeRemovalRateInput(parameter, parameter_value, interval, int
 #   use nested data frames in tidy package and map functions to each nested element with purrr package
 
 # Fit distributions and get the interval parameter set map
-system.time(output_list <- GatherReliabilityDistributions(interval_data, parameter, verbose=TRUE)) # 9+ seconds
+system.time(output_list <- GatherReliabilityDistributions(interval_data, parameter, min_interval_time=min_interval_time, verbose=TRUE)) # 9+ seconds
 reliability_distribution_save <- bind_rows(output_list[[1]])
 interval_parameter_set_map    <- bind_rows(output_list[[2]])
 rm(output_list)
@@ -110,6 +112,7 @@ interval_parameter_set_map$id <- as.integer(interval_parameter_set_map$id) + max
 # make the interval set table (only includes those that do not conflict)
 interval_parameter_set <- data.frame("id"=unique(interval_parameter_set_map$interval_parameter_set_id))
 
+
 # use a glance-like function to get distribution summaries (dist mean, name, nloglik, etc.)
 # use a tidy-like function to get parameter information (one row per distribution parameter: estimate and sd)
 
@@ -126,8 +129,8 @@ reliability_distribution_save <- mutate(reliability_distribution_save, parameter
 system.time(distribution_weibull <- reliability_distribution_save %>%
               unnest(dist_fit_w %>% purrr::map2(parameter_names, ~ 
                                                   glance.survreg_1(.x, .y, modkm, plots, plot_dir))) %>%
-  mutate(causal_events = purrr::map_int(data, ~ sum(.$causal==1)), # map_int returns an integer
-         censored_events = purrr::map_int(data, ~ sum(.$causal==0)),
+  mutate(causal_events = purrr::map_int(data, ~ sum(.$causal==1 & .$interval_value > 0)), # map_int returns an integer
+         censored_events = purrr::map_int(data, ~ sum(.$causal==0 & .$interval_value > 0)),
          plot = NA) %>%
   dplyr::select(-c(data, dist_fit_w, dist_fit_e, parameter_names)))
 
@@ -135,8 +138,8 @@ system.time(distribution_weibull <- reliability_distribution_save %>%
 distribution_exp <- reliability_distribution_save %>%
   unnest(dist_fit_e %>% purrr::map2(parameter_names, ~ 
                                       glance.survreg_1(.x, .y, modkm, plots, plot_dir))) %>%
-  mutate(causal_events = purrr::map_int(data, ~ sum(.$causal==1)), # map_int returns an integer
-         censored_events = purrr::map_int(data, ~ sum(.$causal==0)),
+  mutate(causal_events = purrr::map_int(data, ~ sum(.$causal==1 & .$interval_value > 0)), # map_int returns an integer
+         censored_events = purrr::map_int(data, ~ sum(.$causal==0 & .$interval_value > 0)),
          plot = NA) %>%
   dplyr::select(-c(data, dist_fit_w, dist_fit_e))
 
@@ -169,8 +172,46 @@ distribution_parameter <- bind_rows(distribution_parameter_weibull, distribution
             distribution_type_name, distribution_type_id)) %>%
   add_rownames(var = "id")
 
+
+# Consequences ------------------------------------------------------------
+
+# hard-code probability type and class to match LCM
+probability_class <- data.frame("id" = c(1, 2, 3), 
+                                "name" = c("unscheduled removal", "life limit", 
+                                           "initial unserviceable"), stringsAsFactors = FALSE)
+probability_type <- data.frame("id" = c(1, 2, 3, 4), 
+                                "name" = c("no action", "no fault found", 
+                                           "condemn", "repair"), stringsAsFactors = FALSE) # matches demand pro sequence
+
+# already have the proper interval_parameter_set_ids and maps from distribution calculation. use the same ones for consequence and nrts calculations.
+# ignore the interval_parameter_set_ids that include parameters that are incompatible with consequences
+conseq_save <- select(reliability_distribution_save, -dist_fit_w, -dist_fit_e) %>% 
+  mutate(conseq_include = purrr::map_lgl(parameter_names, ~ !any(.$parameter_name %in% parameter[parameter$consequence == 0, ]$plot_name))) %>%
+  filter(conseq_include) %>% select(-conseq_include)
+
+# merge in data relevant to consequences
+interval_data_conseq <- MergeConsequenceInput(parameter, parameter_value, interval, interval_set_map)
+conseq_save <- mutate(conseq_save, data = purrr::map(data, ~ select(., interval_id) 
+                                                     %>% inner_join(interval_data_conseq, by = "interval_id")))
+
+# calculate consequences by:
+  # location type (2 or 3) (informed by nrts field)
+  # removal type (unscheduled or life limit)
+  # interval parameter set id
+  # consequence (repair or condemn)
+
+consequence <- unnest(conseq_save, data %>% purrr::map(tidy.consequence)) %>%
+  inner_join(probability_type, by = c("probability_type_name" = "name")) %>% # dropped that NA consequence
+  rename(probability_type_id = id) %>% select(-probability_type_name) %>%
+  #inner_join(probability_class, by = c("probability_class_name" = "name")) # TODO: add this back once interval type isn't NA
+  rename(probability_class_id = probability_class_name) %>% # change this to mirror probability type id when interval type isn't NA
+  add_rownames(var = "id")
+
+consequence$probability_class_id <- 1 ### I have to make something up because this field isn't nullable.
+  
 rm(distribution_id_info)
 rm(reliability_distribution_save)
+rm(conseq_save)
 
 # Load -------------------------------------------------
 print("Loading Data")
@@ -181,7 +222,9 @@ sqlSave(conn, dat = interval_parameter_set, tablename = "interval_parameter_set"
 sqlSave(conn, dat = interval_parameter_set_map, tablename = "interval_parameter_set_map", rownames = FALSE, append = TRUE)
 sqlSave(conn, dat = reliability_distribution, tablename = "reliability_distribution", rownames = FALSE, append = TRUE)
 sqlSave(conn, dat = distribution_parameter, tablename = "reliability_distribution_parameter", rownames = FALSE, append = TRUE)
-
+sqlSave(conn, dat = probability_class, tablename = "probability_class", rownames = FALSE, append = TRUE)
+sqlSave(conn, dat = probability_type, tablename = "probability_type", rownames = FALSE, append = TRUE)
+sqlSave(conn, dat = consequence, tablename = "consequence", rownames = FALSE, append = TRUE)
 
 # perform distribution comparison tests
 source("./stattest_functions.R")

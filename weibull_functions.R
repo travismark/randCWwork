@@ -2,16 +2,16 @@
 
 # Load packages
 
-suppressPackageStartupMessages(library("survival", quietly = TRUE))
-suppressPackageStartupMessages(library("fitdistrplus", quietly = TRUE))
-suppressPackageStartupMessages(library("plyr", quietly = TRUE))
-suppressPackageStartupMessages(library("dplyr", quietly = TRUE))
-suppressPackageStartupMessages(library("tidyr", quietly = TRUE))
-suppressPackageStartupMessages(library("readr", quietly = TRUE))
-suppressPackageStartupMessages(library("purrr", quietly = TRUE))
-suppressPackageStartupMessages(library("lubridate", quietly = TRUE))
+suppressPackageStartupMessages(library("survival"))
+suppressPackageStartupMessages(library("fitdistrplus"))
+suppressPackageStartupMessages(library("dplyr"))
+suppressPackageStartupMessages(library("tidyr"))
+suppressPackageStartupMessages(library("purrr"))
+suppressPackageStartupMessages(library("lubridate"))
 
-# Define Functions: 
+## Define Functions: 
+
+# Distribution functions
 
 MergeRemovalRateInput <- function(parameter, parameter_value, interval, interval_set_map) {
   # Converts Parameter Information (set, set_map, parameter, set_parameter) and Interval tables into 
@@ -42,7 +42,7 @@ MergeRemovalRateInput <- function(parameter, parameter_value, interval, interval
   interval$tenant_project_id   <- NULL
   interval$interval_start_cy   <- NULL
   # Drop parameters that aren't possible for calculating weibulls
-  parameter <- parameter[parameter$removal_rate==1,]
+  parameter <- parameter[parameter$removal_rate==1, ]
   # Then the remaining fields
   parameter$plot_name      <- NULL
   parameter$removal_rate   <- NULL
@@ -60,22 +60,24 @@ MergeRemovalRateInput <- function(parameter, parameter_value, interval, interval
   # De-normalize interval_parameter_value table and use parameter names as field names
   interval_parameter_value <- select(interval_parameter_value, -parameter_id) %>% # drop parameter id
     spread(key=name, value=parameter_value_id) %>% # denormalize
-    select(-id) # drop interval id (used to distinguish intervals in previous call)
+    rename(interval_id = id)
   interval_parameter_value <- interval_parameter_value[,c( # move interval value and causal to the end
     colnames(interval_parameter_value)[!(colnames(interval_parameter_value) %in% c("interval_value", "causal"))],
     c("interval_value", "causal"))]
+  interval_parameter_value <- interval_parameter_value[, c("interval_id", # move id to start
+    colnames(interval_parameter_value)[!(colnames(interval_parameter_value) == "interval_id")])]
   
   return(interval_parameter_value)
 } # end MergeRemovalRateInput
 
-CalculateOneRemovalDistribution <- function(df, distribution_type="weibull"){
+CalculateOneRemovalDistribution <- function(df, distribution_type="weibull", min_interval_time = 1){
   # Returns a distribution fit, or NA if not enough data
   # Args:
   #  df: subset of the de-normalized interval dataframe - only interval_value and causal fields
   #  distribution_type: string - either exponential or weibull
   # Returns:
   #  a distribution fit object
-  
+
   # Make sure distribution type is useful
   if (!distribution_type %in% c("weibull", "exponential", "exp", "expo")) {
     stop("Distribution type must be one of weibull or exponential")
@@ -86,7 +88,7 @@ CalculateOneRemovalDistribution <- function(df, distribution_type="weibull"){
   }
   
   # Drop the non-positive interval times
-  df <- df[df$interval_value > 0, ]
+  df <- df[df$interval_value >= min_interval_time, ]
   # If too little data, then return NA
   if (sum(df$causal == 1) < 3) {
     return(NA)
@@ -206,7 +208,7 @@ tidy.survreg_1 <- function(x, ...){
   return(to_return)
 }
 
-glance.survreg_1 <- function(x, parameter_names, modkm = FALSE, plots = FALSE, plot_dir = "./", ...){
+glance.survreg_1 <- function(x, parameter_names, modkm = FALSE, plots = FALSE, plot_dir = "./", ...) {
   # Calculates the interesting distribution statistics for 
   #  survival regression of function form x ~ 1
   #  i.e. a simple probability distribution
@@ -214,9 +216,9 @@ glance.survreg_1 <- function(x, parameter_names, modkm = FALSE, plots = FALSE, p
   #  Returns one row for each distribution
   # Args:
   #  x: a fitted distribution object of class survreg
+  #  parameter_names: data frame with parameter value id, value string, and parameter name
   # Returns:
   #  data frame with distribution information  
-  
   source_package <- class(x)
   anderson_darling_adjusted <- NA
   if (source_package %in% "survreg") { # if a distribution was fit and it was from survival package
@@ -286,7 +288,7 @@ GetMatchingParameterNames <- function(x, set_map_ref) {
 # this will always break out by all classifiers (must give it classifier table)
 # uses GetWeibullsFromDF and CensUncens functions
 # previously gatherallweibulls
-GatherReliabilityDistributions <- function(interval_table, parameter_table, verbose=FALSE, unbug=FALSE, plots=FALSE, modkm=FALSE, plotdir=getwd()){
+GatherReliabilityDistributions <- function(interval_table, parameter_table, min_interval_time = 1, verbose=FALSE, unbug=FALSE, plots=FALSE, modkm=FALSE, plot_dir=getwd()){
   # Returns a data frame with fitted distribution objects for: 
   #  > all previously-defined interval_parameter_sets
   #  > as well as new interval_parameter_sets that aggregate over paramters, like all object types or locations
@@ -346,7 +348,7 @@ GatherReliabilityDistributions <- function(interval_table, parameter_table, verb
       # Calculate distributions and nest data
       intmd_dists <- CalcDistOneParamCombo(interval_table,
                                   include_param_names, # break-out (specify) these fields
-                                  class_col_dnc)
+                                  class_col_dnc, min_interval_time)
 #       if (sum(class(intmd_dists) %in% "data.frame") == 0) {
 #         # this particular combination of parameters didn't yield any unique groups, so skip it
 #         next
@@ -374,7 +376,7 @@ GatherReliabilityDistributions <- function(interval_table, parameter_table, verb
 } # end GatherReliabilityDistributions
 
 # previously calloneDDPLY
-CalcDistOneParamCombo <- function(interval_table, include_param_names, always_include_names) {
+CalcDistOneParamCombo <- function(interval_table, include_param_names, always_include_names, min_interval_time = 1) {
   # Calculates distributions for one set of parameter types to group by
   #   uses dplyr's group_by to split, apply, and combine
   # Args:
@@ -407,9 +409,9 @@ CalcDistOneParamCombo <- function(interval_table, include_param_names, always_in
   distributions_nested <- group_by_(interval_table, .dots=include_param_names) %>% 
                 nest() %>% # store the data in the data frame as a 1-element list with a dataframe inside
                 mutate(dist_fit_w = purrr::map(data, ~ CalculateOneRemovalDistribution( # map returns a 1-element list of the fit
-                  data.frame("interval_value"=.$interval_value, "causal"=.$causal),"weibull")),
+                  data.frame("interval_value"=.$interval_value, "causal"=.$causal),"weibull", min_interval_time)),
                   dist_fit_e = purrr::map(data, ~ CalculateOneRemovalDistribution( # map returns a 1-element list of the fit
-                    data.frame("interval_value"=.$interval_value, "causal"=.$causal),"exp"))) %>%
+                    data.frame("interval_value"=.$interval_value, "causal"=.$causal),"exp", min_interval_time))) %>%
     add_rownames(var = "interval_parameter_set_id")
   
   distributions_nested$interval_parameter_set_id <- as.integer(distributions_nested$interval_parameter_set_id)
@@ -574,7 +576,7 @@ MakeTitlePretty <- function(plot_title, parameter_separator, max_char) {
   return(plot_title)
 }
 
-CreateWeibullPlot <- function(ranked_points, dist_param_names, params, distribution_type, plotdir = "./") {
+CreateWeibullPlot <- function(ranked_points, dist_param_names, params, distribution_type, plot_dir = "./") {
   # Save a probability plot of the events and their fit
   #   overlayed with a histogram of the censored values
   #   uses weibull-scale log-log axes:
